@@ -1,0 +1,17 @@
+# --- Dependencias (Ignora node_modules en CUALQUIER carpeta) ---
+node_modules/
+dist/
+build/
+
+# --- Archivos de sistema y logs ---
+.DS_Store
+*.log
+
+# --- Variables de entorno (¡Seguridad!) ---
+.env
+.env.local
+.env.*.local
+
+# --- Directorios específicos de IDE ---
+.vscode/
+.idea/

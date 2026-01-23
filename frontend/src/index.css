@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+@theme{
+    --color-principal: #732634;    /* Tinto fuerte */
+    --color-secundario: #8C2641;  /* Tinto mas claro */
+    --color-alerta: #D9B4BE;      /* Rosa mas bajo */
+    --color-claro: #F2CED8;       /* Rosa muy claro */
+    --color-other: #FAACC4;          /* Rosa mas fuerte*/
+    --color-fondo: #eff4f8;
+}
