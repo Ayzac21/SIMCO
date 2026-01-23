@@ -1,10 +1,12 @@
 import { pool } from "../db/connection.js";
 
-// --- OBTENER REQUISICIONES PARA SECRETARÍA (Estatus 9) ---
+// --- OBTENER REQUISICIONES PARA SECRETARÍA (Historial Completo) ---
 export const getRequisicionesSecretaria = async (req, res) => {
     try {
         const { id } = req.params;
 
+        // LA CORRECCIÓN CLAVE ESTÁ AQUÍ ABAJO:
+        // Usamos IN (9, 10, 12) para que NO desaparezcan al cambiar de estatus.
         const query = `
             SELECT 
                 r.id,
@@ -18,8 +20,8 @@ export const getRequisicionesSecretaria = async (req, res) => {
             FROM requisition r  
             JOIN statuses s ON r.statuses_id = s.id
             JOIN users u ON r.users_id = u.id
-            WHERE r.statuses_id = 9
-            ORDER BY r.created_at ASC
+            WHERE r.statuses_id IN (9, 10, 12)
+            ORDER BY r.created_at DESC
         `;
 
         const [rows] = await pool.query(query);
@@ -37,7 +39,6 @@ export const updateEstatusSecretaria = async (req, res) => {
         const { id } = req.params; 
         const { status_id, comentarios } = req.body; 
         
-        // CORRECCIÓN FINAL: 'UPDATE requisition' (Singular)
         const query = `
             UPDATE requisition 
             SET statuses_id = ?, observation = ?

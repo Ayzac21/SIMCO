@@ -1,218 +1,209 @@
 import React, { useEffect, useState } from "react";
-import { FileText, CheckCircle, XCircle, Clock, DollarSign } from "lucide-react";
-import Swal from 'sweetalert2';
-import withReactContent from 'sweetalert2-react-content';
-
-// --- IMPORTANTE: La ruta al Modal del Coordinador ---
-import RequisitionModal from "../../coordinador/requisiciones/RequisitionModal"; 
-
-const MySwal = withReactContent(Swal);
-
-// --- FUNCIÓN PARA LOS BADGES DE COLORES (Igual al Coordinador) ---
-const renderStatusBadge = (statusId, statusName) => {
-    let styles = "bg-gray-100 text-gray-600 border-gray-200";
-    switch (statusId) {
-        case 8: styles = "bg-yellow-50 text-yellow-700 border-yellow-200"; break; // Coordinacion
-        case 9: styles = "bg-blue-50 text-blue-700 border-blue-200"; break; // Secretaria (Nosotros)
-        case 10: styles = "bg-red-50 text-red-700 border-red-200"; break; // Rechazado
-        case 12: styles = "bg-orange-50 text-orange-700 border-orange-200"; break; // Cotizacion
-        case 11: styles = "bg-green-50 text-green-700 border-green-200"; break; // Comprado
-        default: break;
-    }
-    return (
-        <span className={`px-2 py-1 rounded-full text-[10px] md:text-xs font-bold border ${styles} inline-flex items-center gap-1`}>
-            <span className={`w-1.5 h-1.5 rounded-full bg-current opacity-50`}></span>
-            {statusName || "Sin Estatus"}
-        </span>
-    );
-};
+import { Clock, AlertTriangle, CheckCircle, XCircle, BarChart3, Lightbulb } from "lucide-react";
+import { toast } from 'sonner'; 
+import SecModal from "./SecModal"; 
 
 export default function SecDashboard() {
-    const [reqs, setReqs] = useState([]);
+    const [allReqs, setAllReqs] = useState([]); 
     const [loading, setLoading] = useState(true);
     
-    // Estados para el Modal
+    // Estados del Modal
     const [selectedReq, setSelectedReq] = useState(null);
     const [modalItems, setModalItems] = useState([]);
     const [loadingItems, setLoadingItems] = useState(false);
+    
+    // Estado de Confirmación
+    const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, type: null, req: null, motivo: '' });
 
-    // Obtener usuario
     const userId = localStorage.getItem("users_id");
 
-    // --- CARGAR DATOS ---
     const fetchData = async () => {
         if (!userId) return;
         try {
+            // Llama al backend corregido
             const res = await fetch(`http://localhost:4000/api/secretaria/${userId}/recibidas`);
             if (res.ok) {
                 const data = await res.json();
-                setReqs(data);
+                setAllReqs(data);
             }
-        } catch (error) {
-            console.error("Error cargando dashboard:", error);
-        } finally {
-            setLoading(false);
+        } catch (error) { 
+            console.error(error);
+            toast.error("Error al cargar datos");
+        } finally { 
+            setLoading(false); 
         }
     };
 
-    useEffect(() => {
-        fetchData();
-    }, [userId]);
+    useEffect(() => { fetchData(); }, [userId]);
 
-    // --- ABRIR MODAL Y CARGAR ITEMS ---
+    // --- FILTROS PARA LOS CONTADORES ---
+    const pendientes = allReqs.filter(r => r.statuses_id === 9);
+    const procesadas = allReqs.filter(r => r.statuses_id === 12); // Autorizadas
+    const rechazadas = allReqs.filter(r => r.statuses_id === 10); // Rechazadas
+
+    // --- TOP DEPARTAMENTOS ---
+    const getTopDepartments = () => {
+        const counts = {};
+        allReqs.forEach(req => {
+            const dept = req.ure_solicitante || "General";
+            counts[dept] = (counts[dept] || 0) + 1;
+        });
+        return Object.entries(counts).sort(([,a], [,b]) => b - a).slice(0, 3).map(([name, count]) => ({ name, count }));
+    };
+    const topDepts = getTopDepartments();
+    const maxCount = topDepts.length > 0 ? topDepts[0].count : 1;
+
+    // --- FUNCIONES DEL MODAL Y ACCIONES ---
     const handleRowClick = async (req) => {
         setSelectedReq(req);
         setModalItems([]);
         setLoadingItems(true);
         try {
-            // Reutilizamos el endpoint de items (es el mismo para todos)
             const res = await fetch(`http://localhost:4000/api/secretaria/requisiciones/${req.id}/items`);
-            if (res.ok) {
-                const data = await res.json();
-                setModalItems(data);
-            }
-        } catch (error) {
-            console.error(error);
-        } finally {
-            setLoadingItems(false);
-        }
+            if (res.ok) { setModalItems(await res.json()); }
+        } catch (error) { toast.error("Error al cargar items"); } 
+        finally { setLoadingItems(false); }
     };
 
-    // --- AUTORIZAR (Pasa a Estatus 12 - En Cotización) ---
-    const handleApprove = (req) => {
-        MySwal.fire({
-            title: `¿Autorizar Presupuesto?`,
-            text: `Folio #${req.id} pasará al área de Compras/Cotización.`,
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonColor: '#10B981',
-            cancelButtonColor: '#d33',
-            confirmButtonText: 'Sí, Autorizar',
-            cancelButtonText: 'Cancelar'
-        }).then(async (result) => {
-            if (result.isConfirmed) {
-                try {
-                    await fetch(`http://localhost:4000/api/secretaria/requisiciones/${req.id}/estatus`, {
-                        method: "PUT",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ 
-                            status_id: 12, // ID 12 = En Cotización 
-                            comentarios: "Presupuesto autorizado por Secretaría" 
-                        })
-                    });
-                    await MySwal.fire('¡Autorizado!', 'La solicitud ha sido enviada a compras.', 'success');
-                    fetchData(); // Recargar tabla
-                    setSelectedReq(null); // Cerrar modal
-                } catch (error) {
-                    console.error(error);
-                    MySwal.fire('Error', 'No se pudo actualizar la solicitud', 'error');
-                }
-            }
-        });
-    };
+    const initiateAction = (type, req, motivo = '') => setConfirmDialog({ isOpen: true, type, req, motivo });
 
-    // --- RECHAZAR (Pasa a Estatus 10) ---
-    const handleReject = async (req, reason) => {
+    const executeAction = async () => {
+        const { type, req, motivo } = confirmDialog;
+        setConfirmDialog({ ...confirmDialog, isOpen: false });
+        const toastId = toast.loading("Procesando solicitud...");
+
         try {
-            await fetch(`http://localhost:4000/api/secretaria/requisiciones/${req.id}/estatus`, {
+            // 12 = Autorizada, 10 = Rechazada
+            const statusId = type === 'approve' ? 12 : 10;
+            const comentarios = type === 'approve' ? "Autorizado por Secretaría" : motivo;
+
+            const res = await fetch(`http://localhost:4000/api/secretaria/requisiciones/${req.id}/estatus`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ status_id: 10, comentarios: reason })
+                body: JSON.stringify({ status_id: statusId, comentarios })
             });
-            await MySwal.fire('Rechazada', 'La solicitud ha sido rechazada.', 'success');
-            fetchData();
-            setSelectedReq(null);
-        } catch (error) {
-            console.error(error);
+
+            if (res.ok) {
+                toast.success(type === 'approve' ? "¡Autorizado correctamente!" : "Solicitud rechazada", { id: toastId });
+                setSelectedReq(null);
+                fetchData(); // ¡Importante! Recarga para mover la req de "Pendiente" a "Procesada"
+            } else { throw new Error(); }
+        } catch (error) { toast.error("Error al procesar", { id: toastId }); }
+    };
+
+    // --- RENDERIZADO DE ETIQUETAS (Colores iguales a Coordinador) ---
+    const renderStatusBadge = (statusId) => {
+        switch(statusId) {
+            case 9: return <span className="bg-blue-50 text-blue-600 border border-blue-100 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide">● En secretaría</span>;
+            case 12: return <span className="bg-yellow-50 text-yellow-700 border border-yellow-100 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide">● En cotización</span>;
+            case 10: return <span className="bg-red-50 text-red-600 border border-red-100 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide">● Rechazado</span>;
+            default: return <span className="bg-gray-100 text-gray-500 px-3 py-1 rounded-full text-[10px] font-bold uppercase">Desconocido</span>;
         }
     };
 
     return (
         <div className="space-y-6">
-            {/* MODAL */}
-            <RequisitionModal 
-                req={selectedReq} 
-                items={modalItems} 
-                loadingItems={loadingItems} 
-                onClose={() => setSelectedReq(null)} 
-                onApprove={handleApprove} 
-                onReject={handleReject}
-                approveText="Autorizar Presupuesto" 
-            />
+            <SecModal req={selectedReq} items={modalItems} loadingItems={loadingItems} onClose={() => setSelectedReq(null)} onAction={initiateAction} />
 
-            {/* HEADER */}
-            <div className="flex justify-between items-center">
-                <div>
-                    <h2 className="text-2xl font-bold text-gray-800">Panel de Secretaría</h2>
-                    <p className="text-gray-500 text-sm">Validación de presupuesto y control administrativo</p>
-                </div>
-                <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg text-sm font-medium">
-                    📅 {new Date().toLocaleDateString()}
-                </div>
-            </div>
-
-            {/* TARJETAS DE RESUMEN (KPIs) */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
-                    <div>
-                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Por Validar</p>
-                        <p className="text-3xl font-bold text-gray-800">{reqs.length}</p>
+            {/* Confirmación Popup */}
+            {confirmDialog.isOpen && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 animate-in zoom-in-95">
+                        <div className="text-center">
+                            <div className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 ${confirmDialog.type === 'approve' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                                {confirmDialog.type === 'approve' ? <CheckCircle size={24}/> : <AlertTriangle size={24}/>}
+                            </div>
+                            <h3 className="font-bold text-gray-800 text-lg mb-2">{confirmDialog.type === 'approve' ? '¿Autorizar Presupuesto?' : '¿Rechazar Solicitud?'}</h3>
+                            <p className="text-sm text-gray-500 mb-6">{confirmDialog.type === 'approve' ? "Pasará a compras para cotización." : "Esta acción es definitiva."}</p>
+                            <div className="flex gap-3">
+                                <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="flex-1 py-2 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50">Cancelar</button>
+                                <button onClick={executeAction} className={`flex-1 py-2 rounded-lg text-white font-bold shadow-md ${confirmDialog.type === 'approve' ? 'bg-[#8B1D35] hover:bg-[#701529]' : 'bg-red-600 hover:bg-red-700'}`}>Confirmar</button>
+                            </div>
+                        </div>
                     </div>
-                    <div className="p-3 bg-blue-50 rounded-full"><Clock className="w-6 h-6 text-blue-600" /></div>
                 </div>
-                
-                <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 border-dashed flex items-center justify-center text-gray-400 text-sm">
-                   Métricas de presupuesto (Próximamente)
+            )}
+
+            {/* Tarjetas de Métricas */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
+                    <div><p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Por Validar</p><p className="text-3xl font-bold text-gray-800 mt-1">{pendientes.length}</p></div>
+                    <div className="w-10 h-10 rounded-full bg-yellow-50 flex items-center justify-center text-yellow-600 border border-yellow-100"><Clock size={20}/></div>
+                </div>
+                <div className="bg-white p-5 rounded-xl shadow-sm border border-red-50 flex justify-between items-center">
+                    <div><p className="text-[10px] font-bold text-red-400 uppercase tracking-wider">Urgentes</p><p className="text-3xl font-bold text-red-600 mt-1">0</p><p className="text-[9px] text-red-400 mt-1">Atención inmediata</p></div>
+                    <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-red-500 border border-red-100"><AlertTriangle size={20}/></div>
+                </div>
+                {/* PROCESADAS: Aquí se sumarán las que aceptes (Status 12) */}
+                <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
+                    <div><p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Procesadas</p><p className="text-3xl font-bold text-gray-800 mt-1">{procesadas.length}</p></div>
+                    <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-500 border border-blue-100"><CheckCircle size={20}/></div>
+                </div>
+                <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
+                    <div><p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Rechazadas</p><p className="text-3xl font-bold text-gray-800 mt-1">{rechazadas.length}</p></div>
+                    <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 border border-gray-200"><XCircle size={20}/></div>
                 </div>
             </div>
 
-            {/* TABLA DE SOLICITUDES ENTRANTES */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                <div className="p-5 border-b border-gray-100 bg-gray-50/50">
-                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                        <DollarSign size={18} className="text-gray-400"/> Solicitudes por Autorizar
-                    </h3>
-                </div>
-                
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="bg-gray-50 text-gray-500 text-xs uppercase font-semibold">
-                            <tr>
-                                <th className="px-5 py-3">Folio</th>
-                                <th className="px-5 py-3">Descripción</th>
-                                <th className="px-5 py-3">Solicitante</th>
-                                <th className="px-5 py-3">Fecha</th>
-                                <th className="px-5 py-3 text-right">Estatus</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                            {loading ? (
-                                <tr><td colSpan="5" className="p-10 text-center text-gray-400">Cargando...</td></tr>
-                            ) : reqs.length === 0 ? (
-                                <tr><td colSpan="5" className="p-10 text-center text-gray-400">No hay solicitudes pendientes de validación.</td></tr>
-                            ) : (
-                                reqs.map((req) => (
-                                    <tr key={req.id} onClick={() => handleRowClick(req)} className="hover:bg-blue-50/50 cursor-pointer transition-colors group">
-                                        <td className="px-5 py-4 font-bold text-gray-700">#{req.id}</td>
-                                        <td className="px-5 py-4">
-                                            <div className="text-sm font-medium text-gray-800">{req.request_name}</div>
-                                            <div className="text-xs text-gray-400 truncate max-w-[200px]">{req.observaciones || "Sin observaciones previas"}</div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* TABLA PRINCIPAL */}
+                <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-full min-h-[400px]">
+                    <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                        <h3 className="font-bold text-gray-800 flex items-center gap-2">📄 Actividad Reciente</h3>
+                    </div>
+                    <div className="overflow-x-auto flex-1">
+                        <table className="w-full text-left">
+                            <tbody className="divide-y divide-gray-50">
+                                {allReqs.length === 0 ? (
+                                    <tr><td className="p-8 text-center text-gray-400 text-sm">No hay actividad reciente</td></tr>
+                                ) : allReqs.map((req) => (
+                                    <tr key={req.id} onClick={() => handleRowClick(req)} className="hover:bg-gray-50 cursor-pointer group transition-colors">
+                                        <td className="px-6 py-4 w-16">
+                                            <span className="font-bold text-gray-700 group-hover:text-[#8B1D35] transition">#{req.id}</span>
                                         </td>
-                                        <td className="px-5 py-4">
-                                            <div className="text-sm text-gray-700">{req.solicitante}</div>
-                                            <div className="text-xs text-gray-400">{req.ure_solicitante}</div>
+                                        <td className="px-6 py-4">
+                                            <div className="text-sm font-bold text-gray-800">{req.request_name}</div>
+                                            <div className="text-xs text-gray-400 uppercase mt-0.5">{req.solicitante}</div>
                                         </td>
-                                        <td className="px-5 py-4 text-sm text-gray-500">
-                                            {new Date(req.created_at).toLocaleDateString()}
-                                        </td>
-                                        <td className="px-5 py-4 text-right">
-                                            {renderStatusBadge(req.statuses_id, req.nombre_estatus)}
+                                        <td className="px-6 py-4 text-right">
+                                            {renderStatusBadge(req.statuses_id)}
                                         </td>
                                     </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {/* SIDEBAR DERECHO */}
+                <div className="space-y-6">
+                    <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
+                        <div className="flex items-center gap-2 mb-4">
+                            <BarChart3 size={18} className="text-gray-400" />
+                            <h3 className="font-bold text-gray-800 text-sm">Top Departamentos</h3>
+                        </div>
+                        <div className="space-y-4">
+                            {topDepts.length === 0 ? <p className="text-xs text-gray-400 italic">Sin datos</p> : 
+                            topDepts.map((dept, idx) => (
+                                <div key={idx}>
+                                    <div className="flex justify-between text-xs font-semibold mb-1">
+                                        <span className="text-gray-700 truncate w-3/4">{dept.name}</span>
+                                        <span className="text-gray-900">{dept.count} reqs</span>
+                                    </div>
+                                    <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                                        <div className="bg-[#8B1D35] h-1.5 rounded-full" style={{ width: `${(dept.count / maxCount) * 100}%` }}></div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="bg-blue-50 p-5 rounded-xl border border-blue-100 flex items-start gap-3">
+                        <Lightbulb size={20} className="text-blue-500 mt-0.5 flex-shrink-0" />
+                        <div>
+                            <p className="text-xs text-blue-800 font-bold mb-1">Tip Administrativo:</p>
+                            <p className="text-xs text-blue-700/80 leading-relaxed">Verifica el presupuesto mensual.</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
