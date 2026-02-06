@@ -24,28 +24,41 @@ export default function Login() {
             const data = await response.json();
 
             if (data.ok) {
-                // Guardar datos de sesión
+                // --- DEBUG: MIRA ESTO EN LA CONSOLA (F12) ---
+                console.log("Usuario logueado:", data.user);
+                console.log("URE recibida:", data.user.ure);
+
                 localStorage.setItem("usuario", JSON.stringify(data.user));
                 localStorage.setItem("users_id", data.user.id);
                 
-                // --- LÓGICA AUTOMÁTICA POR NIVELES ---
-                const ure = data.user.ure || ""; 
-                const niveles = ure.split('.').length; // Cuenta cuántos segmentos tiene (Ej: 3.1.2 = 3)
+                // Normalizamos la URE para evitar errores de mayúsculas/espacios
+                const rawUre = data.user.ure || "";
+                const ureLimpia = rawUre.toString().toUpperCase().trim();
+                const userName = (data.user.user_name || "").toLowerCase();
 
-                // 1. Secretario (Ej: 3.1.2 o 3.1.1) -> Tiene 3 niveles
+                // 1. VALIDACIÓN COMPRAS (Doble verificación: por URE o por Usuario)
+                if (ureLimpia === "COMPRAS" || userName === "jefe.compras" || userName === "compras") {
+                    console.log("Redirigiendo a Compras...");
+                    navigate("/compras/dashboard");
+                    return;
+                }
+
+                // 2. VALIDACIÓN ACADÉMICA (Contar puntos)
+                // Si la URE no tiene puntos (ej: "0"), split devolverá 1 elemento
+                const niveles = rawUre.includes('.') ? rawUre.split('.').length : 0;
+
                 if (niveles === 3) {
                     navigate("/secretaria/dashboard");
                 } 
-                // 2. Coordinador (Ej: 3.1.2.7) -> Tiene 4 niveles
                 else if (niveles === 4) {
                     navigate("/coordinador/dashboard");
                 } 
-                // 3. Unidades / Asistentes (Ej: 3.1.2.7.2) -> Tiene 5 niveles o más
                 else if (niveles >= 5) {
                     navigate("/unidad/dashboard");
                 } 
-                // Fallback por seguridad
                 else {
+                    // Si cae aquí es porque no cumplió ninguna condición anterior
+                    console.log("No se reconoció perfil, enviando a default.");
                     navigate("/dashboard");
                 }
 
@@ -69,12 +82,12 @@ export default function Login() {
 
                 <form className="space-y-6" onSubmit={handleSubmit}>
                     <div>
-                        <label className="block text-left text-gray-700 mb-2">
-                            Código de empleado
+                        <label className="block text-left text-gray-700 mb-2 font-medium">
+                            Usuario / Código
                         </label>
                         <input
                             type="text"
-                            placeholder="Ejemplo: 123456"
+                            placeholder="Ej: jefe.compras"
                             value={user_name}
                             onChange={(e) => setUserName(e.target.value)}
                             className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-principal"
@@ -83,7 +96,7 @@ export default function Login() {
                     </div>
 
                     <div>
-                        <label className="block text-left text-gray-700 mb-2">
+                        <label className="block text-left text-gray-700 mb-2 font-medium">
                             Contraseña
                         </label>
                         <input
@@ -110,15 +123,8 @@ export default function Login() {
                 </form>
 
                 {mensaje && (
-                    <p className="mt-4 text-center font-medium text-gray-700">{mensaje}</p>
+                    <p className="mt-4 text-center font-medium text-red-600 bg-red-50 p-2 rounded">{mensaje}</p>
                 )}
-
-                <p className="text-center text-gray-600 mt-6 text-sm">
-                    ¿No tienes cuenta?{" "}
-                    <Link to="/" className="text-principal font-semibold hover:underline">
-                        Regresar al inicio
-                    </Link>
-                </p>
             </div>
         </div>
     );

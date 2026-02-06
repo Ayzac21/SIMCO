@@ -1,16 +1,38 @@
-import React from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutGrid, LogOut } from "lucide-react";
+import React, { useState } from "react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Menu, X, LayoutGrid, LogOut, FileText } from "lucide-react";
 import { Toaster } from 'sonner';
 
 export default function SecretariaLayout() {
+    const [open, setOpen] = useState(false);
+    const { pathname } = useLocation();
     const navigate = useNavigate();
-    
-    // Recuperar usuario o poner default
+
+    // --- 1. OBTENER USUARIO LOGUEADO ---
     const userStr = localStorage.getItem("usuario");
-    const user = userStr ? JSON.parse(userStr) : { name: "Secretaría", user_name: "SEC" };
-    const userName = user.name || user.user_name;
-    const initial = userName.charAt(0).toUpperCase();
+    const user = userStr ? JSON.parse(userStr) : null;
+    const userName = user ? (user.name || user.user_name) : "Secretaría";
+    const userInitial = userName.charAt(0).toUpperCase();
+
+    /* ===== CONFIG HEADER SEGÚN RUTA ===== */
+    const headers = {
+        "/secretaria": {
+            title: "Panel Administrativo",
+            subtitle: "Gestión financiera"
+        },
+        "/secretaria/dashboard": {
+            title: "Requisiciones por Autorizar",
+            subtitle: "Validación de presupuesto y suficiencia",
+        },
+        "/secretaria/recibidas": {
+            title: "Historial de Solicitudes",
+            subtitle: "Consulta de requisiciones pasadas",
+        }
+    };
+
+    // Buscamos la cabecera correspondiente
+    const currentPath = Object.keys(headers).find(path => pathname.startsWith(path) && path !== "/secretaria") || "/secretaria/dashboard";
+    const headerInfo = headers[pathname] || headers[currentPath] || { title: "Panel Secretaría", subtitle: "Sistema SIMCO" };
 
     const handleLogout = () => {
         localStorage.clear();
@@ -18,60 +40,108 @@ export default function SecretariaLayout() {
     };
 
     return (
-        <div className="flex h-screen w-full bg-[#F3F4F6] font-sans overflow-hidden">
+        <div className="flex h-screen w-full overflow-hidden bg-gray-100 font-sans">
             <Toaster position="top-right" richColors />
 
-            {/* SIDEBAR - Color exacto del Coordinador */}
-            <aside className="w-64 bg-[#8B1D35] text-white flex flex-col shadow-xl z-20">
-                <div className="h-16 flex items-center px-6 font-bold text-xl tracking-wide border-b border-white/10">
-                    Secretaría
+            {/* ================= SIDEBAR ================= */}
+            <aside
+                className={`
+                    bg-secundario text-white w-64 flex flex-col
+                    fixed md:static inset-y-0 z-40
+                    transform transition-transform duration-300 shadow-xl
+                    ${open ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+                `}
+            >
+                {/* Logo / Título Sidebar */}
+                <div className="h-16 flex items-center justify-center border-b border-white/20">
+                    <span className="text-xl font-bold tracking-wide">Secretaría</span>
                 </div>
 
-                <nav className="flex-1 py-6 px-3 space-y-2">
-                    <NavLink 
-                        to="/secretaria/dashboard" 
-                        className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${isActive ? "bg-white text-[#8B1D35] shadow-md font-bold" : "text-white/80 hover:bg-white/10 hover:text-white"}`}
+                <nav className="flex-1 p-4 space-y-2">
+                    {/* DASHBOARD */}
+                    <NavLink
+                        to="/secretaria/dashboard"
+                        className={({ isActive }) =>
+                            `flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all
+                            ${isActive
+                                ? "bg-white text-secundario font-bold shadow-md"
+                                : "text-white/80 hover:bg-white/20 hover:text-white"}`
+                        }
                     >
                         <LayoutGrid size={20} />
                         Dashboard
                     </NavLink>
+
+                    {/* HISTORIAL */}
+                    <NavLink
+                        to="/secretaria/recibidas"
+                        className={({ isActive }) =>
+                            `flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all
+                            ${isActive
+                                ? "bg-white text-secundario font-bold shadow-md"
+                                : "text-white/80 hover:bg-white/20 hover:text-white"}`
+                        }
+                    >
+                        <FileText size={20} />
+                        Historial
+                    </NavLink>
                 </nav>
 
-                <div className="p-4 border-t border-white/10">
-                    <button 
-                        onClick={handleLogout} 
-                        className="w-full flex items-center justify-center gap-2 py-2.5 bg-[#701529] hover:bg-[#5a1020] rounded-lg text-sm font-bold transition-colors shadow-sm"
+                <div className="p-4 border-t border-white/20">
+                    <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center justify-center gap-2 bg-red-800 py-2.5 rounded-lg font-semibold hover:bg-red-700 transition shadow-lg text-sm"
                     >
                         <LogOut size={18} /> Cerrar Sesión
                     </button>
                 </div>
             </aside>
 
-            {/* CONTENIDO PRINCIPAL */}
-            <main className="flex-1 flex flex-col relative overflow-hidden">
-                {/* Header */}
-                <header className="h-16 bg-white border-b border-gray-200 flex justify-between items-center px-8 shadow-sm z-10">
-                    <div>
-                        <h1 className="text-lg font-bold text-gray-800">Panel Administrativo</h1>
-                        <p className="text-xs text-gray-500">Gestión y validación de presupuesto</p>
+            {/* BOTÓN MOBILE (HAMBURGUESA) */}
+            <button
+                className="md:hidden fixed top-4 left-4 z-50 bg-secundario text-white p-2 rounded-lg shadow-md"
+                onClick={() => setOpen(!open)}
+            >
+                {open ? <X size={22} /> : <Menu size={22} />}
+            </button>
+
+            {/* ================= CONTENIDO PRINCIPAL ================= */}
+            <main className="flex-1 flex flex-col overflow-hidden relative">
+
+                {/* --- HEADER INTEGRADO --- */}
+                <header className="bg-white border-b border-gray-200 py-4 px-6 md:px-8 shadow-sm flex justify-between items-center sticky top-0 z-30 h-16">
+                    
+                    {/* IZQUIERDA: TÍTULO Y SUBTÍTULO */}
+                    <div className="ml-10 md:ml-0"> 
+                        <h1 className="text-lg md:text-xl font-bold text-gray-800">
+                            {headerInfo.title}
+                        </h1>
+                        <p className="text-xs md:text-sm text-gray-500">
+                            {headerInfo.subtitle}
+                        </p>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <div className="text-right">
-                            <p className="text-xs font-bold text-gray-800 uppercase">{userName}</p>
-                            <p className="text-[10px] text-gray-500">Secretaría</p>
+
+                    {/* DERECHA: INFORMACIÓN DEL USUARIO */}
+                    <div className="flex items-center gap-3">
+                        <div className="text-right hidden md:block">
+                            <p className="text-sm font-bold text-gray-800 uppercase">{userName}</p>
+                            <p className="text-[10px] text-gray-500">Administración</p>
                         </div>
-                        <div className="h-9 w-9 rounded-full bg-[#8B1D35] text-white flex items-center justify-center font-bold text-sm shadow-sm border border-gray-100">
-                            {initial}
+                        
+                        {/* Círculo con Inicial (Usa bg-secundario) */}
+                        <div className="h-9 w-9 rounded-full bg-secundario text-white flex items-center justify-center font-bold shadow-sm border border-gray-100 text-sm">
+                            {userInitial}
                         </div>
                     </div>
                 </header>
 
-                {/* Área de trabajo */}
-                <div className="flex-1 overflow-y-auto p-6 md:p-8">
-                    <div className="max-w-7xl mx-auto">
+                {/* --- ÁREA DE CONTENIDO (OUTLET) --- */}
+                <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-[#F3F4F6]">
+                    <div className="max-w-7xl mx-auto animate-in fade-in duration-500">
                         <Outlet />
                     </div>
                 </div>
+
             </main>
         </div>
     );

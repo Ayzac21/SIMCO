@@ -1,214 +1,203 @@
-import React, { useState } from "react";
-import { 
-    X, User, FileText, Package, CheckCircle, XCircle, 
-    AlertCircle, Calendar, Building, MessageSquare,
-    Clock, Truck
-} from "lucide-react";
-import { toast } from "sonner";
+import React from "react";
+import { X, User, FileText, CheckCircle, XCircle, Briefcase, Building2 } from "lucide-react";
 
 export default function SecModal({ req, items, loadingItems, onClose, onAction }) {
-    const [isRejecting, setIsRejecting] = useState(false);
-    const [rejectionReason, setRejectionReason] = useState("");
-
     if (!req) return null;
 
-    // --- 1. FUNCIÓN PARA FORMATEAR LA FECHA ---
-    const formatDate = (dateString) => {
-        if (!dateString) return "Sin fecha";
-        const date = new Date(dateString);
-        return new Intl.DateTimeFormat('es-MX', { 
-            day: '2-digit', month: 'long', year: 'numeric',
-            hour: '2-digit', minute: '2-digit'
-        }).format(date);
-    };
-
-    // --- 2. LOGICA VISUAL DE ESTATUS ---
-    const getStatusInfo = (statusId) => {
-        switch(statusId) {
-            case 9: return { label: "PENDIENTE DE VALIDACIÓN", color: "bg-blue-100 text-blue-700 border-blue-200", icon: <Clock size={16}/> };
-            case 10: return { label: "RECHAZADA", color: "bg-red-100 text-red-700 border-red-200", icon: <XCircle size={16}/> };
-            case 12: return { label: "EN PROCESO DE COMPRA", color: "bg-yellow-100 text-yellow-800 border-yellow-200", icon: <Truck size={16}/> };
-            default: return { label: "DESCONOCIDO", color: "bg-gray-100 text-gray-600", icon: <AlertCircle size={16}/> };
-        }
-    };
+    const jefatura = req.nombre_unidad;
+    const coordinacion = req.coordinacion;
+    const codigoUre = req.ure_solicitante;
     
-    const statusInfo = getStatusInfo(req.statuses_id);
-
-    // --- HANDLERS ---
-    const handleSubmitRejection = () => {
-        if (!rejectionReason.trim() || rejectionReason.length < 5) {
-            toast.error("Por favor escribe un motivo detallado.");
-            return;
-        }
-        onAction('reject', req, rejectionReason);
-    };
-
-    const handleCancelRejection = () => {
-        setIsRejecting(false);
-        setRejectionReason("");
-    };
+    // Si estatus es 10 (Rechazado), 'observaciones' es el motivo del rechazo.
+    const esRechazo = req.statuses_id === 10;
+    const tituloObservacion = esRechazo ? "Motivo de Rechazo" : "Justificación";
+    const colorObservacion = esRechazo ? "text-red-600 bg-red-50 border-red-100" : "text-blue-600 bg-blue-50 border-blue-100";
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200">
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}></div>
-            
-            <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 transition-all font-sans">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                 
-                {/* --- HEADER --- */}
-                <div className="px-8 py-6 border-b border-gray-100 bg-white flex justify-between items-start">
+                {/* ENCABEZADO */}
+                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                     <div>
-                        <div className="flex items-center gap-3 mb-2">
-                            <span className="text-2xl font-bold text-gray-800">Requisición #{req.id}</span>
-                            <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border uppercase tracking-wide ${statusInfo.color}`}>
-                                {statusInfo.icon}
-                                {statusInfo.label}
+                        <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                            Requisición #{req.id}
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${
+                                req.statuses_id === 9 ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                                req.statuses_id === 12 ? 'bg-yellow-50 text-yellow-600 border-yellow-100' :
+                                'bg-red-50 text-red-600 border-red-100'
+                            }`}>
+                                {req.nombre_estatus}
+                            </span>
+                        </h2>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                            📅 {new Date(req.created_at).toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute:'2-digit' })}
+                        </p>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors text-gray-500">
+                        <X size={20} />
+                    </button>
+                </div>
+
+                {/* CONTENIDO SCROLLEABLE */}
+                <div className="p-6 overflow-y-auto custom-scrollbar space-y-6">
+                    
+                    {/* BARRA DE PROGRESO */}
+                    <div className="flex justify-between items-center px-4 md:px-10 mb-6 relative">
+                        {/* Línea de fondo */}
+                        <div className="absolute top-1/2 left-0 w-full h-0.5 bg-gray-100 -z-10 transform -translate-y-1/2"></div>
+                        
+                        {/* 1. SOLICITADO */}
+                        <div className="flex flex-col items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-[#8B1D35] text-white flex items-center justify-center shadow-lg shadow-red-900/20">
+                                <CheckCircle size={14} />
+                            </div>
+                            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wider">Solicitado</span>
+                        </div>
+
+                        {/* 2. SECRETARÍA (Aquí está el cambio de la "X") */}
+                        <div className="flex flex-col items-center gap-2">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-colors ${
+                                req.statuses_id === 10 ? 'bg-red-600 text-white border-red-600' : // ROJO SI RECHAZADO
+                                req.statuses_id >= 9 ? 'bg-[#8B1D35] text-white border-[#8B1D35]' : 
+                                'bg-white border-gray-300 text-gray-300'
+                            }`}>
+                                {/* ICONO: Si es rechazado (10) mostramos X, si no User */}
+                                {req.statuses_id === 10 ? <X size={16} /> : <User size={14} />}
+                            </div>
+                            <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                                req.statuses_id === 10 ? 'text-red-600' : 
+                                req.statuses_id >= 9 ? 'text-[#8B1D35]' : 'text-gray-300'
+                            }`}>
+                                {req.statuses_id === 10 ? 'Rechazada' : 'Secretaría'}
                             </span>
                         </div>
-                        <div className="flex items-center gap-4 text-xs text-gray-500 font-medium uppercase tracking-wide">
-                            <span className="flex items-center gap-1"><Calendar size={14}/> {formatDate(req.created_at || req.fecha_creacion)}</span>
+
+                        {/* 3. COMPRAS */}
+                        <div className="flex flex-col items-center gap-2">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${
+                                req.statuses_id === 12 ? 'bg-[#8B1D35] text-white border-[#8B1D35]' : 'bg-white border-gray-300 text-gray-300'
+                            }`}>
+                                <Briefcase size={14} />
+                            </div>
+                            <span className={`text-[10px] font-bold uppercase tracking-wider ${req.statuses_id === 12 ? 'text-[#8B1D35]' : 'text-gray-300'}`}>Compras</span>
+                        </div>
+
+                        {/* 4. FINALIZADO */}
+                        <div className="flex flex-col items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-white border-2 border-gray-300 text-gray-300 flex items-center justify-center">
+                                <CheckCircle size={14} />
+                            </div>
+                            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Finalizado</span>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition"><X size={24}/></button>
-                </div>
 
-                {/* --- PROGRESO VISUAL --- */}
-                {!isRejecting && (
-                    <div className="px-8 py-4 bg-gray-50/50 border-b border-gray-100">
-                        <div className="flex items-center justify-between max-w-2xl mx-auto relative">
-                            <div className="absolute top-1/2 left-0 w-full h-1 bg-gray-200 -z-0 rounded-full"></div>
-                            {[
-                                { id: 1, label: "Solicitado", active: true },
-                                { id: 2, label: "Secretaría", active: true },
-                                { id: 3, label: "Compras/Cotiz.", active: req.statuses_id === 12 },
-                                { id: 4, label: "Finalizado", active: false } 
-                            ].map((step, idx) => (
-                                <div key={idx} className="relative z-10 flex flex-col items-center bg-white px-2">
-                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-colors ${
-                                        step.active 
-                                        ? "bg-[#8B1D35] border-[#8B1D35] text-white" 
-                                        : "bg-white border-gray-300 text-gray-300"
-                                    }`}>
-                                        {step.active ? <CheckCircle size={14}/> : <span className="text-xs font-bold">{step.id}</span>}
-                                    </div>
-                                    <span className={`text-[10px] font-bold mt-1 uppercase ${step.active ? "text-[#8B1D35]" : "text-gray-400"}`}>{step.label}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* --- BODY --- */}
-                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-white">
-                    
-                    {/* ZONA DE RECHAZO */}
-                    {isRejecting && (
-                        <div className="mb-8 bg-red-50 p-6 rounded-xl border border-red-100 animate-in slide-in-from-top-4 shadow-sm">
-                            <h4 className="flex items-center gap-2 text-red-800 font-bold mb-3">
-                                <AlertCircle size={20}/> Motivo del Rechazo
-                            </h4>
-                            <textarea
-                                autoFocus
-                                value={rejectionReason}
-                                onChange={(e) => setRejectionReason(e.target.value)}
-                                placeholder="Describe por qué no procede esta solicitud..."
-                                className="w-full p-4 rounded-lg border-red-200 focus:border-red-500 focus:ring-red-500 min-h-[120px] text-sm text-gray-700 bg-white shadow-inner"
-                            />
-                        </div>
-                    )}
-
-                    {/* CONTENIDO PRINCIPAL */}
-                    <div className={`transition-all duration-300 space-y-6 ${isRejecting ? 'opacity-40 pointer-events-none grayscale-[0.5]' : 'opacity-100'}`}>
+                    {/* TARJETAS DE INFORMACIÓN */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         
-                        <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-                            <div className="md:col-span-4 space-y-4">
-                                <div className="p-4 rounded-xl border border-gray-100 bg-gray-50/50">
-                                    <p className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-2 mb-1"><User size={12}/> Solicitante</p>
-                                    <p className="text-sm font-bold text-gray-800">{req.solicitante}</p>
-                                    <p className="text-xs text-gray-500">{req.ure_solicitante}</p>
-                                </div>
-                                <div className="p-4 rounded-xl border border-gray-100 bg-gray-50/50">
-                                    <p className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-2 mb-1"><Building size={12}/> Proyecto / Asunto</p>
-                                    <p className="text-sm font-bold text-gray-800">{req.request_name}</p>
-                                </div>
+                        {/* 1. TARJETA SOLICITANTE */}
+                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 h-full">
+                            <div className="flex items-center gap-2 mb-2 text-gray-400 text-[10px] font-bold uppercase tracking-wider">
+                                <User size={12} /> Solicitante
                             </div>
+                            <div className="font-bold text-gray-800 text-base">{req.solicitante}</div>
+                            <div className="text-xs text-gray-500 font-mono mb-3">{codigoUre}</div>
 
-                            <div className="md:col-span-8">
-                                <div className="h-full p-5 rounded-xl border border-blue-100 bg-blue-50/30">
-                                    <p className="text-[10px] font-bold text-blue-400 uppercase flex items-center gap-2 mb-2"><MessageSquare size={12}/> Observaciones / Justificación</p>
-                                    <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">
-                                        {req.observaciones ? req.observaciones : <span className="text-gray-400 italic">Sin observaciones adicionales registradas.</span>}
-                                    </p>
-                                </div>
+                            <div className="pt-3 border-t border-gray-200 flex flex-col items-start gap-1.5">
+                                <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold bg-white border border-gray-200 text-[#8B1D35] shadow-sm">
+                                    <Building2 size={10} /> 
+                                    {jefatura || codigoUre}
+                                </span>
+                                {coordinacion && coordinacion !== 'General' && (
+                                    <span className="text-[10px] text-gray-500 font-medium flex items-center gap-1 ml-1">
+                                        ↳ {coordinacion}
+                                    </span>
+                                )}
                             </div>
                         </div>
 
-                        {/* TABLA DE ARTÍCULOS */}
-                        <div>
-                            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-gray-100">
-                                <Package size={18} className="text-[#8B1D35]"/>
-                                <h4 className="font-bold text-gray-700 text-sm">Detalle de Artículos</h4>
-                            </div>
+                        {/* 2. TARJETA PROYECTO */}
+                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 h-full flex flex-col gap-4">
                             
-                            <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                                <table className="w-full text-left text-sm">
-                                    <thead className="bg-gray-50 text-gray-500 text-xs font-bold uppercase border-b border-gray-200">
-                                        <tr>
-                                            <th className="px-6 py-3 text-center w-24">Cantidad</th>
-                                            <th className="px-6 py-3">Descripción del Bien / Servicio</th>
-                                            <th className="px-6 py-3 text-center w-32">Unidad</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100 bg-white">
-                                        {loadingItems ? (
-                                            <tr><td colSpan="3" className="p-8 text-center text-gray-400">Cargando detalles...</td></tr>
-                                        ) : items.map((item, i) => (
-                                            <tr key={i} className="hover:bg-gray-50 transition-colors">
-                                                <td className="px-6 py-4 text-center">
-                                                    <span className="inline-block px-3 py-1 bg-gray-100 text-gray-700 font-bold rounded-md text-xs">
-                                                        {item.quantity}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-gray-700 font-medium">{item.description}</td>
-                                                
-                                                {/* --- AQUÍ ESTÁ EL CAMBIO --- */}
-                                                <td className="px-6 py-4 text-center text-gray-400 text-xs uppercase">
-                                                    {item.nombre_unidad || item.unit || "N/A"}
-                                                </td>
-                                                {/* --------------------------- */}
-                                                
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                            <div>
+                                <div className="flex items-center gap-2 mb-1 text-gray-400 text-[10px] font-bold uppercase tracking-wider">
+                                    <FileText size={12} /> Proyecto
+                                </div>
+                                <div className="font-bold text-gray-800 text-base">{req.request_name}</div>
+                            </div>
+
+                            <div className="w-full h-px bg-gray-200"></div>
+
+                            <div>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase border ${colorObservacion}`}>
+                                    {tituloObservacion}
+                                </span>
+                                <p className={`text-xs mt-2 italic leading-relaxed ${esRechazo ? "text-red-700 font-medium" : "text-gray-600"}`}>
+                                    "{req.observaciones || 'Sin información'}"
+                                </p>
                             </div>
                         </div>
                     </div>
+
+                    {/* TABLA DE ARTÍCULOS */}
+                    <div>
+                        <h3 className="font-bold text-gray-800 mb-2 flex items-center gap-2 text-sm">
+                            <Briefcase size={16} className="text-[#8B1D35]"/> Artículos Solicitados
+                        </h3>
+                        <div className="border border-gray-200 rounded-lg overflow-hidden">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-200 text-xs">
+                                    <tr>
+                                        <th className="px-4 py-2 w-16 text-center">Cant.</th>
+                                        <th className="px-4 py-2">Descripción</th>
+                                        <th className="px-4 py-2 w-24 text-right">Unidad</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100 text-xs">
+                                    {loadingItems ? (
+                                        <tr><td colSpan="3" className="p-4 text-center text-gray-400">Cargando items...</td></tr>
+                                    ) : items.length === 0 ? (
+                                        <tr><td colSpan="3" className="p-4 text-center text-gray-400">Sin artículos</td></tr>
+                                    ) : (
+                                        items.map((item) => (
+                                            <tr key={item.id} className="hover:bg-gray-50/50">
+                                                <td className="px-4 py-3 text-center font-bold text-gray-700">{item.quantity}</td>
+                                                <td className="px-4 py-3 text-gray-600">{item.description}</td>
+                                                <td className="px-4 py-3 text-right text-gray-400 uppercase">{item.unidad || 'PZA'}</td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
                 </div>
 
-                {/* --- FOOTER ACTIONS --- */}
-                {req.statuses_id === 9 && (
-                    <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 z-20">
-                        {isRejecting ? (
-                            <>
-                                <button onClick={handleCancelRejection} className="px-6 py-2.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-white font-bold text-sm transition">
-                                    Cancelar
-                                </button>
-                                <button onClick={handleSubmitRejection} className="px-6 py-2.5 rounded-lg bg-red-600 text-white hover:bg-red-700 font-bold shadow-lg shadow-red-200 text-sm transition flex items-center gap-2">
-                                    <XCircle size={18}/> Confirmar Rechazo
-                                </button>
-                            </>
-                        ) : (
-                            <>
-                                <button onClick={() => setIsRejecting(true)} className="px-6 py-2.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 font-bold text-sm transition flex items-center gap-2">
-                                    <XCircle size={18}/> Rechazar
-                                </button>
-                                <button onClick={() => onAction('approve', req)} className="px-8 py-2.5 rounded-lg bg-[#8B1D35] text-white hover:bg-[#701529] font-bold shadow-lg shadow-red-900/20 text-sm transition flex items-center gap-2">
-                                    <CheckCircle size={18}/> Autorizar Presupuesto
-                                </button>
-                            </>
-                        )}
-                    </div>
-                )}
+                {/* FOOTER DE ACCIONES */}
+                <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+                    {req.statuses_id === 9 && (
+                        <>
+                            <button 
+                                onClick={() => onAction('reject', req)}
+                                className="px-4 py-2 rounded-lg border border-red-200 text-red-600 font-bold text-xs hover:bg-red-50 transition-all flex items-center gap-2 shadow-sm"
+                            >
+                                <XCircle size={14}/> RECHAZAR
+                            </button>
+                            <button 
+                                onClick={() => onAction('approve', req)}
+                                className="px-4 py-2 rounded-lg bg-[#8B1D35] text-white font-bold text-xs hover:bg-[#72182b] transition-all flex items-center gap-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+                            >
+                                <CheckCircle size={14}/> AUTORIZAR
+                            </button>
+                        </>
+                    )}
+                    {req.statuses_id !== 9 && (
+                        <span className="text-gray-400 text-xs font-medium italic py-2">
+                            Esta requisición ya fue procesada
+                        </span>
+                    )}
+                </div>
             </div>
         </div>
     );

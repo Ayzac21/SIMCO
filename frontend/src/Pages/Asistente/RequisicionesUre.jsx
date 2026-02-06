@@ -46,8 +46,9 @@ export default function RequisicionesUre() {
             try {
                 const [catRes, unitRes] = await Promise.all([
                     fetch("http://localhost:4000/api/categories"),
-                    fetch("http://localhost:4000/api/units")
+                    fetch("http://localhost:4000/api/units"),
                 ]);
+
                 
                 if (catRes.ok) {
                     const cats = await catRes.json();
