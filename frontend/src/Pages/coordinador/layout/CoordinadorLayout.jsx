@@ -45,9 +45,12 @@ export default function CoordinadorLayout() {
     };
 
     // Si la ruta exacta no existe, buscamos una aproximada o usamos default
-    const currentPath = Object.keys(headers).find(path => pathname.startsWith(path) && path !== "/coordinador") || "/coordinador/dashboard";
-    const headerInfo = headers[pathname] || headers[currentPath] || { title: "Panel Coordinador", subtitle: "Sistema SIMCO" };
+    const headerInfo =
+        headers[pathname] ||
+        Object.entries(headers).find(([path]) => pathname.startsWith(path))?.[1] ||
+    { title: "Panel Coordinador", subtitle: "Sistema SIMCO" };
 
+    
     return (
         <div className="flex h-screen w-full overflow-hidden bg-gray-100">
 
@@ -79,15 +82,14 @@ export default function CoordinadorLayout() {
 
                     {/* Ajusta 'to' según tu ruta real de recibidas */}
                     <NavLink
-                        to="/coordinador/requisiciones" 
+                        to="/coordinador/requisiciones"
+                        end
                         className={({ isActive }) =>
-                            `flex items-center gap-2 py-2 px-4 rounded transition
-                            ${isActive
-                                ? "bg-white text-secundario font-semibold"
-                                : "hover:bg-white/20"}`
+                        `flex items-center gap-2 py-2 px-4 rounded transition
+                        ${isActive ? "bg-white text-secundario font-semibold" : "hover:bg-white/20"}`
                         }
                     >
-                        📋 Recibidas
+                        📋 Requisiciones
                     </NavLink>
 
                     <NavLink

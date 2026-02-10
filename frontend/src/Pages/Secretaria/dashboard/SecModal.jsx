@@ -8,10 +8,10 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
     const coordinacion = req.coordinacion;
     const codigoUre = req.ure_solicitante;
     
-    // Si estatus es 10 (Rechazado), 'observaciones' es el motivo del rechazo.
     const esRechazo = req.statuses_id === 10;
-    const tituloObservacion = esRechazo ? "Motivo de Rechazo" : "Justificación";
-    const colorObservacion = esRechazo ? "text-red-600 bg-red-50 border-red-100" : "text-blue-600 bg-blue-50 border-blue-100";
+    const justificacion = req.justificacion || "Sin información";
+    const observaciones = req.observaciones || "Sin información";
+    const motivoRechazo = req.notas || "Sin información";
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -128,13 +128,35 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
 
                             <div className="w-full h-px bg-gray-200"></div>
 
-                            <div>
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase border ${colorObservacion}`}>
-                                    {tituloObservacion}
-                                </span>
-                                <p className={`text-xs mt-2 italic leading-relaxed ${esRechazo ? "text-red-700 font-medium" : "text-gray-600"}`}>
-                                    "{req.observaciones || 'Sin información'}"
-                                </p>
+                            <div className="space-y-3">
+                                <div>
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase border text-blue-600 bg-blue-50 border-blue-100">
+                                        Justificación
+                                    </span>
+                                    <p className="text-xs mt-2 italic leading-relaxed text-gray-600">
+                                        "{justificacion}"
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase border text-gray-600 bg-gray-50 border-gray-200">
+                                        Observaciones
+                                    </span>
+                                    <p className="text-xs mt-2 italic leading-relaxed text-gray-600">
+                                        "{observaciones}"
+                                    </p>
+                                </div>
+
+                                {esRechazo && (
+                                    <div>
+                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase border text-red-600 bg-red-50 border-red-100">
+                                            Motivo de Rechazo
+                                        </span>
+                                        <p className="text-xs mt-2 italic leading-relaxed text-red-700 font-medium">
+                                            "{motivoRechazo}"
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

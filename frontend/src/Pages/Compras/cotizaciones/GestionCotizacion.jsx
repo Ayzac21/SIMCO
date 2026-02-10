@@ -11,8 +11,18 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import CotizacionClosedNotice from "./CotizacionClosedNotice";
+import ConfirmModal from "../../../components/ConfirmModal";
 
 const API_URL = "http://localhost:4000/api/compras";
+
+const getAuthHeaders = () => {
+    const userStr = localStorage.getItem("usuario");
+    const user = userStr ? JSON.parse(userStr) : null;
+    return {
+        "x-user-id": String(user?.id || ""),
+        "x-user-role": String(user?.role || ""),
+    };
+};
 
 function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false }) {
     return (
@@ -46,6 +56,10 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
     const [saving, setSaving] = useState(false);
     const [inviting, setInviting] = useState(false);
     const [closing, setClosing] = useState(false);
+    const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
+    const [confirmSendOpen, setConfirmSendOpen] = useState(false);
+    const [sendingReview, setSendingReview] = useState(false);
+    const [reopening, setReopening] = useState(false);
 
     const [requisition, setRequisition] = useState(null);
     const [items, setItems] = useState([]);
@@ -81,20 +95,15 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
     const isClosed = useMemo(() => {
         const st = Number(requisition?.statuses_id);
         const closedAt = requisition?.quotation_closed_at;
-        if (closedAt || st === 14) return true;
-
-        // fallback por si requisition aún no trae esos campos
-        if (!Array.isArray(invitedProviders)) return false;
-        return (
-        invitedProviders.length > 0 &&
-        invitedProviders.every((p) => p.status !== "invited")
-        );
+        return Boolean(closedAt || st === 14 || st === 13);
     }, [requisition, invitedProviders]);
 
     const fetchAllProviders = async (q = "") => {
         try {
         setLoadingAllProviders(true);
-        const resp = await fetch(`${API_URL}/providers?q=${encodeURIComponent(q)}`);
+        const resp = await fetch(`${API_URL}/providers?q=${encodeURIComponent(q)}`, {
+            headers: getAuthHeaders(),
+        });
         if (!resp.ok) throw new Error("Error cargando proveedores");
         const data = await resp.json();
         setAllProviders(Array.isArray(data) ? data : []);
@@ -110,10 +119,14 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
         try {
         setLoading(true);
 
-        const response = await fetch(`${API_URL}/cotizacion/${id}/data`);
-        if (!response.ok) throw new Error("Error al cargar la cotización");
-
-        const data = await response.json();
+        const response = await fetch(`${API_URL}/cotizacion/${id}/data`, {
+            headers: getAuthHeaders(),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            const msg = data?.message || "Error al cargar la cotización";
+            throw new Error(msg);
+        }
 
         setRequisition(data.requisition);
         setItems(Array.isArray(data.items) ? data.items : []);
@@ -133,12 +146,12 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
         setDescriptions(descMap);
 
         if ((data.invitedProviders || []).length > 0) setInvitationSent(true);
-        if ((data.savedPrices || []).length > 0) setShowOnlyResponded(true);
+        setShowOnlyResponded(false);
 
         setLoading(false);
         } catch (error) {
         console.error(error);
-        toast.error("Error al cargar datos del servidor");
+        toast.error(error?.message || "Error al cargar datos del servidor");
         setLoading(false);
         }
     };
@@ -191,10 +204,7 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
 
     const openModal = () => {
         if (isClosed) {
-        toast.warning("Recepción finalizada", {
-            description: "Ya no puedes agregar proveedores.",
-            duration: 3000,
-        });
+        toast.warning("Recepción finalizada");
         return;
         }
 
@@ -221,7 +231,7 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
 
     const handleInviteSelected = async () => {
         if (isClosed) {
-        toast.warning("Recepción finalizada", { description: "Ya no puedes invitar más proveedores." });
+        toast.warning("Recepción finalizada");
         return;
         }
 
@@ -236,17 +246,14 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
 
         const response = await fetch(`${API_URL}/cotizacion/${id}/invite`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
             body: JSON.stringify({ provider_ids, deadline_at: null }),
         });
 
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data?.message || "Error al invitar");
 
-        toast.success("Proveedores invitados", {
-            description: `Se invitaron ${provider_ids.length} proveedores`,
-            duration: 2500,
-        });
+        toast.success("Proveedores invitados");
 
         setIsModalOpen(false);
         setInvitationSent(true);
@@ -254,9 +261,7 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
         await loadData();
         } catch (e) {
         console.error(e);
-        toast.error("No se pudo invitar a los proveedores", {
-            description: e?.message || "Intenta de nuevo",
-        });
+        toast.error("No se pudo invitar a los proveedores");
         } finally {
         setInviting(false);
         }
@@ -264,9 +269,7 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
 
     const handleSaveChanges = async () => {
         if (isClosed) {
-        toast.warning("Recepción finalizada", {
-            description: "Ya no puedes modificar la cotización.",
-        });
+        toast.error("Recepción finalizada. Reabre la recepción para poder guardar.");
         return;
         }
         if (saving) return;
@@ -305,24 +308,19 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
 
         const response = await fetch(`${API_URL}/cotizacion/${id}/prices`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
             body: JSON.stringify({ prices: payload }),
         });
 
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data?.message || "Error al guardar");
 
-        toast.success("Cotización guardada", {
-            description: "Precios y descripciones guardados",
-            duration: 2500,
-        });
+        toast.success("Cotización guardada");
 
         await loadData();
         } catch (error) {
         console.error(error);
-        toast.error("Error al guardar", {
-            description: error?.message || "Intenta de nuevo",
-        });
+        toast.error("Error al guardar");
         } finally {
         setSaving(false);
         }
@@ -330,43 +328,79 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
 
     const handleCloseInvites = () => {
         if (closing) return;
+        setConfirmCloseOpen(true);
+    };
 
-        toast("¿Cerrar recepción de cotización?", {
-        description:
-            "Se marcarán como 'Sin respuesta' los proveedores que sigan en 'Invitado'. La requisición pasará a 'En revisión' y ya no podrás invitar ni editar.",
-        duration: 9000,
-        action: {
-            label: "Sí, cerrar",
-            onClick: async () => {
-            try {
-                setClosing(true);
+    const confirmCloseInvites = async () => {
+        if (closing) return;
+        setConfirmCloseOpen(false);
+        const toastId = toast.loading("Procesando...");
 
-                const response = await fetch(`${API_URL}/cotizacion/${id}/close`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                });
+        try {
+        setClosing(true);
 
-                const data = await response.json().catch(() => ({}));
-                if (!response.ok) throw new Error(data?.message || "Error al cerrar");
-
-                toast.success("Recepción finalizada", {
-                description: `Sin respuesta marcados: ${data.affectedRows ?? 0}. Enviada a revisión.`,
-                duration: 3500,
-                });
-
-                await loadData();
-            } catch (e) {
-                console.error(e);
-                toast.error("No se pudo cerrar la recepción", {
-                description: e?.message || "Intenta de nuevo",
-                });
-            } finally {
-                setClosing(false);
-            }
-            },
-        },
-        cancel: { label: "Cancelar" },
+        const response = await fetch(`${API_URL}/cotizacion/${id}/close`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data?.message || "Error al cerrar");
+
+        toast.success(data?.message || "Recepción cerrada", { id: toastId });
+        await loadData();
+        } catch (e) {
+        console.error(e);
+        toast.error(e?.message || "No se pudo cerrar la recepción", { id: toastId });
+        } finally {
+        setClosing(false);
+        }
+    };
+
+    const confirmSendToReview = async () => {
+        if (sendingReview) return;
+        setConfirmSendOpen(false);
+        const toastId = toast.loading("Enviando a revisión...");
+        try {
+        setSendingReview(true);
+        const response = await fetch(`${API_URL}/cotizacion/${id}/send-review`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data?.message || "Error al enviar a revisión");
+
+        toast.success(data?.message || "Enviado a revisión", { id: toastId });
+        setTimeout(() => {
+            navigate("/compras/dashboard");
+        }, 600);
+        } catch (e) {
+        console.error(e);
+        toast.error(e?.message || "No se pudo enviar a revisión", { id: toastId });
+        } finally {
+        setSendingReview(false);
+        }
+    };
+
+    const handleReopenReception = async () => {
+        if (reopening) return;
+        const toastId = toast.loading("Reabriendo recepción...");
+        try {
+        setReopening(true);
+        const response = await fetch(`${API_URL}/cotizacion/${id}/reopen`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data?.message || "Error al reabrir");
+        toast.success(data?.message || "Recepción reabierta", { id: toastId });
+        await loadData();
+        } catch (e) {
+        console.error(e);
+        toast.error(e?.message || "No se pudo reabrir la recepción", { id: toastId });
+        } finally {
+        setReopening(false);
+        }
     };
 
     if (loading) {
@@ -377,6 +411,26 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
 
     return (
         <div className="p-6 bg-[#F3F4F6] min-h-[calc(100vh-24px)] font-sans">
+        <ConfirmModal
+            open={confirmCloseOpen}
+            title="Cerrar recepción de cotización"
+            headerText="Confirmar cierre"
+            description="Se marcarán como 'Sin respuesta' los proveedores que sigan en 'Invitado'. Después podrás enviar a revisión."
+            confirmText="Sí, cerrar recepción"
+            cancelText="Cancelar"
+            onConfirm={confirmCloseInvites}
+            onCancel={() => setConfirmCloseOpen(false)}
+        />
+        <ConfirmModal
+            open={confirmSendOpen}
+            title="Enviar a revisión"
+            headerText="Confirmar envío"
+            description="La requisición pasará a 'En revisión' para que el solicitante seleccione proveedores. Compras ya no podrá editar."
+            confirmText="Sí, enviar"
+            cancelText="Cancelar"
+            onConfirm={confirmSendToReview}
+            onCancel={() => setConfirmSendOpen(false)}
+        />
         {/* HEADER */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
             <div className="flex items-center gap-3">
@@ -510,6 +564,30 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
                     }`}
                     >
                     {closing ? "CERRANDO..." : "CERRAR RECEPCIÓN"}
+                    </button>
+                )}
+
+                {Boolean(requisition?.quotation_closed_at) && Number(requisition?.statuses_id) === 12 && (
+                    <button
+                    onClick={handleReopenReception}
+                    disabled={reopening}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 ${
+                        reopening ? "opacity-60 cursor-not-allowed" : ""
+                    }`}
+                    >
+                    {reopening ? "REABRIENDO..." : "REABRIR RECEPCIÓN"}
+                    </button>
+                )}
+
+                {Boolean(requisition?.quotation_closed_at) && Number(requisition?.statuses_id) === 12 && (
+                    <button
+                    onClick={() => setConfirmSendOpen(true)}
+                    disabled={sendingReview}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg bg-[#8B1D35] text-white shadow-sm hover:bg-[#72182b] ${
+                        sendingReview ? "opacity-60 cursor-not-allowed" : ""
+                    }`}
+                    >
+                    {sendingReview ? "ENVIANDO..." : "ENVIAR A REVISIÓN"}
                     </button>
                 )}
 

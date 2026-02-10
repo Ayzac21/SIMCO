@@ -32,7 +32,7 @@ export default function RequisicionesRevision() {
         setRequisitions(Array.isArray(data) ? data : []);
         } catch (e) {
         console.error(e);
-        toast.error("No se pudo cargar revisión", { description: e?.message || "" });
+        toast.error("No se pudo cargar revisión");
         setRequisitions([]);
         } finally {
         setLoading(false);

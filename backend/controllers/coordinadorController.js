@@ -53,7 +53,6 @@ export const getRequisicionesCoordinador = async (req, res) => {
             JOIN users u ON r.users_id = u.id
             JOIN statuses s ON r.statuses_id = s.id 
             WHERE u.ure LIKE CONCAT(?, '%')
-            AND r.statuses_id != 7 
             ORDER BY r.created_at DESC
             `,
             [ureBase]
@@ -91,5 +90,121 @@ export const updateEstatusRequisicion = async (req, res) => {
     } catch (error) {
         console.error("Error al actualizar:", error);
         res.status(500).json({ message: "Error interno del servidor" });
+    }
+};
+
+export const createRequisicionCoordinador = async (req, res) => {
+    const conn = await pool.getConnection();
+    try {
+        const {
+            users_id,
+            categoria,
+            articulos,
+            notes = "",
+            request_name = "",
+            justification = "",
+            observation = "",
+        } = req.body;
+
+        if (!users_id || !Array.isArray(articulos) || articulos.length === 0) {
+            return res.status(400).json({ ok: false, message: "Datos incompletos" });
+        }
+
+        await conn.beginTransaction();
+
+        const now = new Date();
+        const folioCorto = `CO-${Math.floor(1000 + Math.random() * 9000)}`;
+
+        const [result] = await conn.query(
+            `
+            INSERT INTO requisition
+            (
+                folio,
+                area_folio,
+                notes,
+                users_id,
+                statuses_id,
+                signatures,
+                created_at,
+                sent_on,
+                categories_id,
+                request_name,
+                justification,
+                observation
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+            [
+                null,
+                folioCorto,
+                notes,
+                users_id,
+                7,
+                "",
+                now,
+                null,
+                categoria || 1,
+                request_name,
+                justification,
+                observation,
+            ]
+        );
+
+        const requisitionId = result.insertId;
+
+        for (const art of articulos) {
+            await conn.query(
+                `
+                INSERT INTO line_items
+                    (product_name, description, quantity, units_id, requisition_id)
+                VALUES (?, ?, ?, ?, ?)
+                `,
+                [
+                    art.producto || "",
+                    art.especificaciones || "",
+                    Number(art.cantidad || 0),
+                    art.units_id || 1,
+                    requisitionId,
+                ]
+            );
+        }
+
+        await conn.commit();
+        return res.json({
+            ok: true,
+            id: requisitionId,
+            folio: folioCorto,
+            status: "En borrador",
+        });
+    } catch (err) {
+        await conn.rollback();
+        console.error("ERROR crear requisición (coordinador):", err);
+        return res.status(500).json({ ok: false, message: "Error interno" });
+    } finally {
+        conn.release();
+    }
+};
+
+export const enviarBorradorCoordinador = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const [result] = await pool.query(
+            `
+            UPDATE requisition
+            SET statuses_id = 9
+            WHERE id = ? AND statuses_id = 7
+            `,
+            [id]
+        );
+
+        if (!result.affectedRows) {
+            return res.status(400).json({ ok: false, message: "No se puede enviar" });
+        }
+
+        return res.json({ ok: true, statuses_id: 9, status: "En secretaría" });
+    } catch (err) {
+        console.error("ERROR enviar borrador (coordinador):", err);
+        return res.status(500).json({ ok: false, message: "Error interno" });
     }
 };

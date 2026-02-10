@@ -1,216 +1,538 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { Search, ArrowUpDown, RefreshCw } from "lucide-react";
 import RequisitionModal from "./RequisitionModal";
+import ConfirmModal from "../../../components/ConfirmModal";
+import { toast } from "sonner";
 
-// --- 1. IMPORTAMOS SWEETALERT ---
-import Swal from 'sweetalert2';
-import withReactContent from 'sweetalert2-react-content';
+const API = "http://localhost:4000/api";
 
-const MySwal = withReactContent(Swal);
+// ✅ util: forzar mínimo visible
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// --- Helpers Visuales ---
-const IconSearch = () => (
-    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-    </svg>
-);
+// ✅ Loader (el que mandaste) — reutilizable
+function AppLoader({ label = "Cargando..." }) {
+    return (
+        <div className="flex-col gap-4 w-full flex items-center justify-center py-10">
+            <div className="w-20 h-20 border-4 border-transparent text-secundario text-4xl animate-spin flex items-center justify-center border-t-secundario rounded-full">
+                <div className="w-16 h-16 border-4 border-transparent text-principal text-2xl animate-spin flex items-center justify-center border-t-principal rounded-full" />
+            </div>
+            <div className="text-xs text-gray-500 mt-2">{label}</div>
+        </div>
+    );
+}
 
-// --- FUNCIÓN DE COLORES POR ID ---
+// Flujo igual al asistente (incluye borrador)
+const STATUS_FLOW = [7, 8, 9, 12, 14, 13, 11, 10];
+const STATUS_LABELS = {
+    7: "Borrador",
+    8: "Coordinación",
+    9: "Secretaría",
+    12: "Cotización",
+    14: "Revisión",
+    13: "Compra",
+    11: "Finalizada",
+    10: "Rechazada",
+};
+
 const renderStatusBadge = (statusId, statusName) => {
-    let styles = "bg-gray-100 text-gray-600 border-gray-200"; 
+    let styles = "bg-gray-100 text-gray-700 border-gray-200";
 
-    switch (statusId) {
-        case 8: styles = "bg-yellow-50 text-yellow-700 border-yellow-200"; break; // En coordinación
-        case 9: styles = "bg-blue-50 text-blue-700 border-blue-200"; break; // En secretaría
-        case 10: styles = "bg-red-50 text-red-700 border-red-200"; break; // Rechazado
-        case 12: styles = "bg-orange-50 text-orange-700 border-orange-200"; break; // En cotización
-        case 11: 
-        case 13: styles = "bg-green-50 text-green-700 border-green-200"; break; // Comprado / Proceso
-        default: break;
+    switch (Number(statusId)) {
+        case 7:
+            styles = "bg-gray-50 text-gray-600 border-gray-200";
+        break;
+        case 8:
+            styles = "bg-yellow-50 text-yellow-700 border-yellow-200";
+        break;
+            case 9:
+            styles = "bg-blue-50 text-blue-700 border-blue-200";
+        break;
+            case 12:
+            styles = "bg-orange-50 text-orange-700 border-orange-200";
+        break;
+            case 14:
+            styles = "bg-gray-100 text-gray-700 border-gray-200";
+        break;
+            case 13:
+            case 11:
+            styles = "bg-secundario/10 text-secundario border-secundario/20";
+        break;
+            case 10:
+            styles = "bg-red-50 text-red-700 border-red-200";
+        break;
+        default:
+        break;
     }
 
     return (
-        <span className={`px-3 py-1 rounded-full text-xs font-bold border ${styles} inline-flex items-center gap-1`}>
-            <span className={`w-2 h-2 rounded-full bg-current opacity-50`}></span>
-            {statusName || "Sin Estatus"}
+        <span
+            className={`px-3 py-1 rounded-full text-xs font-extrabold border ${styles} inline-flex items-center gap-1`}
+        >
+            <span className="w-2 h-2 rounded-full bg-current opacity-50" />
+            {statusName || "Sin estatus"}
         </span>
+    );
+};
+
+function safeDate(d) {
+    if (!d) return "—";
+    try {
+        return new Date(d).toLocaleDateString("es-MX", { day: "2-digit", month: "short" });
+    } catch {
+        return "—";
+    }
+}
+
+const ProgressBar = ({ statusId }) => {
+    const index = STATUS_FLOW.indexOf(Number(statusId));
+    if (index === -1) return null;
+
+    const pct = ((index + 1) / STATUS_FLOW.length) * 100;
+
+    return (
+        <div className="mt-2">
+            <div className="flex justify-between text-[11px] font-medium text-gray-500 gap-2">
+                {STATUS_FLOW.map((id, i) => (
+                <span key={id} className={i <= index ? "text-secundario font-semibold" : ""}>
+                    {STATUS_LABELS[id]}
+                </span>
+                ))}
+            </div>
+
+            <div className="h-2 bg-gray-200 rounded mt-1 overflow-hidden">
+                <div className="h-2 bg-secundario rounded transition-all" style={{ width: `${pct}%` }} />
+            </div>
+        </div>
     );
 };
 
 export default function Recibidas() {
     const navigate = useNavigate();
-    
-    // Estados principales
+
     const [requisiciones, setRequisiciones] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [searchTerm, setSearchTerm] = useState("");
-    
-    // Estados para el Modal
+
+    // ✅ para distinguir "cargando inicial" vs "actualizando"
+    const [refreshing, setRefreshing] = useState(false);
+
+    // ✅ Controles
+    const [q, setQ] = useState("");
+    const [statusFilter, setStatusFilter] = useState("all");
+    const [sort, setSort] = useState("new");
+
+    // ✅ paginación
+    const [paginaActual, setPaginaActual] = useState(1);
+    const POR_PAGINA = 6;
+
+    // Modal
     const [selectedReq, setSelectedReq] = useState(null);
-    const [items, setItems] = useState([]); 
+    const [items, setItems] = useState([]);
     const [loadingItems, setLoadingItems] = useState(false);
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [confirmConfig, setConfirmConfig] = useState(null);
 
-    const storageId = localStorage.getItem("users_id"); 
+    const storageId = localStorage.getItem("users_id");
 
-    // Cargar lista principal
-    useEffect(() => {
-        if (!storageId) { navigate("/"); return; }
+    // ✅ evita doble refresh
+    const refreshingRef = useRef(false);
 
-        const fetchRecibidas = async () => {
+    const fetchRecibidas = async ({ showRefresh = false } = {}) => {
+        if (!storageId) {
+            navigate("/");
+        return;
+    }
+
+    // ⏱️ mínimo visible (1–2s)
+    const MIN_MS = 1500;
+    const t0 = Date.now();
+
+    try {
+        if (showRefresh) {
+            if (refreshingRef.current) return;
+            refreshingRef.current = true;
+            setRefreshing(true);
+        } else {
             setLoading(true);
-            try {
-                const res = await fetch(`http://localhost:4000/api/coordinador/${storageId}/recibidas`);
-                if (res.ok) {
-                    const data = await res.json();
-                    setRequisiciones(Array.isArray(data) ? data : []);
-                }
-            } catch (err) { console.error(err); } 
-            finally { setLoading(false); }
-        };
-        fetchRecibidas();
-    }, [storageId, navigate]);
+        }
 
-    // --- AL DAR CLICK EN UNA FILA ---
-    const handleRowClick = async (req) => {
-        setSelectedReq(req);
-        setItems([]); 
-        setLoadingItems(true);
-        try {
-            const res = await fetch(`http://localhost:4000/api/coordinador/requisiciones/${req.id}/items`);
-            if (res.ok) {
-                const data = await res.json();
-                setItems(data);
-            }
-        } catch (error) { console.error("Error cargando items:", error); } 
-        finally { setLoadingItems(false); }
-    };
+        const res = await fetch(`${API}/coordinador/${storageId}/recibidas`);
+        const data = await res.json().catch(() => []);
+        if (!res.ok) throw new Error(data?.message || "Error al cargar recibidas");
 
-    // --- 2. AUTORIZAR (SweetAlert + Actualización Local) ---
-    const handleApprove = (req) => {
-        MySwal.fire({
-            title: `¿Autorizar Folio #${req.id}?`,
-            text: "La solicitud pasará a Secretaría para su revisión.",
-            icon: 'question',
-            showCancelButton: true,
-            confirmButtonColor: '#10B981', // Verde
-            cancelButtonColor: '#6B7280',  // Gris
-            confirmButtonText: 'Sí, autorizar',
-            cancelButtonText: 'Cancelar'
-        }).then(async (result) => {
-            if (result.isConfirmed) {
-                try {
-                    const res = await fetch(`http://localhost:4000/api/coordinador/requisiciones/${req.id}/estatus`, {
-                        method: "PUT",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ status_id: 9, comentarios: "Autorizado por Coordinación" })
-                    });
+        // ✅ fuerza el tiempo mínimo
+        const elapsed = Date.now() - t0;
+        if (elapsed < MIN_MS) await sleep(MIN_MS - elapsed);
 
-                    if (res.ok) {
-                        MySwal.fire('¡Autorizado!', 'La solicitud ha sido enviada a Secretaría.', 'success');
-                        
-                        // ACTUALIZACIÓN OPTIMISTA: Quitamos la fila de la lista sin recargar la página
-                        setRequisiciones(prev => prev.filter(r => r.id !== req.id));
-                        setSelectedReq(null); // Cerramos el modal
-                    } else {
-                        throw new Error();
-                    }
-                } catch (error) { 
-                    MySwal.fire('Error', 'No se pudo procesar la solicitud', 'error');
-                }
-            }
-        });
-    };
+        setRequisiciones(Array.isArray(data) ? data : []);
+        setPaginaActual(1);
+        } catch (err) {
+        console.error(err);
 
-    // --- 3. RECHAZAR (SweetAlert + Actualización Local) ---
-    const handleReject = async (req, reason) => {
-        try {
-            const res = await fetch(`http://localhost:4000/api/coordinador/requisiciones/${req.id}/estatus`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ status_id: 10, comentarios: reason })
-            });
+        const elapsed = Date.now() - t0;
+        if (elapsed < MIN_MS) await sleep(MIN_MS - elapsed);
 
-            if (res.ok) {
-                MySwal.fire('Rechazada', 'La solicitud ha sido marcada como rechazada.', 'success');
-                
-                // ACTUALIZACIÓN OPTIMISTA
-                setRequisiciones(prev => prev.filter(r => r.id !== req.id));
-                setSelectedReq(null);
-            }
-        } catch (error) { 
-            console.error(error);
-            MySwal.fire('Error', 'Ocurrió un error al rechazar', 'error');
+        setRequisiciones([]);
+        toast.error("No se pudo actualizar");
+        } finally {
+        if (showRefresh) {
+            setRefreshing(false);
+            refreshingRef.current = false;
+        } else {
+            setLoading(false);
+        }
         }
     };
 
-    const filteredReqs = requisiciones.filter(req => 
-        req.solicitante?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        req.request_name?.toLowerCase().includes(searchTerm.toLowerCase())
+    useEffect(() => {
+        fetchRecibidas({ showRefresh: false });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [storageId]);
+
+    const filtered = useMemo(() => {
+        let list = [...requisiciones];
+
+        const qq = q.trim().toLowerCase();
+        if (qq) {
+        list = list.filter((r) => {
+            const a = String(r.solicitante || "").toLowerCase();
+            const b = String(r.request_name || "").toLowerCase();
+            const c = String(r.ure_solicitante || "").toLowerCase();
+            const d = String(r.id || "").toLowerCase();
+            return a.includes(qq) || b.includes(qq) || c.includes(qq) || d.includes(qq);
+        });
+        }
+
+        if (statusFilter !== "all") {
+        const st = Number(statusFilter);
+        list = list.filter((r) => Number(r.statuses_id) === st);
+        }
+
+        list.sort((a, b) => {
+        const da = new Date(a.created_at).getTime() || 0;
+        const db = new Date(b.created_at).getTime() || 0;
+        return sort === "new" ? db - da : da - db;
+        });
+
+        return list;
+    }, [requisiciones, q, statusFilter, sort]);
+
+    const totalPaginas = useMemo(
+        () => Math.max(1, Math.ceil(filtered.length / POR_PAGINA)),
+        [filtered.length]
     );
 
+    const inicio = (paginaActual - 1) * POR_PAGINA;
+    const fin = inicio + POR_PAGINA;
+    const page = filtered.slice(inicio, fin);
+
+    useEffect(() => {
+        setPaginaActual(1);
+    }, [q, statusFilter, sort]);
+
+    const handleRowClick = async (req) => {
+        setSelectedReq(req);
+        setItems([]);
+        setLoadingItems(true);
+
+        try {
+        const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/items`);
+        const data = await res.json().catch(() => []);
+        if (!res.ok) throw new Error(data?.message || "Error cargando partidas");
+        setItems(Array.isArray(data) ? data : []);
+        } catch (error) {
+        console.error("Error cargando items:", error);
+        setItems([]);
+        toast.error("No se pudo cargar el detalle");
+        } finally {
+        setLoadingItems(false);
+        }
+    };
+
+    const handleApprove = (req) => {
+        setConfirmConfig({
+        type: "approve",
+        req,
+        title: `Autorizar Folio #${req.id}`,
+        highlight: `Folio #${req.id}`,
+        description: "La solicitud pasará a Secretaría para su revisión.",
+        confirmText: "Sí, autorizar",
+        headerText: "Autorizar Requisición",
+        variant: "success",
+        });
+        setConfirmOpen(true);
+    };
+
+    const handleReject = async (req, reason) => {
+        try {
+        const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/estatus`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status_id: 10, comentarios: reason }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.message || "No se pudo rechazar");
+
+        toast.success("Rechazada");
+        setRequisiciones((prev) => prev.filter((r) => r.id !== req.id));
+        setSelectedReq(null);
+        } catch (e) {
+        toast.error("Ocurrió un error al rechazar");
+        }
+    };
+
+    const handleEditDraft = (req) => {
+        navigate(`/coordinador/requisiciones/editar/${req.id}`);
+    };
+
+    const handleSendDraft = (req) => {
+        setConfirmConfig({
+        type: "send",
+        req,
+        title: `Enviar Folio #${req.id}`,
+        highlight: `Folio #${req.id}`,
+        description: "Se enviará a Secretaría y ya no podrás editar el borrador.",
+        confirmText: "Sí, enviar",
+        headerText: "Enviar a Secretaría",
+        variant: "warning",
+        });
+        setConfirmOpen(true);
+    };
+
+    const handleConfirm = async () => {
+        if (!confirmConfig?.req) return;
+        const req = confirmConfig.req;
+
+        if (confirmConfig.type === "approve") {
+        try {
+            const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/estatus`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status_id: 9, comentarios: "Autorizado por Coordinación" }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.message || "No se pudo autorizar");
+
+            toast.success("Autorizado");
+            setRequisiciones((prev) => prev.filter((r) => r.id !== req.id));
+            setSelectedReq(null);
+        } catch (e) {
+            toast.error("No se pudo autorizar");
+        } finally {
+            setConfirmOpen(false);
+            setConfirmConfig(null);
+        }
+        return;
+        }
+
+        if (confirmConfig.type === "send") {
+        try {
+            const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/enviar`, {
+            method: "PATCH",
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.message || "No se pudo enviar");
+
+            toast.success("Enviado");
+            setRequisiciones((prev) =>
+            prev.map((r) =>
+                Number(r.id) === Number(req.id)
+                ? { ...r, statuses_id: 9, nombre_estatus: "En secretaría" }
+                : r
+            )
+            );
+            setSelectedReq(null);
+        } catch (e) {
+            toast.error("No se pudo enviar");
+        } finally {
+            setConfirmOpen(false);
+            setConfirmConfig(null);
+        }
+        }
+    };
+
     return (
-        <div className="flex flex-col h-full bg-[#F3F4F6]">
-            
-            {/* MODAL */}
-            <RequisitionModal 
-                req={selectedReq} 
-                items={items}               
-                loadingItems={loadingItems} 
-                onClose={() => setSelectedReq(null)} 
+        <div className="bg-white p-5 md:p-6 rounded-xl shadow-lg border border-gray-200 relative">
+            <RequisitionModal
+                req={selectedReq}
+                items={items}
+                loadingItems={loadingItems}
+                onClose={() => setSelectedReq(null)}
                 onApprove={handleApprove}
                 onReject={handleReject}
+                onEditDraft={handleEditDraft}
+                onSendDraft={handleSendDraft}
+            />
+            <ConfirmModal
+                open={confirmOpen}
+                title={confirmConfig?.title}
+                headerText={confirmConfig?.headerText}
+                description={confirmConfig?.description}
+                confirmText={confirmConfig?.confirmText}
+                highlight={confirmConfig?.highlight}
+                variant={confirmConfig?.variant}
+                cancelText="Cancelar"
+                onConfirm={handleConfirm}
+                onCancel={() => {
+                setConfirmOpen(false);
+                setConfirmConfig(null);
+                }}
             />
 
-            <main className="flex-1 p-2 md:p-6 overflow-hidden flex flex-col w-full">
-                {/* Buscador */}
-                <div className="mb-6 w-full md:w-96 relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><IconSearch /></div>
-                    <input 
-                        type="text"
-                        placeholder="Buscar..."
-                        className="pl-10 pr-4 py-2.5 w-full border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-principal/20"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
+            {/* ✅ Overlay loader SOLO cuando refrescas (sin destruir el layout) */}
+            {refreshing && (
+                <div className="absolute inset-0 z-40 bg-white/70 backdrop-blur-[1px] flex items-center justify-center rounded-xl">
+                <AppLoader label="Actualizando..." />
+                </div>
+            )}
+
+            {/* Header */}
+            <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-4">
+                <div>
+                    <h2 className="text-xl md:text-2xl font-bold text-secundario">
+                        Requisiciones
+                    </h2>
+                    <p className="text-sm text-gray-600 mt-1">
+                        Revisa, edita borradores, autoriza o rechaza solicitudes.
+                    </p>
+                </div>
+
+                <button
+                    onClick={() => fetchRecibidas({ showRefresh: true })}
+                    disabled={refreshing || loading}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold inline-flex items-center gap-2
+                        ${(refreshing || loading)
+                        ? "bg-gray-200 text-gray-600 cursor-not-allowed"
+                        : "bg-secundario text-white hover:opacity-90"}
+                    `}
+                >
+                    <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
+                    {refreshing ? "Actualizando..." : "Actualizar"}
+                </button>
+            </div>
+
+            {/* Buscador + filtros */}
+            <div className="flex flex-col lg:flex-row gap-3 lg:items-center mb-4">
+                <div className="relative flex-1">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                        value={q}
+                        onChange={(e) => setQ(e.target.value)}
+                        placeholder="Buscar (folio, solicitante, URE, asunto)..."
+                        className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-secundario/20"
                     />
                 </div>
 
-                {/* Tabla */}
-                <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
-                    <div className="grid grid-cols-12 gap-4 p-4 border-b border-gray-100 bg-gray-50 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                        <div className="col-span-2 md:col-span-1">Folio</div>
-                        <div className="col-span-4 md:col-span-3">Solicitante</div>
-                        <div className="col-span-6 md:col-span-4">Asunto</div>
-                        <div className="col-span-2 hidden md:block text-center">Fecha</div>
-                        <div className="col-span-2 hidden md:block text-center">Estatus</div>
-                    </div>
+                <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="px-3 py-2 border rounded-lg text-sm bg-white"
+                >
+                    <option value="all">Todos</option>
+                    <option value="7">Borrador</option>
+                    <option value="8">Coordinación</option>
+                    <option value="9">Secretaría</option>
+                    <option value="12">Cotización</option>
+                    <option value="14">Revisión</option>
+                    <option value="13">Compra</option>
+                    <option value="11">Finalizada</option>
+                    <option value="10">Rechazada</option>
+                </select>
 
-                    <div className="flex-1 overflow-y-auto">
-                        {loading ? <div className="p-10 text-center text-gray-400">Cargando...</div> : 
-                            filteredReqs.length === 0 ? <div className="p-10 text-center text-gray-400">No se encontraron solicitudes.</div> :
-                            filteredReqs.map((req) => (
-                            <div 
-                                key={req.id}
-                                onClick={() => handleRowClick(req)} 
-                                className="grid grid-cols-12 gap-4 p-4 border-b border-gray-100 items-center hover:bg-blue-50 cursor-pointer transition-colors"
-                            >
-                                <div className="col-span-2 md:col-span-1 font-bold text-gray-700 text-sm">#{req.id}</div>
-                                <div className="col-span-4 md:col-span-3 truncate">
-                                    <p className="font-semibold text-gray-800 text-sm">{req.solicitante}</p>
-                                    <p className="text-xs text-gray-500">{req.ure_solicitante}</p>
+                <button
+                    onClick={() => setSort((p) => (p === "new" ? "old" : "new"))}
+                    className="px-3 py-2 border rounded-lg text-sm bg-white hover:bg-gray-50 flex items-center gap-2"
+                    title="Cambiar orden"
+                >
+                    <ArrowUpDown size={16} className="text-gray-500" />
+                    {sort === "new" ? "Más recientes" : "Más antiguas"}
+                </button>
+            </div>
+
+            {/* Tabla */}
+            <div className="border rounded-lg overflow-hidden">
+                <div className="grid grid-cols-12 gap-3 px-4 py-3 bg-gray-50 text-xs font-semibold text-gray-500">
+                    <div className="col-span-7">Solicitud</div>
+                    <div className="col-span-3">Estatus</div>
+                    <div className="col-span-2 text-right">Fecha</div>
+                </div>
+
+                {loading ? (
+                <AppLoader label="Cargando..." />
+                ) : page.length === 0 ? (
+                <div className="p-6 text-center text-sm text-gray-500">No hay requisiciones.</div>
+                ) : (
+                <div className="divide-y">
+                    {page.map((req) => {
+                    const st = Number(req.statuses_id);
+
+                    return (
+                        <button
+                            key={req.id}
+                            type="button"
+                            onClick={() => handleRowClick(req)}
+                            className="w-full text-left px-4 py-4 hover:bg-gray-50 transition focus:outline-none focus:ring-2 focus:ring-secundario/20"
+                        >
+                            <div className="grid grid-cols-12 gap-3 items-start">
+                                <div className="col-span-7 min-w-0">
+                                    <div className="font-bold text-secundario truncate text-[15px]">
+                                        {req.request_name || "Sin asunto"}
+                                    </div>
+
+                                    <div className="text-xs text-gray-500 mt-1">
+                                        Folio: <b>#{req.id}</b> • <b>{req.solicitante}</b>
+                                        {req.ure_solicitante ? ` • ${req.ure_solicitante}` : ""}
+                                    </div>
+
+                                    <div className="mt-2">
+                                        <ProgressBar statusId={st} />
+                                    </div>
                                 </div>
-                                <div className="col-span-6 md:col-span-4 font-medium text-gray-700 text-sm truncate">{req.request_name}</div>
-                                <div className="col-span-2 hidden md:block text-center text-sm text-gray-500">
-                                    {new Date(req.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
+
+                                <div className="col-span-3">
+                                    <div className="text-sm text-gray-800">
+                                        Estatus: <b>{req.nombre_estatus || req.estatus || "—"}</b>
+                                    </div>
+                                    <div className="mt-2">
+                                        {renderStatusBadge(st, req.nombre_estatus || req.estatus)}
+                                    </div>
                                 </div>
-                                
-                                <div className="col-span-2 hidden md:block text-center flex justify-center">
-                                    {renderStatusBadge(req.statuses_id, req.nombre_estatus)}
+
+                                <div className="col-span-2 text-right text-sm text-gray-700">
+                                    {safeDate(req.created_at)}
                                 </div>
                             </div>
-                        ))}
-                    </div>
+                        </button>
+                    );
+                    })}
                 </div>
-            </main>
+                )}
+            </div>
+
+            {/* Paginación */}
+            <div className="mt-4">
+                <div className="flex flex-col sm:flex-row gap-3 sm:justify-between sm:items-center">
+                    <button
+                        onClick={() => setPaginaActual((p) => Math.max(p - 1, 1))}
+                        disabled={paginaActual === 1}
+                        className="px-4 py-2 bg-gray-200 rounded-md text-sm font-semibold hover:bg-gray-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        ← Anterior
+                    </button>
+
+                    <span className="text-sm text-gray-600 text-center">
+                        Página <b>{paginaActual}</b> de <b>{totalPaginas}</b>
+                    </span>
+
+                    <button
+                        onClick={() => setPaginaActual((p) => Math.min(p + 1, totalPaginas))}
+                        disabled={paginaActual === totalPaginas}
+                        className="px-4 py-2 bg-gray-200 rounded-md text-sm font-semibold hover:bg-gray-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        Siguiente →
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }

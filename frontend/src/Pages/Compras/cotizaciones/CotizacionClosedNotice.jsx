@@ -8,6 +8,10 @@ export default function CotizacionClosedNotice({ requisition }) {
         requisition?.user_name ||
         "el solicitante";
 
+    const statusId = Number(requisition?.statuses_id);
+    const closedAt = Boolean(requisition?.quotation_closed_at);
+    const isReview = statusId === 14;
+
     return (
         <div className="mb-4">
             <div
@@ -30,13 +34,23 @@ export default function CotizacionClosedNotice({ requisition }) {
 
                 <div className="text-xs text-gray-700 leading-relaxed">
                     <div className="font-semibold text-gray-900">
-                        Recepción finalizada — en espera de selección
+                        {isReview ? "En revisión — en espera de selección" : "Recepción finalizada"}
                     </div>
 
                     <div className="mt-0.5">
-                        Esta cotización está en espera de que{" "}
-                        <span className="font-semibold">{solicitante}</span> seleccione la
-                        mejor opción.{" "}
+                        {isReview ? (
+                        <>
+                            Esta cotización está en espera de que{" "}
+                            <span className="font-semibold">{solicitante}</span> seleccione la
+                            mejor opción.{" "}
+                        </>
+                        ) : (
+                        <>
+                            La recepción fue cerrada. Cuando estés listo, envía a revisión para que{" "}
+                            <span className="font-semibold">{solicitante}</span> seleccione proveedores.{" "}
+                            Si necesitas capturar más datos, puedes reabrir la recepción.
+                        </>
+                        )}
                         <span className="text-gray-600">
                         Compras ya no puede editar ni agregar proveedores.
                         </span>

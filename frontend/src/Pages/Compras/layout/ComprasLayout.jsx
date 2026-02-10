@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Menu, X, ShoppingCart, Archive, LayoutGrid, Users } from "lucide-react";
+import { Menu, X, ShoppingCart, Archive, LayoutGrid, Users, Truck } from "lucide-react";
 
 export default function ComprasLayout() {
     const [open, setOpen] = useState(false);
@@ -10,6 +10,8 @@ export default function ComprasLayout() {
     // --- Usuario ---
     const userStr = localStorage.getItem("usuario");
     const user = userStr ? JSON.parse(userStr) : null;
+    const role = user?.role || "";
+    const isAdmin = role === "compras_admin";
 
     const userName = user ? (user.name || user.user_name || "Compras") : "Compras";
     const userInitial = (userName?.[0] || "C").toUpperCase();
@@ -33,6 +35,14 @@ export default function ComprasLayout() {
             title: "Personal de Compras",
             subtitle: "Gestión de usuarios del departamento",
         },
+        "/compras/proveedores": {
+            title: "Proveedores",
+            subtitle: "Registro y administración de proveedores",
+        },
+        "/compras/orden": {
+            title: "Proceso de Compra",
+            subtitle: "Selección del solicitante y preparación de la orden",
+        },
         }),
         []
     );
@@ -53,6 +63,12 @@ export default function ComprasLayout() {
     useEffect(() => {
         setOpen(false);
     }, [pathname]);
+
+    useEffect(() => {
+        if (!isAdmin && pathname.startsWith("/compras/empleados")) {
+            navigate("/compras/dashboard");
+        }
+    }, [isAdmin, pathname, navigate]);
 
     // --- Bloquear scroll del body cuando el menú está abierto ---
     useEffect(() => {
@@ -110,9 +126,16 @@ export default function ComprasLayout() {
                     Historial OC
                 </NavLink>
 
-                <NavLink to="/compras/empleados" className={linkClass}>
-                    <Users size={20} />
-                    Personal
+                {isAdmin && (
+                    <NavLink to="/compras/empleados" className={linkClass}>
+                        <Users size={20} />
+                        Personal
+                    </NavLink>
+                )}
+
+                <NavLink to="/compras/proveedores" className={linkClass}>
+                    <Truck size={20} />
+                    Proveedores
                 </NavLink>
             </nav>
 

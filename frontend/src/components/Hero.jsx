@@ -66,7 +66,7 @@ export default function Home() {
                         {/* Lista Falsa */}
                         <div className="space-y-3">
                             <div className="flex items-center gap-3 p-2 rounded-lg bg-gray-50">
-                                <div className="h-8 w-8 rounded bg-white border border-gray-200 flex items-center justify-center text-green-600"><FileCheck size={16}/></div>
+                                <div className="h-8 w-8 rounded bg-white border border-gray-200 flex items-center justify-center text-secundario"><FileCheck size={16}/></div>
                                 <div className="flex-1 h-2 bg-gray-300 rounded w-full"></div>
                             </div>
                             <div className="flex items-center gap-3 p-2 rounded-lg bg-gray-50">
@@ -79,7 +79,7 @@ export default function Home() {
                     {/* Tarjeta Secundaria (Decorativa) - SIN MOVIMIENTO */}
                     <div className="absolute -bottom-6 -left-6 bg-white p-4 rounded-xl shadow-xl border border-gray-100 z-30">
                         <div className="flex items-center gap-3">
-                            <div className="bg-green-100 p-2 rounded-full text-green-700">
+                            <div className="bg-secundario/10 p-2 rounded-full text-secundario">
                                 <FileCheck size={20} />
                             </div>
                             <div>

@@ -174,9 +174,7 @@ export default function ListaRequisiciones() {
       }
     } catch (err) {
       console.error(err);
-      toast.error("No se pudo cargar", {
-        description: err?.message || "Intenta de nuevo",
-      });
+      toast.error("No se pudo cargar");
     } finally {
       setLoading(false);
     }
@@ -243,7 +241,7 @@ export default function ListaRequisiciones() {
       setDetail(data);
     } catch (e) {
       console.error(e);
-      toast.error("No se pudo abrir", { description: e?.message || "Intenta de nuevo" });
+      toast.error("No se pudo abrir");
     } finally {
       setDetailLoading(false);
     }

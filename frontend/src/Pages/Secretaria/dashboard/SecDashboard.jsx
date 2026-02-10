@@ -32,10 +32,16 @@ export default function SecDashboard() {
         const fetchData = async () => {
             if (!userId) { if (isMounted) setLoading(false); return; }
             try {
-                const res = await fetch(`http://localhost:4000/api/secretaria/${userId}/recibidas`);
+                const params = new URLSearchParams({
+                    page: "1",
+                    limit: "50",
+                    q: "",
+                    status: "todos",
+                });
+                const res = await fetch(`http://localhost:4000/api/secretaria/${userId}/recibidas?${params.toString()}`);
                 if (res.ok) {
                     const data = await res.json();
-                    if (isMounted) setAllReqs(Array.isArray(data) ? data : []);
+                    if (isMounted) setAllReqs(Array.isArray(data?.rows) ? data.rows : []);
                 } else { if (isMounted) setAllReqs([]); }
             } catch (error) { if (isMounted) setAllReqs([]); } 
             finally { if (isMounted) setLoading(false); }
@@ -48,9 +54,9 @@ export default function SecDashboard() {
     const { pendientes, procesadas, rechazadas } = useMemo(() => {
         const safeReqs = Array.isArray(allReqs) ? allReqs : [];
         return {
-            pendientes: safeReqs.filter(r => r.statuses_id === 9),
-            procesadas: safeReqs.filter(r => r.statuses_id === 12),
-            rechazadas: safeReqs.filter(r => r.statuses_id === 10)
+            pendientes: safeReqs.filter(r => Number(r.statuses_id) === 9),
+            procesadas: safeReqs.filter(r => Number(r.statuses_id) === 12),
+            rechazadas: safeReqs.filter(r => Number(r.statuses_id) === 10)
         };
     }, [allReqs]);
 
@@ -109,8 +115,17 @@ export default function SecDashboard() {
             if (res.ok) {
                 toast.success(type === 'approve' ? "¡Autorizado!" : "Rechazada", { id: toastId });
                 setSelectedReq(null);
-                const refreshRes = await fetch(`http://localhost:4000/api/secretaria/${userId}/recibidas`);
-                if (refreshRes.ok) setAllReqs(await refreshRes.json());
+                const refreshParams = new URLSearchParams({
+                    page: "1",
+                    limit: "50",
+                    q: "",
+                    status: "todos",
+                });
+                const refreshRes = await fetch(`http://localhost:4000/api/secretaria/${userId}/recibidas?${refreshParams.toString()}`);
+                if (refreshRes.ok) {
+                    const data = await refreshRes.json();
+                    setAllReqs(Array.isArray(data?.rows) ? data.rows : []);
+                }
             } else { throw new Error(); }
         } catch (error) { toast.error("Error al procesar", { id: toastId }); }
     };
@@ -143,7 +158,7 @@ export default function SecDashboard() {
             {confirmDialog.isOpen && (
                 <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center transform scale-100 transition-all">
-                        <div className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 ${confirmDialog.type === 'approve' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                        <div className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 ${confirmDialog.type === 'approve' ? 'bg-secundario/10 text-secundario' : 'bg-red-100 text-red-600'}`}>
                             {confirmDialog.type === 'approve' ? <CheckCircle size={24}/> : <XCircle size={24}/>}
                         </div>
                         

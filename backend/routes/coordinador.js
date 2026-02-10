@@ -2,7 +2,9 @@ import express from "express";
 import { 
     getRequisicionesCoordinador, 
     updateEstatusRequisicion, 
-    getRequisicionItems 
+    getRequisicionItems,
+    createRequisicionCoordinador,
+    enviarBorradorCoordinador
 } from "../controllers/coordinadorController.js";
 
 const router = express.Router();
@@ -23,6 +25,18 @@ router.put(
 router.get(
     "/coordinador/requisiciones/:id/items",
     getRequisicionItems
+);
+
+// 4. Crear requisición desde coordinador
+router.post(
+    "/coordinador/requisiciones",
+    createRequisicionCoordinador
+);
+
+// 5. Enviar borrador a Secretaría (7 -> 9)
+router.patch(
+    "/coordinador/requisiciones/:id/enviar",
+    enviarBorradorCoordinador
 );
 
 export default router;

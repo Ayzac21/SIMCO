@@ -36,7 +36,12 @@ export default function Login() {
                 const ureLimpia = rawUre.toString().toUpperCase().trim();
                 const userName = (data.user.user_name || "").toLowerCase();
 
-                // 1. VALIDACIÓN COMPRAS (Doble verificación: por URE o por Usuario)
+                // 1. VALIDACIÓN COMPRAS (por rol o por URE/usuario)
+                if (String(data.user?.role || "").startsWith("compras_")) {
+                    console.log("Redirigiendo a Compras por rol...");
+                    navigate("/compras/dashboard");
+                    return;
+                }
                 if (ureLimpia === "COMPRAS" || userName === "jefe.compras" || userName === "compras") {
                     console.log("Redirigiendo a Compras...");
                     navigate("/compras/dashboard");

@@ -18,6 +18,8 @@ import RevisionCotizacion from "./Pages/Asistente/RevisionCotizacion";
 import CoorDasboard from "./Pages/coordinador/dasboard/CoorDasboard";
 import CoordinadorLayout from "./Pages/coordinador/layout/CoordinadorLayout";
 import Recibidas from "./Pages/coordinador/requisiciones/Recibidas";
+import NuevaRequisicionCoor from "./Pages/coordinador/requisiciones/NuevaRequisicionCoor"; // ✅ NUEVO
+import EditarRequisicionCoor from "./Pages/coordinador/requisiciones/EditarRequisicionCoor";
 
 // --- SECRETARÍA ---
 import SecretariaLayout from "./Pages/Secretaria/layout/SecretariaLayout";
@@ -28,6 +30,10 @@ import SecRecibidas from "./Pages/Secretaria/SecRecibidas";
 import ComprasLayout from "./Pages/Compras/layout/ComprasLayout";
 import ComprasDashboard from "./Pages/Compras/Dashboard/ComprasDashboard";
 import GestionCotizacion from "./Pages/Compras/cotizaciones/GestionCotizacion";
+import ComprasHistorial from "./Pages/Compras/historial/ComprasHistorial";
+import ComprasPersonal from "./Pages/Compras/personal/ComprasPersonal";
+import OrdenCompra from "./Pages/Compras/orden/OrdenCompra";
+import ComprasProveedores from "./Pages/Compras/proveedores/ComprasProveedores";
 
 export default function App() {
   return (
@@ -52,6 +58,8 @@ export default function App() {
       <Route path="/coordinador" element={<CoordinadorLayout />}>
         <Route path="dashboard" element={<CoorDasboard />} />
         <Route path="requisiciones" element={<Recibidas />} />
+        <Route path="requisiciones/nueva" element={<NuevaRequisicionCoor />} /> {/* ✅ NUEVO */}
+        <Route path="requisiciones/editar/:id" element={<EditarRequisicionCoor />} />
       </Route>
 
       {/* Rutas de Secretaría */}
@@ -64,6 +72,10 @@ export default function App() {
       <Route path="/compras" element={<ComprasLayout />}>
         <Route path="dashboard" element={<ComprasDashboard />} />
         <Route path="cotizar/:id" element={<GestionCotizacion />} />
+        <Route path="orden/:id" element={<OrdenCompra />} />
+        <Route path="historial" element={<ComprasHistorial />} />
+        <Route path="empleados" element={<ComprasPersonal />} />
+        <Route path="proveedores" element={<ComprasProveedores />} />
       </Route>
     </Routes>
   );

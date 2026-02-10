@@ -85,10 +85,18 @@ function CuadroComparativo({
   setSelectedByItem,
   isReviewOpen,
 }) {
-  const cols = useMemo(
-    () => (providers || []).filter((p) => p.status === "responded"),
-    [providers]
-  );
+  const cols = useMemo(() => {
+    return (providers || []).filter((p) => {
+      if (p.status === "responded") return true;
+      // si hay precio/desc guardado, mostrar aunque el status no sea responded
+      return items.some((it) => {
+        const row = priceMap[`${it.id}_${p.id}`];
+        const hasPrice = row?.unit_price != null && row?.unit_price !== "";
+        const hasDesc = (row?.offered_description || "").trim().length > 0;
+        return hasPrice || hasDesc;
+      });
+    });
+  }, [providers, items, priceMap]);
 
   // más barata por partida (solo si existe precio)
   const cheapestByItem = useMemo(() => {
@@ -119,6 +127,14 @@ function CuadroComparativo({
     return (
       <div className="bg-white border border-gray-200 rounded-xl p-6 text-sm text-gray-500 text-center">
         No hay partidas para revisar.
+      </div>
+    );
+  }
+  if (!cols.length) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-xl p-6 text-sm text-gray-600 text-center">
+        No hay proveedores con respuesta aún. Cuando exista al menos una
+        cotización, aparecerán aquí para seleccionar.
       </div>
     );
   }
@@ -186,7 +202,7 @@ function CuadroComparativo({
 
                     <div className="mt-2">
                       {selectedProv ? (
-                        <span className="text-[11px] font-bold px-2 py-1 rounded bg-green-50 text-green-700 border border-green-100">
+                        <span className="text-[11px] font-bold px-2 py-1 rounded bg-secundario/10 text-secundario border border-secundario/20">
                           Seleccionado
                         </span>
                       ) : (
@@ -235,7 +251,7 @@ function CuadroComparativo({
                                   </span>
 
                                   {isCheapest && (
-                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-100">
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-secundario/10 text-secundario border border-secundario/20">
                                       Más barata
                                     </span>
                                   )}
@@ -322,9 +338,7 @@ export default function RevisionCotizacion() {
       }
     } catch (e) {
       console.error(e);
-      toast.error("No se pudo cargar la revisión", {
-        description: e?.message || "Intenta de nuevo",
-      });
+      toast.error("No se pudo cargar la revisión");
     } finally {
       setLoading(false);
     }
@@ -373,16 +387,12 @@ export default function RevisionCotizacion() {
   /** ✅ Abre modal */
   const confirmAndSave = () => {
     if (!isReviewOpen) {
-      toast.warning("No editable", {
-        description: "Esta requisición ya no está en revisión (estatus 14).",
-      });
+      toast.warning("No editable");
       return;
     }
 
     if (!canSave) {
-      toast.warning("Falta selección", {
-        description: "Selecciona un proveedor para cada partida.",
-      });
+      toast.warning("Falta selección");
       return;
     }
 
@@ -409,26 +419,15 @@ export default function RevisionCotizacion() {
       if (!resp.ok) throw new Error(data?.message || "Error guardando selección");
 
       if (data?.sent_to_purchase) {
-        toast.success("Selección completa", {
-          description: "Se envió a Compras para realizar el pedido.",
-          duration: 3500,
-        });
+        toast.success("Selección completa");
       } else {
-        toast.success("Selección guardada", {
-          description:
-            typeof data?.missing === "number"
-              ? `Guardado. Faltan ${data.missing} partida(s) por seleccionar.`
-              : data?.message || "Guardado correctamente.",
-          duration: 3500,
-        });
+        toast.success("Selección guardada");
       }
 
       navigate("/unidad/mi-requisiciones");
     } catch (e) {
       console.error(e);
-      toast.error("No se pudo guardar", {
-        description: e?.message || "Intenta de nuevo",
-      });
+      toast.error("No se pudo guardar");
     } finally {
       setSaving(false);
     }

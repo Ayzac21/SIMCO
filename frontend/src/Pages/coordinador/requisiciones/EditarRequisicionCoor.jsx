@@ -1,7 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import PageHeader from "./PageHeader";
 import { toast } from "sonner";
 
 /* ICONO ELIMINAR */
@@ -26,7 +25,7 @@ const Label = ({ children, required }) => (
 const API = "http://localhost:4000/api";
 const PRIMARY = "#8B1D35";
 
-/** ✅ Modal confirmación (inline, con tu estilo) */
+/** Modal confirmación */
 function ConfirmModal({
   open,
   title = "Confirmar",
@@ -83,7 +82,7 @@ function ConfirmModal({
   );
 }
 
-export default function EditarRequisicion() {
+export default function EditarRequisicionCoor() {
   const { id } = useParams();
   const navigate = useNavigate();
 
@@ -99,12 +98,10 @@ export default function EditarRequisicion() {
   const [partidas, setPartidas] = useState([]);
   const [units, setUnits] = useState([]);
 
-  // ✅ Modal enviar
   const [confirmSendOpen, setConfirmSendOpen] = useState(false);
 
   const isBorrador = Number(estatusId) === 7;
 
-  /* ===== FETCH ===== */
   useEffect(() => {
     const fetchAll = async () => {
       try {
@@ -148,7 +145,6 @@ export default function EditarRequisicion() {
     fetchAll();
   }, [id]);
 
-  /* ===== ACCIONES ===== */
   const agregarPartida = () => {
     if (!isBorrador) return;
     setPartidas([
@@ -253,7 +249,6 @@ export default function EditarRequisicion() {
     }
   };
 
-  // ✅ abre modal
   const pedirConfirmacionEnviar = () => {
     if (!isBorrador) {
       toast.warning("No se puede enviar");
@@ -263,7 +258,6 @@ export default function EditarRequisicion() {
     setConfirmSendOpen(true);
   };
 
-  // ✅ confirma modal
   const guardarYEnviar = async () => {
     if (sending || saving) return;
 
@@ -275,7 +269,7 @@ export default function EditarRequisicion() {
     try {
       setSending(true);
 
-      const resp = await fetch(`${API}/requisiciones/${id}/enviar`, {
+      const resp = await fetch(`${API}/coordinador/requisiciones/${id}/enviar`, {
         method: "PATCH",
       });
 
@@ -287,8 +281,8 @@ export default function EditarRequisicion() {
 
       toast.success("Requisición enviada");
 
-      setEstatusId(8);
-      navigate("/unidad/mi-requisiciones");
+      setEstatusId(9);
+      navigate("/coordinador/requisiciones");
     } catch (e) {
       console.error(e);
       toast.error("Error al enviar");
@@ -301,24 +295,17 @@ export default function EditarRequisicion() {
     return <div className="p-10 text-center text-gray-500">Cargando...</div>;
   }
 
-  /* INPUT NEUTRO */
   const inputStyle =
     "w-full p-2.5 border border-gray-300 rounded-md text-gray-700 bg-white " +
     "focus:outline-none focus:border-gray-400 focus:ring-0 transition";
 
   return (
     <>
-      <PageHeader
-        title="Editar Requisición"
-        subtitle="Modifica los detalles de la solicitud existente"
-      />
-
-      {/* ✅ Modal Confirmación Enviar */}
       <ConfirmModal
         open={confirmSendOpen}
         loading={sending}
-        title="Enviar a Coordinación"
-        description="¿Deseas enviar esta requisición a Coordinación? Al confirmar, ya no podrás editar el borrador."
+        title="Enviar a Secretaría"
+        description="¿Deseas enviar esta requisición a Secretaría? Al confirmar, ya no podrás editar el borrador."
         confirmText="Sí, enviar"
         cancelText="Revisar"
         onCancel={() => setConfirmSendOpen(false)}
@@ -328,11 +315,10 @@ export default function EditarRequisicion() {
       <div className="w-full min-h-screen bg-[#F3F4F6] p-6 md:p-10">
         <div className="max-w-7xl mx-auto bg-white rounded-lg shadow-sm border border-gray-200 flex flex-col lg:flex-row overflow-hidden">
 
-          {/* ===== FORMULARIO ===== */}
           <div className="flex-1 p-8 border-r border-gray-100">
             <div className="flex justify-between items-center mb-8 border-b border-gray-100 pb-4">
               <h2 className="text-lg font-bold text-gray-800">
-                Datos de la Solicitud
+                Editar Requisición
               </h2>
               {isBorrador && (
                 <span className="text-xs font-semibold text-orange-600 bg-orange-50 px-2 py-1 rounded border border-orange-100">
@@ -389,9 +375,7 @@ export default function EditarRequisicion() {
             </div>
           </div>
 
-          {/* ===== PARTIDAS ===== */}
           <div className="w-full lg:w-[400px] bg-[#F9FAFB] flex flex-col border-l border-gray-200">
-
             <div className="p-6 border-b border-gray-200">
               <h3 className="text-xs font-bold text-gray-500 uppercase">
                 Resumen de Requisición
@@ -401,7 +385,6 @@ export default function EditarRequisicion() {
               </p>
             </div>
 
-            {/* SCROLL SOLO AQUÍ */}
             <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(100vh-340px)]">
               <AnimatePresence>
                 {partidas.map((p, index) => (
@@ -471,7 +454,6 @@ export default function EditarRequisicion() {
                           ))
                         ) : (
                           <>
-                            {/* fallback visual si no cargó units */}
                             <option value="1">PZA</option>
                             <option value="2">CJA</option>
                           </>
@@ -491,7 +473,6 @@ export default function EditarRequisicion() {
               </button>
             </div>
 
-            {/* ✅ Manteniendo tu diseño: footer con botón grande */}
             <div className="p-6 border-t border-gray-200 bg-white space-y-3">
               <button
                 onClick={() => guardarCambios()}
@@ -501,20 +482,18 @@ export default function EditarRequisicion() {
                 {saving ? "Guardando..." : "Confirmar y Guardar Cambios →"}
               </button>
 
-              {/* ✅ Botón secundario para enviar (solo borrador) */}
               {isBorrador && (
                 <button
                   onClick={pedirConfirmacionEnviar}
                   disabled={saving || sending}
                   className="w-full py-3 font-bold rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
                   style={{ color: PRIMARY }}
-                  title="Enviar a Coordinación"
+                  title="Enviar a Secretaría"
                 >
-                  {sending ? "Enviando..." : "Guardar y Enviar a Coordinación →"}
+                  {sending ? "Enviando..." : "Guardar y Enviar a Secretaría →"}
                 </button>
               )}
             </div>
-
           </div>
         </div>
       </div>

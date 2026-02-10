@@ -7,10 +7,22 @@ import {
 import { toast } from 'sonner';
 import SecModal from "./dashboard/SecModal"; // Usamos tu mismo modal
 
+function AppLoader({ label = "Cargando..." }) {
+    return (
+        <div className="flex-col gap-4 w-full flex items-center justify-center py-8">
+            <div className="w-12 h-12 border-4 border-transparent text-secundario text-4xl animate-spin flex items-center justify-center border-t-secundario rounded-full">
+                <div className="w-8 h-8 border-4 border-transparent text-principal text-2xl animate-spin flex items-center justify-center border-t-principal rounded-full" />
+            </div>
+            <div className="text-xs text-gray-500 mt-1">{label}</div>
+        </div>
+    );
+}
+
 export default function SecRecibidas() {
     // --- ESTADOS ---
     const [allReqs, setAllReqs] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [total, setTotal] = useState(0);
     const [searchTerm, setSearchTerm] = useState("");
     const [statusFilter, setStatusFilter] = useState("todos"); // todos, pendientes, aprobadas, rechazadas
     const [currentPage, setCurrentPage] = useState(1);
@@ -27,52 +39,48 @@ export default function SecRecibidas() {
     const userId = localStorage.getItem("users_id");
 
     // --- CARGAR DATOS ---
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
     const fetchData = async () => {
         if (!userId) return;
         setLoading(true);
+        const t0 = Date.now();
         try {
-            const res = await fetch(`http://localhost:4000/api/secretaria/${userId}/recibidas`);
+            const params = new URLSearchParams({
+                page: String(currentPage),
+                limit: String(itemsPerPage),
+                q: searchTerm.trim(),
+                status: statusFilter,
+            });
+            const res = await fetch(`http://localhost:4000/api/secretaria/${userId}/recibidas?${params.toString()}`);
             if (res.ok) {
                 const data = await res.json();
-                setAllReqs(Array.isArray(data) ? data : []);
+                setAllReqs(Array.isArray(data?.rows) ? data.rows : []);
+                setTotal(Number(data?.total || 0));
             }
         } catch (error) {
             console.error("Error:", error);
+            toast.error("Error al cargar requisiciones");
         } finally {
+            const elapsed = Date.now() - t0;
+            if (elapsed < 600) await sleep(600 - elapsed);
             setLoading(false);
         }
     };
 
     useEffect(() => {
         fetchData();
-    }, [userId]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId, currentPage, statusFilter, searchTerm]);
 
     // --- FILTROS Y BÚSQUEDA ---
-    const filteredReqs = useMemo(() => {
-        return allReqs.filter(req => {
-            // 1. Filtro de Texto (Busca en ID, Proyecto, Solicitante o Unidad)
-            const searchLower = searchTerm.toLowerCase();
-            const matchesSearch = 
-                req.id.toString().includes(searchLower) ||
-                req.request_name.toLowerCase().includes(searchLower) ||
-                req.solicitante.toLowerCase().includes(searchLower) ||
-                (req.nombre_unidad && req.nombre_unidad.toLowerCase().includes(searchLower));
-
-            // 2. Filtro de Estado (Tabs)
-            let matchesStatus = true;
-            if (statusFilter === 'pendientes') matchesStatus = req.statuses_id === 9;
-            if (statusFilter === 'aprobadas') matchesStatus = req.statuses_id === 12;
-            if (statusFilter === 'rechazadas') matchesStatus = req.statuses_id === 10;
-
-            return matchesSearch && matchesStatus;
-        });
-    }, [allReqs, searchTerm, statusFilter]);
+    const filteredReqs = useMemo(() => allReqs, [allReqs]);
 
     // --- PAGINACIÓN ---
-    const totalPages = Math.ceil(filteredReqs.length / itemsPerPage);
+    const totalPages = Math.max(1, Math.ceil(total / itemsPerPage));
     const paginatedReqs = filteredReqs.slice(
-        (currentPage - 1) * itemsPerPage,
-        currentPage * itemsPerPage
+        0,
+        filteredReqs.length
     );
 
     // --- LOGICA DEL MODAL (Abrir detalles) ---
@@ -164,6 +172,12 @@ export default function SecRecibidas() {
                         onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                     />
                 </div>
+                <button
+                    onClick={() => fetchData()}
+                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[#8B1D35] text-white hover:bg-[#72182b] transition-all"
+                >
+                    Recargar
+                </button>
             </div>
 
             {/* 2. PESTAÑAS (TABS) */}
@@ -203,8 +217,8 @@ export default function SecRecibidas() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
-                            {loading ? (
-                                <tr><td colSpan="6" className="p-8 text-center text-gray-400">Cargando datos...</td></tr>
+                    {loading ? (
+                        <tr><td colSpan="6"><AppLoader label="Cargando..." /></td></tr>
                             ) : paginatedReqs.length === 0 ? (
                                 <tr><td colSpan="6" className="p-12 text-center text-gray-400">No se encontraron resultados</td></tr>
                             ) : (
@@ -217,6 +231,11 @@ export default function SecRecibidas() {
                                                 <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-[#8B1D35]/10 text-[#8B1D35] border border-[#8B1D35]/10 flex items-center gap-1">
                                                     <Building2 size={10} /> {req.nombre_unidad || req.ure_solicitante}
                                                 </span>
+                                                {req.coordinacion && req.coordinacion !== "General" && (
+                                                    <span className="text-[10px] text-gray-500 font-semibold">
+                                                        ↳ {req.coordinacion}
+                                                    </span>
+                                                )}
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
@@ -288,7 +307,7 @@ export default function SecRecibidas() {
             {confirmDialog.isOpen && (
                 <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center">
-                        <div className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 ${confirmDialog.type === 'approve' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                        <div className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 ${confirmDialog.type === 'approve' ? 'bg-secundario/10 text-secundario' : 'bg-red-100 text-red-600'}`}>
                             {confirmDialog.type === 'approve' ? <CheckCircle size={24}/> : <XCircle size={24}/>}
                         </div>
                         

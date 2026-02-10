@@ -55,7 +55,7 @@ function badgeByStatus(statusId, statusName) {
       break;
     case 11:
     case 13:
-      cls = "bg-green-50 text-green-700 border-green-200";
+      cls = "bg-secundario/10 text-secundario border-secundario/20";
       break;
     case 14:
       cls = "bg-gray-100 text-gray-700 border-gray-200";
@@ -134,7 +134,7 @@ export default function UreDashboard() {
       setLatest(reqs.slice(0, 5));
     } catch (e) {
       console.error(e);
-      toast.error("Error cargando dashboard", { description: e?.message || "Intenta de nuevo" });
+      toast.error("Error cargando dashboard");
     } finally {
       setLoading(false);
     }
@@ -167,7 +167,7 @@ export default function UreDashboard() {
       setDetail(data);
     } catch (e) {
       console.error(e);
-      toast.error("No se pudo abrir la requisición", { description: e?.message || "Intenta de nuevo" });
+      toast.error("No se pudo abrir la requisición");
     } finally {
       setDetailLoading(false);
     }
