@@ -1,7 +1,6 @@
 import { Routes, Route } from "react-router-dom";
 import Home from "./Pages/Home";
 import Login from "./Pages/login/Login";
-import Dashboard from "./Pages/dashboard/Dashboard";
 
 // --- URE (Solicitante) ---
 import UreLayout from "./Pages/Asistente/layout/UreLayout";
@@ -40,7 +39,6 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
-      <Route path="/dashboard" element={<Dashboard />} />
 
       {/* Rutas de Unidad */}
       <Route path="/unidad" element={<UreLayout />}>

@@ -4,8 +4,10 @@ import { Search, ArrowUpDown, RefreshCw } from "lucide-react";
 import RequisitionModal from "./RequisitionModal";
 import ConfirmModal from "../../../components/ConfirmModal";
 import { toast } from "sonner";
+import { getAuthHeaders } from "../../../api/auth";
+import { API_BASE_URL } from "../../../api/config";
 
-const API = "http://localhost:4000/api";
+const API = API_BASE_URL;
 
 // ✅ util: forzar mínimo visible
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -156,7 +158,9 @@ export default function Recibidas() {
             setLoading(true);
         }
 
-        const res = await fetch(`${API}/coordinador/${storageId}/recibidas`);
+        const res = await fetch(`${API}/coordinador/${storageId}/recibidas`, {
+            headers: getAuthHeaders(),
+        });
         const data = await res.json().catch(() => []);
         if (!res.ok) throw new Error(data?.message || "Error al cargar recibidas");
 
@@ -236,7 +240,9 @@ export default function Recibidas() {
         setLoadingItems(true);
 
         try {
-        const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/items`);
+        const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/items`, {
+            headers: getAuthHeaders(),
+        });
         const data = await res.json().catch(() => []);
         if (!res.ok) throw new Error(data?.message || "Error cargando partidas");
         setItems(Array.isArray(data) ? data : []);
@@ -267,7 +273,7 @@ export default function Recibidas() {
         try {
         const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/estatus`, {
             method: "PUT",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
             body: JSON.stringify({ status_id: 10, comentarios: reason }),
         });
         const data = await res.json().catch(() => ({}));
@@ -307,7 +313,7 @@ export default function Recibidas() {
         try {
             const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/estatus`, {
             method: "PUT",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
             body: JSON.stringify({ status_id: 9, comentarios: "Autorizado por Coordinación" }),
             });
             const data = await res.json().catch(() => ({}));
@@ -329,6 +335,7 @@ export default function Recibidas() {
         try {
             const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/enviar`, {
             method: "PATCH",
+            headers: getAuthHeaders(),
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data?.message || "No se pudo enviar");

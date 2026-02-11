@@ -2,10 +2,16 @@ import { pool } from "../db/connection.js";
 import PDFDocument from "pdfkit";
 import { PDFDocument as PDFLibDocument } from "pdf-lib";
 import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const templatesDir = path.resolve(__dirname, "..", "templates");
 
 const ensureAssignedOrAdmin = async (req, res, requisitionId) => {
   const role = req.user?.role || "";
-  if (role === "compras_admin") return true;
+  if (role === "compras_admin" || role === "compras_lector") return true;
 
   const userId = Number(req.user?.id || 0);
   if (!userId) {
@@ -44,7 +50,7 @@ export const getComprasDashboard = async (req, res) => {
     const status = String(req.query.status || "all");
     const role = req.user?.role || "";
     const assignedTo =
-      role === "compras_admin"
+      role === "compras_admin" || role === "compras_lector"
         ? req.query.assigned_to
           ? Number(req.query.assigned_to)
           : null
@@ -144,6 +150,7 @@ export const getComprasDashboard = async (req, res) => {
         r.notes,
         r.created_at,
         r.statuses_id,
+        r.order_type,
         r.folio,
         r.assigned_operator_id,
         s.name as nombre_estatus,
@@ -273,6 +280,41 @@ export const updateEstatusCompras = async (req, res) => {
     const ok = await ensureAssignedOrAdmin(req, res, id);
     if (!ok) return;
 
+    if (Number(status_id) === 11) {
+      const [rows] = await pool.query(
+        `
+        SELECT
+          qs.provider_id,
+          p.name AS provider_name,
+          m.folio
+        FROM quotation_selections qs
+        LEFT JOIN provider p ON p.id = qs.provider_id
+        LEFT JOIN orden_compra_meta m
+          ON m.requisition_id = qs.requisition_id
+         AND m.provider_id = qs.provider_id
+        WHERE qs.requisition_id = ?
+        GROUP BY qs.provider_id, p.name, m.folio
+        `,
+        [id]
+      );
+
+      if (!rows.length) {
+        return res.status(400).json({
+          message: "No hay proveedores seleccionados para marcar como comprada",
+        });
+      }
+
+      const missing = rows.filter((r) => !String(r.folio || "").trim());
+      if (missing.length) {
+        const names = missing
+          .map((r) => r.provider_name || `ID ${r.provider_id}`)
+          .join(", ");
+        return res.status(400).json({
+          message: `Falta folio para: ${names}`,
+        });
+      }
+    }
+
     const [result] = await pool.query(
       `
       UPDATE requisition
@@ -306,7 +348,7 @@ export const getComprasHistorial = async (req, res) => {
     const status = String(req.query.status || "all");
     const role = req.user?.role || "";
     const assignedTo =
-      role === "compras_admin"
+      role === "compras_admin" || role === "compras_lector"
         ? req.query.assigned_to
           ? Number(req.query.assigned_to)
           : null
@@ -379,6 +421,7 @@ export const getComprasHistorial = async (req, res) => {
         r.notes,
         r.created_at,
         r.statuses_id,
+        r.order_type,
         s.name as nombre_estatus,
         u.name as solicitante,
         COALESCE(NULLIF(TRIM(ho.name), ''), NULLIF(TRIM(c2.name), ''), u.ure) as nombre_unidad,
@@ -427,7 +470,7 @@ export const getComprasHistorialReport = async (req, res) => {
     const includeItems = String(req.query.include_items || "0") === "1";
     const role = req.user?.role || "";
     const assignedTo =
-      role === "compras_admin"
+      role === "compras_admin" || role === "compras_lector"
         ? req.query.assigned_to
           ? Number(req.query.assigned_to)
           : null
@@ -856,6 +899,7 @@ export const getOrdenCompraPdf = async (req, res) => {
         r.created_at,
         r.statuses_id,
         r.folio,
+        r.order_type,
         u.name as solicitante,
         u.ure as ure_solicitante,
         COALESCE(NULLIF(TRIM(ho.name), ''), NULLIF(TRIM(c2.name), ''), u.ure) as nombre_unidad,
@@ -961,9 +1005,46 @@ export const getOrdenCompraPdf = async (req, res) => {
     );
     const provider = provRows?.[0] || {};
 
+    const [metaRows] = await pool.query(
+      `
+      SELECT folio, oc_incluir_iva, oc_iva_porcentaje
+      FROM orden_compra_meta
+      WHERE requisition_id = ? AND provider_id = ?
+      LIMIT 1
+      `,
+      [id, providerId]
+    );
+    const meta = metaRows?.[0] || {};
+    const folioValue = meta.folio ?? requisition.folio ?? null;
+    const incluirIvaMeta = meta.oc_incluir_iva ?? 0;
+    const ivaPctMeta = meta.oc_iva_porcentaje ?? 0;
+    const orderType =
+      String(requisition.order_type || "compra").toLowerCase() === "servicio"
+        ? "servicio"
+        : "compra";
+
+    const resolveTemplatePath = async (envPath, fallbackPath) => {
+      if (envPath) {
+        try {
+          await fs.access(envPath);
+          return envPath;
+        } catch {
+          // fallback to bundled template
+        }
+      }
+      return fallbackPath;
+    };
+
     const templatePath =
-      process.env.ORDEN_SERVICIO_TEMPLATE ||
-      "/Users/umi/Documents/UDG/ORDEN DE SERVICIO NUEVA.pdf";
+      orderType === "servicio"
+        ? await resolveTemplatePath(
+            process.env.ORDEN_SERVICIO_TEMPLATE,
+            path.join(templatesDir, "ORDEN_DE_SERVICIO.pdf")
+          )
+        : await resolveTemplatePath(
+            process.env.ORDEN_COMPRA_TEMPLATE,
+            path.join(templatesDir, "ORDEN_DE_COMPRA.pdf")
+          );
 
     const templateBytes = await fs.readFile(templatePath);
     const outputDoc = await PDFLibDocument.create();
@@ -997,20 +1078,6 @@ export const getOrdenCompraPdf = async (req, res) => {
       } catch {}
     };
 
-    const [metaRows] = await pool.query(
-      `
-      SELECT folio, oc_incluir_iva, oc_iva_porcentaje
-      FROM orden_compra_meta
-      WHERE requisition_id = ? AND provider_id = ?
-      LIMIT 1
-      `,
-      [id, providerId]
-    );
-    const meta = metaRows?.[0] || {};
-    const folioValue = meta.folio ?? requisition.folio ?? null;
-    const incluirIvaMeta = meta.oc_incluir_iva ?? 0;
-    const ivaPctMeta = meta.oc_iva_porcentaje ?? 0;
-
     const common = {
       "NUMERO": folioValue ? String(folioValue) : String(requisition.id),
       "FECHA DE ELABORACION": formatDate(new Date()),
@@ -1020,8 +1087,8 @@ export const getOrdenCompraPdf = async (req, res) => {
       "PROGRAMA": "",
       "CÓDIGO DE URERow1": requisition.ure_solicitante || "",
       "ENTIDAD o DEPENDENCIA SOLICITANTERow1": requisition.nombre_unidad || requisition.ure_solicitante || "",
-      "TELEFONO DE LA DEPENDENCIA": "",
-      "DOMICILIO DE LA DEPENDENCIA": "",
+      "TELEFONO DE LA DEPENDENCIA": "3787828033",
+      "DOMICILIO DE LA DEPENDENCIA": "Av. Rafael Casillas Aceves #1200, Col. Popotes, Tepatitlan de Morelos, Jalisco C.P 47620",
       "PROVEEDOR": provider.name || "",
       "RFC": provider.rfc || "",
       "FAX/EMAIL": provider.email || "",
@@ -1166,6 +1233,32 @@ export const getOrdenCompraMeta = async (req, res) => {
     res.json(rows);
   } catch (error) {
     console.error("Error getOrdenCompraMeta:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const updateOrdenCompraType = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ok = await ensureAssignedOrAdmin(req, res, id);
+    if (!ok) return;
+
+    const { order_type } = req.body || {};
+    const safeType =
+      String(order_type || "compra").toLowerCase() === "servicio" ? "servicio" : "compra";
+
+    await pool.query(
+      `
+      UPDATE requisition
+      SET order_type = ?
+      WHERE id = ?
+      `,
+      [safeType, id]
+    );
+
+    res.json({ message: "Tipo de orden actualizado" });
+  } catch (error) {
+    console.error("Error updateOrdenCompraType:", error);
     res.status(500).json({ message: "Error interno" });
   }
 };
@@ -1452,14 +1545,14 @@ export const getAllProviders = async (req, res) => {
     const like = `%${q}%`;
 
     const sql = `
-      SELECT p.id, p.name, p.email, p.rfc
+      SELECT p.id, p.name, p.razon_social, p.email, p.rfc
       FROM provider p
       WHERE p.statuses_id IN (1, 3, 5)
-        AND (p.name LIKE ? OR p.email LIKE ? OR p.rfc LIKE ?)
+        AND (p.name LIKE ? OR p.razon_social LIKE ? OR p.email LIKE ? OR p.rfc LIKE ?)
       ORDER BY p.name ASC
       LIMIT 200
     `;
-    const [rows] = await pool.query(sql, [like, like, like]);
+    const [rows] = await pool.query(sql, [like, like, like, like]);
     res.json(rows);
   } catch (error) {
     console.error("Error getAllProviders:", error);
@@ -1479,8 +1572,8 @@ export const getProvidersAdmin = async (req, res) => {
     const where = ["1=1"];
     const params = [];
     if (q) {
-      where.push("(p.name LIKE ? OR p.email LIKE ? OR p.rfc LIKE ?)");
-      params.push(like, like, like);
+      where.push("(p.name LIKE ? OR p.razon_social LIKE ? OR p.email LIKE ? OR p.rfc LIKE ?)");
+      params.push(like, like, like, like);
     }
     if (status !== "all") {
       where.push("p.statuses_id = ?");
@@ -1489,7 +1582,7 @@ export const getProvidersAdmin = async (req, res) => {
 
     const [rows] = await pool.query(
       `
-      SELECT p.id, p.name, p.email, p.rfc, p.statuses_id, p.address
+      SELECT p.id, p.name, p.razon_social, p.email, p.rfc, p.statuses_id, p.address
       FROM provider p
       WHERE ${where.join(" AND ")}
       ORDER BY p.name ASC
@@ -1558,6 +1651,7 @@ export const createProvider = async (req, res) => {
   try {
     const {
       name,
+      razon_social = null,
       email = null,
       rfc,
       address = null,
@@ -1567,6 +1661,7 @@ export const createProvider = async (req, res) => {
     } = req.body || {};
 
     const cleanName = String(name || "").trim();
+    const cleanRazon = razon_social ? String(razon_social).trim() : null;
     const cleanEmail = email ? String(email).trim() : null;
     const cleanAddress = address ? String(address).trim() : null;
     const cleanRfc = String(rfc || "").trim().toUpperCase();
@@ -1606,10 +1701,10 @@ export const createProvider = async (req, res) => {
 
     const [insert] = await conn.query(
       `
-      INSERT INTO provider (name, email, rfc, statuses_id, address)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO provider (name, razon_social, email, rfc, statuses_id, address)
+      VALUES (?, ?, ?, ?, ?, ?)
       `,
-      [cleanName, cleanEmail, cleanRfc, Number(statuses_id), cleanAddress]
+      [cleanName, cleanRazon, cleanEmail, cleanRfc, Number(statuses_id), cleanAddress]
     );
 
     const providerId = insert.insertId;
@@ -1657,6 +1752,7 @@ export const updateProvider = async (req, res) => {
 
     const {
       name,
+      razon_social = null,
       email = null,
       rfc,
       address = null,
@@ -1666,6 +1762,7 @@ export const updateProvider = async (req, res) => {
     } = req.body || {};
 
     const cleanName = String(name || "").trim();
+    const cleanRazon = razon_social ? String(razon_social).trim() : null;
     const cleanEmail = email ? String(email).trim() : null;
     const cleanAddress = address ? String(address).trim() : null;
     const cleanRfc = String(rfc || "").trim().toUpperCase();
@@ -1719,11 +1816,12 @@ export const updateProvider = async (req, res) => {
     await conn.query(
       `
       UPDATE provider
-      SET name = ?, email = ?, rfc = ?, statuses_id = ?, address = ?
+      SET name = ?, razon_social = ?, email = ?, rfc = ?, statuses_id = ?, address = ?
       WHERE id = ?
       `,
       [
         cleanName,
+        cleanRazon,
         cleanEmail,
         cleanRfc,
         Number(statuses_id),

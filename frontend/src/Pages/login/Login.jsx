@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import React, { useState } from "react";
+import { API_BASE_URL } from "../../api/config";
 
 export default function Login() {
     const [user_name, setUserName] = useState("");
@@ -15,7 +16,7 @@ export default function Login() {
         setMensaje("");
 
         try {
-            const response = await fetch("http://localhost:4000/api/login", {
+            const response = await fetch(`${API_BASE_URL}/login`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ user_name, password }),
@@ -29,6 +30,9 @@ export default function Login() {
                 console.log("URE recibida:", data.user.ure);
 
                 localStorage.setItem("usuario", JSON.stringify(data.user));
+                if (data.token) {
+                    localStorage.setItem("token", data.token);
+                }
                 localStorage.setItem("users_id", data.user.id);
                 
                 // Normalizamos la URE para evitar errores de mayúsculas/espacios
@@ -63,8 +67,9 @@ export default function Login() {
                 } 
                 else {
                     // Si cae aquí es porque no cumplió ninguna condición anterior
-                    console.log("No se reconoció perfil, enviando a default.");
-                    navigate("/dashboard");
+                    console.log("No se reconoció perfil.");
+                    setMensaje("Perfil no reconocido. Contacta al administrador.");
+                    navigate("/login");
                 }
 
             } else {
@@ -128,7 +133,12 @@ export default function Login() {
                 </form>
 
                 {mensaje && (
-                    <p className="mt-4 text-center font-medium text-red-600 bg-red-50 p-2 rounded">{mensaje}</p>
+                    <div className="mt-4 text-center bg-red-50 p-3 rounded border border-red-100">
+                        <p className="font-medium text-red-600">{mensaje}</p>
+                        <p className="text-[11px] text-red-500 mt-1">
+                            Si el problema persiste, solicita asignación de perfil o URE válida.
+                        </p>
+                    </div>
                 )}
             </div>
         </div>

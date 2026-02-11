@@ -3,15 +3,18 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, FileText, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import ConfirmModal from "../../../components/ConfirmModal";
+import { API_BASE_URL } from "../../../api/config";
 
-const API_URL = "http://localhost:4000/api/compras";
+const API_URL = `${API_BASE_URL}/compras`;
 
 const getAuthHeaders = () => {
   const userStr = localStorage.getItem("usuario");
   const user = userStr ? JSON.parse(userStr) : null;
+  const token = localStorage.getItem("token");
   return {
     "x-user-id": String(user?.id || ""),
     "x-user-role": String(user?.role || ""),
+    Authorization: token ? `Bearer ${token}` : "",
   };
 };
 
@@ -24,6 +27,9 @@ const money = (v) => {
 export default function OrdenCompra() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const userStr = localStorage.getItem("usuario");
+  const user = userStr ? JSON.parse(userStr) : null;
+  const isReader = user?.role === "compras_lector";
 
   const [loading, setLoading] = useState(true);
   const [requisition, setRequisition] = useState(null);
@@ -40,6 +46,8 @@ export default function OrdenCompra() {
   const [downloading, setDownloading] = useState(false);
   const [savingMeta, setSavingMeta] = useState(false);
   const [metaByProvider, setMetaByProvider] = useState({});
+  const [orderType, setOrderType] = useState("compra");
+  const [savingType, setSavingType] = useState(false);
 
   const loadData = async () => {
     try {
@@ -61,6 +69,13 @@ export default function OrdenCompra() {
           last_selection_at: null,
         }
       );
+      if (data.requisition?.order_type) {
+        setOrderType(
+          String(data.requisition.order_type).toLowerCase() === "servicio"
+            ? "servicio"
+            : "compra"
+        );
+      }
 
       const metaResp = await fetch(`${API_URL}/orden/${id}/meta`, {
         headers: getAuthHeaders(),
@@ -128,6 +143,16 @@ export default function OrdenCompra() {
   const handleMarkCompleted = async () => {
     if (saving) return;
     try {
+      const missing = providersList.filter((p) => {
+        const meta = metaByProvider[p.id] || {};
+        return !String(meta.folio || "").trim();
+      });
+      if (missing.length) {
+        const names = missing.map((p) => p.name || `ID ${p.id}`).join(", ");
+        toast.error(`Falta folio para: ${names}`);
+        return;
+      }
+
       setSaving(true);
       const resp = await fetch(`${API_URL}/requisiciones/${id}/estatus`, {
         method: "PUT",
@@ -150,6 +175,16 @@ export default function OrdenCompra() {
   const handleDownloadPdf = async (providerId) => {
     if (downloading) return;
     try {
+      if (providerId) {
+        const meta = metaByProvider[providerId] || {};
+        if (!String(meta.folio || "").trim()) {
+          const name =
+            providersList.find((p) => Number(p.id) === Number(providerId))?.name ||
+            `ID ${providerId}`;
+          toast.error(`Falta folio para: ${name}`);
+          return;
+        }
+      }
       setDownloading(true);
       const params = providerId ? `?provider_id=${encodeURIComponent(providerId)}` : "";
       const resp = await fetch(`${API_URL}/orden/${id}/pdf${params}`, {
@@ -165,6 +200,27 @@ export default function OrdenCompra() {
       toast.error(e?.message || "No se pudo generar el PDF");
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleSaveType = async () => {
+    if (savingType) return;
+    try {
+      setSavingType(true);
+      const resp = await fetch(`${API_URL}/orden/${id}/type`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ order_type: orderType }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data?.message || "Error al guardar");
+      toast.success("Tipo de orden guardado");
+      setOrderType(orderType);
+    } catch (e) {
+      console.error(e);
+      toast.error(e?.message || "No se pudo guardar");
+    } finally {
+      setSavingType(false);
     }
   };
 
@@ -261,7 +317,7 @@ export default function OrdenCompra() {
               title="Descargar orden"
             >
               <FileText size={14} />
-              {downloading ? "GENERANDO..." : "ORDEN DE COMPRA"}
+              {downloading ? "GENERANDO..." : orderType === "servicio" ? "ORDEN DE SERVICIO" : "ORDEN DE COMPRA"}
             </button>
           ) : (
             <div className="flex flex-col gap-2">
@@ -287,14 +343,16 @@ export default function OrdenCompra() {
           )}
           <button
             onClick={() => setConfirmOpen(true)}
-            disabled={!summary.is_complete}
+            disabled={!summary.is_complete || isReader}
             className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm ${
-              summary.is_complete
+              summary.is_complete && !isReader
                 ? "bg-[#8B1D35] hover:bg-[#72182b] text-white"
                 : "bg-gray-200 text-gray-500 cursor-not-allowed"
             }`}
             title={
-              summary.is_complete
+              isReader
+                ? "Solo lectura"
+                : summary.is_complete
                 ? "Marcar como comprada"
                 : "Faltan partidas por seleccionar"
             }
@@ -363,6 +421,29 @@ export default function OrdenCompra() {
             <FileText size={16} className="text-[#8B1D35]" />
             Datos de orden
           </h2>
+          <div className="mb-4 border border-gray-200 rounded-lg p-3 bg-white">
+            <label className="text-[10px] font-bold text-gray-500 uppercase">Tipo de orden</label>
+            <div className="mt-1 flex items-center gap-2">
+              <select
+                value={orderType}
+                onChange={(e) => setOrderType(e.target.value)}
+                className="px-3 py-2 border rounded-lg text-sm bg-white border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
+                disabled={isReader}
+              >
+                <option value="compra">Compra</option>
+                <option value="servicio">Servicio</option>
+              </select>
+              <button
+                onClick={handleSaveType}
+                disabled={savingType || isReader}
+                className={`px-3 py-2 rounded-lg text-xs font-bold ${
+                  savingType || isReader ? "bg-gray-200 text-gray-500" : "bg-[#8B1D35] text-white hover:bg-[#72182b]"
+                }`}
+              >
+                {savingType ? "GUARDANDO..." : isReader ? "SOLO LECTURA" : "GUARDAR"}
+              </button>
+            </div>
+          </div>
           {providersList.length === 0 ? (
             <div className="text-xs text-gray-500">No hay proveedores seleccionados.</div>
           ) : (
@@ -394,6 +475,7 @@ export default function OrdenCompra() {
                           }
                           className="mt-1 w-full px-3 py-2 border rounded-lg text-sm bg-white border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
                           placeholder="Número de orden"
+                          disabled={isReader}
                         />
                       </div>
                       <label className="flex items-center gap-2 text-xs font-semibold text-gray-700">
@@ -407,6 +489,7 @@ export default function OrdenCompra() {
                             }))
                           }
                           className="accent-[#8B1D35]"
+                          disabled={isReader}
                         />
                         Incluir IVA
                       </label>
@@ -424,18 +507,18 @@ export default function OrdenCompra() {
                             }))
                           }
                           className="w-24 px-3 py-2 border rounded-lg text-sm bg-white border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
-                          disabled={!meta.oc_incluir_iva}
+                          disabled={!meta.oc_incluir_iva || isReader}
                         />
                         <span className="text-xs text-gray-500">%</span>
                       </div>
                       <button
                         onClick={() => handleSaveMeta(p.id)}
-                        disabled={savingMeta}
+                        disabled={savingMeta || isReader}
                         className={`w-full px-3 py-2 rounded-lg text-xs font-bold ${
-                          savingMeta ? "bg-gray-200 text-gray-500" : "bg-[#8B1D35] text-white hover:bg-[#72182b]"
+                          savingMeta || isReader ? "bg-gray-200 text-gray-500" : "bg-[#8B1D35] text-white hover:bg-[#72182b]"
                         }`}
                       >
-                        {savingMeta ? "GUARDANDO..." : "GUARDAR DATOS"}
+                        {savingMeta ? "GUARDANDO..." : isReader ? "SOLO LECTURA" : "GUARDAR DATOS"}
                       </button>
                     </div>
                   </div>

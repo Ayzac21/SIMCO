@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
+import { getAuthHeaders } from "../../../api/auth";
+import { API_BASE_URL } from "../../../api/config";
 
 /* ICONO ELIMINAR */
 const IconTrash = () => (
@@ -22,7 +24,7 @@ const Label = ({ children, required }) => (
   </label>
 );
 
-const API = "http://localhost:4000/api";
+const API = API_BASE_URL;
 const PRIMARY = "#8B1D35";
 
 /** Modal confirmación */
@@ -108,8 +110,8 @@ export default function EditarRequisicionCoor() {
         setLoading(true);
 
         const [resReq, resUnits] = await Promise.all([
-          fetch(`${API}/requisiciones/${id}`),
-          fetch(`${API}/units`),
+          fetch(`${API}/requisiciones/${id}`, { headers: getAuthHeaders() }),
+          fetch(`${API}/units`, { headers: getAuthHeaders() }),
         ]);
 
         const dataReq = await resReq.json().catch(() => ({}));
@@ -220,7 +222,7 @@ export default function EditarRequisicionCoor() {
 
       const resp = await fetch(`${API}/requisiciones/${id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({
           request_name: requestName,
           justification,
@@ -271,6 +273,7 @@ export default function EditarRequisicionCoor() {
 
       const resp = await fetch(`${API}/coordinador/requisiciones/${id}/enviar`, {
         method: "PATCH",
+        headers: getAuthHeaders(),
       });
 
       const data = await resp.json().catch(() => ({}));

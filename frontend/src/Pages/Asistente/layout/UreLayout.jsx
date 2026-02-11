@@ -106,6 +106,7 @@ export default function UreLayout() {
             <button
                 onClick={() => {
                 localStorage.removeItem("usuario");
+                localStorage.removeItem("token");
                 window.location.href = "/";
                 }}
                 className="w-full bg-red-800 py-2 rounded-lg font-semibold hover:bg-red-700 transition"

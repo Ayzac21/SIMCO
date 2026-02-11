@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { FileText, Clock3, CheckCircle2, XCircle, ArrowRight, X, User, Info } from "lucide-react";
+import { getAuthHeaders } from "../../api/auth";
+import { API_BASE_URL } from "../../api/config";
 
-const API = "http://localhost:4000/api";
+const API = API_BASE_URL;
 const PRIMARY = "#8B1D35";
 
 function getUserId() {
@@ -106,8 +108,8 @@ export default function UreDashboard() {
       setLoading(true);
 
       const [statsRes, listRes] = await Promise.all([
-        fetch(`${API}/requisiciones/dashboard/${usersId}/stats`),
-        fetch(`${API}/requisiciones/mis-requisiciones/${usersId}`),
+        fetch(`${API}/requisiciones/dashboard/${usersId}/stats`, { headers: getAuthHeaders() }),
+        fetch(`${API}/requisiciones/mis-requisiciones/${usersId}`, { headers: getAuthHeaders() }),
       ]);
 
       const statsData = await statsRes.json().catch(() => ({}));
@@ -160,7 +162,7 @@ export default function UreDashboard() {
     try {
       setDetailLoading(true);
 
-      const resp = await fetch(`${API}/requisiciones/${row.id}`);
+      const resp = await fetch(`${API}/requisiciones/${row.id}`, { headers: getAuthHeaders() });
       const data = await resp.json().catch(() => ({}));
 
       if (!resp.ok) throw new Error(data?.message || "No se pudo cargar la requisición");

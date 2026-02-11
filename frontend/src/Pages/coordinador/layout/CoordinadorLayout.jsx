@@ -109,6 +109,7 @@ export default function CoordinadorLayout() {
                     <button
                         onClick={() => {
                             localStorage.removeItem("usuario");
+                            localStorage.removeItem("token");
                             localStorage.removeItem("users_id");
                             window.location.href = "/";
                         }}

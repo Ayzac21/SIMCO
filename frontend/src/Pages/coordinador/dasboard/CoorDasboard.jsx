@@ -11,8 +11,10 @@ import {
 import RequisitionModal from "../requisiciones/RequisitionModal";
 import ConfirmModal from "../../../components/ConfirmModal";
 import { toast } from "sonner";
+import { getAuthHeaders } from "../../../api/auth";
+import { API_BASE_URL } from "../../../api/config";
 
-const API = "http://localhost:4000/api";
+const API = API_BASE_URL;
 
 // ✅ util: forzar tiempo mínimo de carga
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -103,7 +105,9 @@ export default function CoorDashboard() {
     try {
       setLoading(true);
 
-      const res = await fetch(`${API}/coordinador/${coordinadorId}/recibidas`);
+      const res = await fetch(`${API}/coordinador/${coordinadorId}/recibidas`, {
+        headers: getAuthHeaders(),
+      });
       const data = await res.json().catch(() => []);
       if (!res.ok) throw new Error(data?.message || "Error al cargar datos");
 
@@ -184,7 +188,9 @@ export default function CoorDashboard() {
     const t0 = Date.now();
 
     try {
-      const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/items`);
+      const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/items`, {
+        headers: getAuthHeaders(),
+      });
       const data = await res.json().catch(() => []);
       if (!res.ok) throw new Error(data?.message || "No se pudieron cargar partidas");
 
@@ -239,7 +245,7 @@ export default function CoorDashboard() {
     try {
       const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/estatus`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ status_id: 10, comentarios: reason }),
       });
 
@@ -282,7 +288,7 @@ export default function CoorDashboard() {
       try {
         const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/estatus`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
           body: JSON.stringify({ status_id: 9, comentarios: "Autorizado desde Dashboard" }),
         });
 
@@ -306,6 +312,7 @@ export default function CoorDashboard() {
       try {
         const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/enviar`, {
           method: "PATCH",
+          headers: getAuthHeaders(),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.message || "No se pudo enviar");

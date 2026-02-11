@@ -1,5 +1,7 @@
 import express from "express";
 import { pool } from "../db/connection.js";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
 const router = express.Router();
 
@@ -7,8 +9,6 @@ const router = express.Router();
 router.post("/login", async (req, res) => {
     try {
         const { user_name, password } = req.body;
-
-        console.log("BODY RECIBIDO:", req.body);
 
         // Buscar usuario
         const [rows] = await pool.query(
@@ -26,17 +26,38 @@ router.post("/login", async (req, res) => {
 
         const user = rows[0];
 
-        // Comparación directa (texto plano)
-        if (user.password !== password) {
+        const stored = String(user.password || "");
+        let passwordOk = false;
+        if (stored.startsWith("$2a$") || stored.startsWith("$2b$") || stored.startsWith("$2y$")) {
+            passwordOk = await bcrypt.compare(password, stored);
+        } else {
+            passwordOk = stored === password;
+            if (passwordOk) {
+                const hashed = await bcrypt.hash(password, 10);
+                await pool.query(
+                    `UPDATE users SET password = ? WHERE id = ?`,
+                    [hashed, user.id]
+                );
+            }
+        }
+
+        if (!passwordOk) {
             return res.status(401).json({
                 ok: false,
                 message: "Credenciales inválidas"
             });
         }
 
+        const token = jwt.sign(
+            { id: user.id, role: user.role },
+            process.env.JWT_SECRET || "dev_secret_change_me",
+            { expiresIn: "12h" }
+        );
+
         // Login correcto
         return res.json({
             ok: true,
+            token,
             user: {
                 id: user.id,
                 name: user.name,

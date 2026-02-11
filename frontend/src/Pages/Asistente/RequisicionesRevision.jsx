@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, FileText, Clock } from "lucide-react";
 import { toast } from "sonner";
+import { getAuthHeaders } from "../../api/auth";
+import { API_BASE_URL } from "../../api/config";
 
-const API_URL = "http://localhost:4000/api/asistente";
+const API_URL = `${API_BASE_URL}/asistente`;
 
 export default function RequisicionesRevision() {
     const navigate = useNavigate();
@@ -25,7 +27,9 @@ export default function RequisicionesRevision() {
             return;
         }
 
-        const resp = await fetch(`${API_URL}/revision?user_id=${encodeURIComponent(userId)}`);
+        const resp = await fetch(`${API_URL}/revision?user_id=${encodeURIComponent(userId)}`, {
+            headers: getAuthHeaders(),
+        });
         const data = await resp.json().catch(() => []);
         if (!resp.ok) throw new Error(data?.message || "Error cargando requisiciones");
 

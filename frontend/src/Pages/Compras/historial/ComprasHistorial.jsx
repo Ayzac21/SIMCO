@@ -2,15 +2,18 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Search, FileText, Building2, User, CalendarDays } from "lucide-react";
 import { toast } from "sonner";
 import RequisitionModal from "../requisiciones/RequisitionModal";
+import { API_BASE_URL } from "../../../api/config";
 
-const API = "http://localhost:4000/api/compras/historial";
+const API = `${API_BASE_URL}/compras/historial`;
 
 const getAuthHeaders = () => {
   const userStr = localStorage.getItem("usuario");
   const user = userStr ? JSON.parse(userStr) : null;
+  const token = localStorage.getItem("token");
   return {
     "x-user-id": String(user?.id || ""),
     "x-user-role": String(user?.role || ""),
+    Authorization: token ? `Bearer ${token}` : "",
   };
 };
 

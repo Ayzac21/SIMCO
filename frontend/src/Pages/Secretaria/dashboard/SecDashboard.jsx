@@ -6,6 +6,8 @@ import {
 import { toast } from 'sonner'; 
 import { useNavigate } from "react-router-dom"; 
 import SecModal from "./SecModal"; 
+import { getAuthHeaders } from "../../../api/auth";
+import { API_BASE_URL } from "../../../api/config";
 
 export default function SecDashboard() {
     // --- ESTADO ---
@@ -38,7 +40,9 @@ export default function SecDashboard() {
                     q: "",
                     status: "todos",
                 });
-                const res = await fetch(`http://localhost:4000/api/secretaria/${userId}/recibidas?${params.toString()}`);
+                const res = await fetch(`${API_BASE_URL}/secretaria/${userId}/recibidas?${params.toString()}`, {
+                    headers: getAuthHeaders(),
+                });
                 if (res.ok) {
                     const data = await res.json();
                     if (isMounted) setAllReqs(Array.isArray(data?.rows) ? data.rows : []);
@@ -79,7 +83,9 @@ export default function SecDashboard() {
         setModalItems([]);
         setLoadingItems(true);
         try {
-            const res = await fetch(`http://localhost:4000/api/secretaria/requisiciones/${req.id}/items`);
+            const res = await fetch(`${API_BASE_URL}/secretaria/requisiciones/${req.id}/items`, {
+                headers: getAuthHeaders(),
+            });
             if (res.ok) { 
                 const data = await res.json();
                 setModalItems(Array.isArray(data) ? data : []); 
@@ -107,9 +113,9 @@ export default function SecDashboard() {
             const statusId = type === 'approve' ? 12 : 10;
             const comentarios = type === 'approve' ? "Autorizado por Secretaría" : motivo;
             
-            const res = await fetch(`http://localhost:4000/api/secretaria/requisiciones/${req.id}/estatus`, {
+            const res = await fetch(`${API_BASE_URL}/secretaria/requisiciones/${req.id}/estatus`, {
                 method: "PUT",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", ...getAuthHeaders() },
                 body: JSON.stringify({ status_id: statusId, comentarios })
             });
             if (res.ok) {
@@ -121,7 +127,9 @@ export default function SecDashboard() {
                     q: "",
                     status: "todos",
                 });
-                const refreshRes = await fetch(`http://localhost:4000/api/secretaria/${userId}/recibidas?${refreshParams.toString()}`);
+                const refreshRes = await fetch(`${API_BASE_URL}/secretaria/${userId}/recibidas?${refreshParams.toString()}`, {
+                    headers: getAuthHeaders(),
+                });
                 if (refreshRes.ok) {
                     const data = await refreshRes.json();
                     setAllReqs(Array.isArray(data?.rows) ? data.rows : []);

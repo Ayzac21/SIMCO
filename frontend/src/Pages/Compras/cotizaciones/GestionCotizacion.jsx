@@ -12,15 +12,18 @@ import {
 import { toast } from "sonner";
 import CotizacionClosedNotice from "./CotizacionClosedNotice";
 import ConfirmModal from "../../../components/ConfirmModal";
+import { API_BASE_URL } from "../../../api/config";
 
-const API_URL = "http://localhost:4000/api/compras";
+const API_URL = `${API_BASE_URL}/compras`;
 
 const getAuthHeaders = () => {
     const userStr = localStorage.getItem("usuario");
     const user = userStr ? JSON.parse(userStr) : null;
+    const token = localStorage.getItem("token");
     return {
         "x-user-id": String(user?.id || ""),
         "x-user-role": String(user?.role || ""),
+        Authorization: token ? `Bearer ${token}` : "",
     };
 };
 
@@ -48,9 +51,12 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
     );
     }
 
-    export default function GestionCotizacion() {
+export default function GestionCotizacion() {
     const { id } = useParams(); // requisition_id
     const navigate = useNavigate();
+    const userStr = localStorage.getItem("usuario");
+    const user = userStr ? JSON.parse(userStr) : null;
+    const isReader = user?.role === "compras_lector";
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -203,6 +209,10 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
     }, [invitedProviders, tableSearch, showOnlyResponded, prices, descriptions, items]);
 
     const openModal = () => {
+        if (isReader) {
+        toast.warning("Solo lectura");
+        return;
+        }
         if (isClosed) {
         toast.warning("Recepción finalizada");
         return;
@@ -268,6 +278,10 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
     };
 
     const handleSaveChanges = async () => {
+        if (isReader) {
+        toast.warning("Solo lectura");
+        return;
+        }
         if (isClosed) {
         toast.error("Recepción finalizada. Reabre la recepción para poder guardar.");
         return;
@@ -327,11 +341,16 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
     };
 
     const handleCloseInvites = () => {
+        if (isReader) {
+        toast.warning("Solo lectura");
+        return;
+        }
         if (closing) return;
         setConfirmCloseOpen(true);
     };
 
     const confirmCloseInvites = async () => {
+        if (isReader) return;
         if (closing) return;
         setConfirmCloseOpen(false);
         const toastId = toast.loading("Procesando...");
@@ -358,6 +377,7 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
     };
 
     const confirmSendToReview = async () => {
+        if (isReader) return;
         if (sendingReview) return;
         setConfirmSendOpen(false);
         const toastId = toast.loading("Enviando a revisión...");
@@ -383,6 +403,10 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
     };
 
     const handleReopenReception = async () => {
+        if (isReader) {
+        toast.warning("Solo lectura");
+        return;
+        }
         if (reopening) return;
         const toastId = toast.loading("Reabriendo recepción...");
         try {
@@ -486,11 +510,11 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
 
                 <button
                 onClick={handleSaveChanges}
-                disabled={saving || isClosed}
+                disabled={saving || isClosed || isReader}
                 className={`bg-[#8B1D35] hover:bg-[#72182b] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm transition-colors ${
-                    saving || isClosed ? "opacity-60 cursor-not-allowed hover:bg-[#8B1D35]" : ""
+                    saving || isClosed || isReader ? "opacity-60 cursor-not-allowed hover:bg-[#8B1D35]" : ""
                 }`}
-                title={isClosed ? "Recepción finalizada: no editable" : "Guardar cambios"}
+                title={isReader ? "Solo lectura" : isClosed ? "Recepción finalizada: no editable" : "Guardar cambios"}
                 >
                 <Save size={14} />
                 {saving ? "GUARDANDO..." : "GUARDAR"}
@@ -555,7 +579,7 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
                 </div>
 
                 <div className="flex items-center gap-3">
-                {!isClosed && (
+                {!isClosed && !isReader && (
                     <button
                     onClick={handleCloseInvites}
                     disabled={closing}
@@ -567,7 +591,7 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
                     </button>
                 )}
 
-                {Boolean(requisition?.quotation_closed_at) && Number(requisition?.statuses_id) === 12 && (
+                {Boolean(requisition?.quotation_closed_at) && Number(requisition?.statuses_id) === 12 && !isReader && (
                     <button
                     onClick={handleReopenReception}
                     disabled={reopening}
@@ -579,7 +603,7 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
                     </button>
                 )}
 
-                {Boolean(requisition?.quotation_closed_at) && Number(requisition?.statuses_id) === 12 && (
+                {Boolean(requisition?.quotation_closed_at) && Number(requisition?.statuses_id) === 12 && !isReader && (
                     <button
                     onClick={() => setConfirmSendOpen(true)}
                     disabled={sendingReview}
@@ -593,9 +617,9 @@ function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false 
 
                 <button
                     onClick={openModal}
-                    disabled={isClosed}
+                    disabled={isClosed || isReader}
                     className={`text-xs font-bold ${
-                    isClosed ? "text-gray-400 cursor-not-allowed" : "text-[#8B1D35] hover:underline"
+                    isClosed || isReader ? "text-gray-400 cursor-not-allowed" : "text-[#8B1D35] hover:underline"
                     }`}
                 >
                     Gestionar invitados

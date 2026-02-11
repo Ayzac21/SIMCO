@@ -12,6 +12,7 @@ import comprasRoutes from "./routes/compras.js";
 import asistenteRoutes from "./routes/asistente.js";
 import catalogsRoutes from "./routes/catalogs.js";
 import usersRoutes from "./routes/users.js";
+import { authenticateJWT } from "./middleware/auth.js";
 
 const app = express();
 
@@ -27,6 +28,9 @@ app.get("/", (req, res) => {
 
 // Auth (se queda igual)
 app.use("/api", authRoutes);
+
+// Middleware de auth para el resto de rutas
+app.use("/api", authenticateJWT);
 
 // Catálogos (IMPORTANTE: antes de requisiciones)
 app.use("/api/categories", categoriesRoutes);

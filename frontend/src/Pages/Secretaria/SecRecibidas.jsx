@@ -6,6 +6,8 @@ import {
 } from "lucide-react";
 import { toast } from 'sonner';
 import SecModal from "./dashboard/SecModal"; // Usamos tu mismo modal
+import { getAuthHeaders } from "../../api/auth";
+import { API_BASE_URL } from "../../api/config";
 
 function AppLoader({ label = "Cargando..." }) {
     return (
@@ -52,7 +54,9 @@ export default function SecRecibidas() {
                 q: searchTerm.trim(),
                 status: statusFilter,
             });
-            const res = await fetch(`http://localhost:4000/api/secretaria/${userId}/recibidas?${params.toString()}`);
+            const res = await fetch(`${API_BASE_URL}/secretaria/${userId}/recibidas?${params.toString()}`, {
+                headers: getAuthHeaders(),
+            });
             if (res.ok) {
                 const data = await res.json();
                 setAllReqs(Array.isArray(data?.rows) ? data.rows : []);
@@ -89,7 +93,9 @@ export default function SecRecibidas() {
         setModalItems([]);
         setLoadingItems(true);
         try {
-            const res = await fetch(`http://localhost:4000/api/secretaria/requisiciones/${req.id}/items`);
+            const res = await fetch(`${API_BASE_URL}/secretaria/requisiciones/${req.id}/items`, {
+                headers: getAuthHeaders(),
+            });
             if (res.ok) {
                 const data = await res.json();
                 setModalItems(Array.isArray(data) ? data : []);
@@ -123,9 +129,9 @@ export default function SecRecibidas() {
             const statusId = type === 'approve' ? 12 : 10;
             const comentarios = type === 'approve' ? "Autorizado por Secretaría" : motivo;
             
-            const res = await fetch(`http://localhost:4000/api/secretaria/requisiciones/${req.id}/estatus`, {
+            const res = await fetch(`${API_BASE_URL}/secretaria/requisiciones/${req.id}/estatus`, {
                 method: "PUT",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", ...getAuthHeaders() },
                 body: JSON.stringify({ status_id: statusId, comentarios })
             });
 

@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import ConfirmModal from "../../../components/ConfirmModal";
 import { ChevronDown, FileText, Pencil, ShieldCheck, Power, CheckCircle } from "lucide-react";
+import { API_BASE_URL } from "../../../api/config";
 
-const API_CATEGORIES = "http://localhost:4000/api/categories";
-const API_PROVIDERS_ADMIN = "http://localhost:4000/api/compras/providers/admin";
-const API_PROVIDERS = "http://localhost:4000/api/compras/providers";
+const API_CATEGORIES = `${API_BASE_URL}/categories`;
+const API_PROVIDERS_ADMIN = `${API_BASE_URL}/compras/providers/admin`;
+const API_PROVIDERS = `${API_BASE_URL}/compras/providers`;
 
 const STATUS_OPTIONS = [
   { id: 3, label: "Activo" },
@@ -20,10 +21,12 @@ const PHONE_REGEX = /^[0-9+()\\-\\s]{7,20}$/;
 export default function ComprasProveedores() {
   const userStr = localStorage.getItem("usuario");
   const user = userStr ? JSON.parse(userStr) : null;
+  const token = localStorage.getItem("token");
   const headers = {
     "Content-Type": "application/json",
     "x-user-id": String(user?.id || ""),
     "x-user-role": String(user?.role || ""),
+    Authorization: token ? `Bearer ${token}` : "",
   };
   const [categories, setCategories] = useState([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
@@ -44,8 +47,11 @@ export default function ComprasProveedores() {
   const formRef = useRef(null);
   const nameInputRef = useRef(null);
 
+  const isReader = user?.role === "compras_lector";
+
   const [form, setForm] = useState({
     name: "",
+    razon_social: "",
     email: "",
     rfc: "",
     address: "",
@@ -60,7 +66,7 @@ export default function ComprasProveedores() {
     const load = async () => {
       try {
         setLoadingCategories(true);
-      const res = await fetch(API_CATEGORIES);
+      const res = await fetch(API_CATEGORIES, { headers });
         const data = await res.json();
         setCategories(Array.isArray(data) ? data : []);
       } catch (e) {
@@ -165,6 +171,7 @@ export default function ComprasProveedores() {
       const isEdit = Boolean(editing?.id);
       const payload = {
         name: form.name.trim(),
+        razon_social: form.razon_social.trim() || null,
         email: form.email.trim() || null,
         rfc: form.rfc.trim().toUpperCase(),
         address: form.address.trim() || null,
@@ -185,6 +192,7 @@ export default function ComprasProveedores() {
       toast.success(isEdit ? "Proveedor actualizado" : "Proveedor creado", { id: toastId });
       setForm({
         name: "",
+        razon_social: "",
         email: "",
         rfc: "",
         address: "",
@@ -208,6 +216,7 @@ export default function ComprasProveedores() {
     setEditingOriginalRfc(String(p.rfc || "").trim().toUpperCase());
     setForm({
       name: p.name || "",
+      razon_social: p.razon_social || "",
       email: p.email || "",
       rfc: p.rfc || "",
       address: p.address || "",
@@ -275,6 +284,7 @@ export default function ComprasProveedores() {
     setEditingOriginalRfc("");
     setForm({
       name: "",
+      razon_social: "",
       email: "",
       rfc: "",
       address: "",
@@ -346,6 +356,7 @@ export default function ComprasProveedores() {
 
   return (
     <div className="space-y-8">
+      {!isReader && (
       <section className="bg-white rounded-xl shadow-md border border-gray-200 p-6" ref={formRef}>
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -373,7 +384,18 @@ export default function ComprasProveedores() {
               className="w-full mt-1 p-2 border rounded-md text-sm border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
               value={form.name}
               onChange={(e) => setField("name", e.target.value)}
-              placeholder="Razón social / Nombre comercial"
+              placeholder="Nombre comercial"
+            />
+          </div>
+
+          <div>
+            <label className="text-[11px] font-bold text-gray-500">Razón social</label>
+            <input
+              type="text"
+              className="w-full mt-1 p-2 border rounded-md text-sm border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
+              value={form.razon_social}
+              onChange={(e) => setField("razon_social", e.target.value)}
+              placeholder="Razón social (opcional)"
             />
           </div>
 
@@ -491,6 +513,7 @@ export default function ComprasProveedores() {
           </div>
         </form>
       </section>
+      )}
 
       <section className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
         <div className="flex flex-col md:flex-row md:items-end gap-4 md:justify-between">
@@ -537,7 +560,7 @@ export default function ComprasProveedores() {
             <div className="col-span-3">Proveedor</div>
             <div className="col-span-2">Email</div>
             <div className="col-span-1">Estatus</div>
-            <div className="col-span-2 text-right">Acciones</div>
+            {!isReader && <div className="col-span-2 text-right">Acciones</div>}
           </div>
 
         </div>
@@ -588,6 +611,7 @@ export default function ComprasProveedores() {
                     {STATUS_OPTIONS.find((s) => s.id === Number(p.statuses_id))?.label || p.statuses_id}
                   </span>
                 </div>
+                {!isReader && (
                 <div className="col-span-2 text-right">
                   <div className="relative inline-flex justify-end" data-actions-menu>
                     <button
@@ -654,6 +678,7 @@ export default function ComprasProveedores() {
                     )}
                   </div>
                 </div>
+                )}
               </div>
             ))
           )}
@@ -719,10 +744,14 @@ export default function ComprasProveedores() {
             </div>
             <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm bg-gradient-to-b from-white to-slate-50">
               <div className="md:col-span-1 space-y-3">
-                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="text-[11px] text-slate-500 font-bold uppercase tracking-wide">RFC</div>
-                  <div className="text-gray-800 mt-1">{detailProvider.rfc || "—"}</div>
-                </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="text-[11px] text-slate-500 font-bold uppercase tracking-wide">Razón social</div>
+                <div className="text-gray-800 mt-1">{detailProvider.razon_social || "—"}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="text-[11px] text-slate-500 font-bold uppercase tracking-wide">RFC</div>
+                <div className="text-gray-800 mt-1">{detailProvider.rfc || "—"}</div>
+              </div>
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="text-[11px] text-slate-500 font-bold uppercase tracking-wide">Email</div>
                   <div className="text-gray-800 mt-1 break-words">{detailProvider.email || "—"}</div>

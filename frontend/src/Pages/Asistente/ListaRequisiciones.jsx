@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, ArrowUpDown, X, FileText, Info, User } from "lucide-react";
 import { toast } from "sonner";
+import { getAuthHeaders } from "../../api/auth";
+import { API_BASE_URL } from "../../api/config";
 
-const API = "http://localhost:4000/api";
+const API = API_BASE_URL;
 
 const STATUS_FLOW = [7, 8, 9, 12, 14, 13, 11];
 
@@ -133,7 +135,8 @@ export default function ListaRequisiciones() {
       if (!userId) throw new Error("No se encontró el usuario");
 
       const res = await fetch(
-        `${API}/requisiciones/mis-requisiciones/${userId}`
+        `${API}/requisiciones/mis-requisiciones/${userId}`,
+        { headers: getAuthHeaders() }
       );
       const data = await res.json().catch(() => []);
       if (!res.ok) throw new Error(data?.message || "Error al cargar");
@@ -148,7 +151,9 @@ export default function ListaRequisiciones() {
         const entries = await Promise.all(
           rejected.map(async (r) => {
             try {
-              const rr = await fetch(`${API}/requisiciones/${r.id}`);
+              const rr = await fetch(`${API}/requisiciones/${r.id}`, {
+                headers: getAuthHeaders(),
+              });
               const dd = await rr.json().catch(() => ({}));
               if (!rr.ok) return [r.id, null];
               return [
@@ -235,7 +240,9 @@ export default function ListaRequisiciones() {
 
     try {
       setDetailLoading(true);
-      const res = await fetch(`${API}/requisiciones/${row.id}`);
+      const res = await fetch(`${API}/requisiciones/${row.id}`, {
+        headers: getAuthHeaders(),
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || "No se pudo cargar el detalle");
       setDetail(data);

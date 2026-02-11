@@ -3,17 +3,20 @@ import { useNavigate } from "react-router-dom"; // <--- 1. IMPORTAR ESTO
 import { X, User, FileText, CheckCircle, XCircle, ShoppingBag, Building2, MapPin, Download } from "lucide-react";
 import { toast } from 'sonner';
 import ConfirmModal from "../../../components/ConfirmModal";
+import { API_BASE_URL } from "../../../api/config";
 
-const API_OPERATORS = "http://localhost:4000/api/compras/operators";
-const API_ASSIGN = "http://localhost:4000/api/compras/requisiciones";
-const API_ORDEN_PDF = "http://localhost:4000/api/compras/orden";
+const API_OPERATORS = `${API_BASE_URL}/compras/operators`;
+const API_ASSIGN = `${API_BASE_URL}/compras/requisiciones`;
+const API_ORDEN_PDF = `${API_BASE_URL}/compras/orden`;
 
 const getAuthHeaders = () => {
     const userStr = localStorage.getItem("usuario");
     const user = userStr ? JSON.parse(userStr) : null;
+    const token = localStorage.getItem("token");
     return {
         "x-user-id": String(user?.id || ""),
         "x-user-role": String(user?.role || ""),
+        Authorization: token ? `Bearer ${token}` : "",
     };
 };
 
@@ -39,7 +42,7 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
     useEffect(() => {
         if (req && req.id) {
             setLoadingItems(true);
-            fetch(`http://localhost:4000/api/compras/requisiciones/${req.id}/items`, {
+            fetch(`${API_ASSIGN}/${req.id}/items`, {
                 headers: getAuthHeaders(),
             })
                 .then(res => res.json())

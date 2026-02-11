@@ -2,17 +2,20 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Search, Clock, AlertTriangle, ShoppingCart, FileText, BarChart3, Lightbulb, Briefcase, User } from "lucide-react";
 import { toast } from "sonner";
 import RequisitionModal from "../requisiciones/RequisitionModal";
+import { API_BASE_URL } from "../../../api/config";
 
-const API = "http://localhost:4000/api/compras/dashboard";
-const API_OPERATORS = "http://localhost:4000/api/compras/operators";
-const API_ASSIGN = "http://localhost:4000/api/compras/requisiciones";
+const API = `${API_BASE_URL}/compras/dashboard`;
+const API_OPERATORS = `${API_BASE_URL}/compras/operators`;
+const API_ASSIGN = `${API_BASE_URL}/compras/requisiciones`;
 
 const getAuthHeaders = () => {
     const userStr = localStorage.getItem("usuario");
     const user = userStr ? JSON.parse(userStr) : null;
+    const token = localStorage.getItem("token");
     return {
         "x-user-id": String(user?.id || ""),
         "x-user-role": String(user?.role || ""),
+        Authorization: token ? `Bearer ${token}` : "",
     };
 };
 
@@ -48,7 +51,7 @@ export default function ComprasDashboard() {
             q: q.trim(),
             status: tab,
         });
-        if (isOperator || isReader) {
+        if (isOperator) {
             params.set("assigned_to", String(user?.id || ""));
         }
         const response = await fetch(`${API}?${params.toString()}`, {
@@ -465,11 +468,11 @@ export default function ComprasDashboard() {
                 const toastId = toast.loading("Procesando...");
                 try {
                 const res = await fetch(
-                    `http://localhost:4000/api/compras/requisiciones/${payload.id}/estatus`,
+                    `${API_ASSIGN}/${payload.id}/estatus`,
                     {
-                    method: "PUT",
-                    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-                    body: JSON.stringify({ status_id: 10, comentarios: payload.motivo }),
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+                        body: JSON.stringify({ status_id: 10, comentarios: payload.motivo }),
                     }
                 );
                 if (!res.ok) throw new Error();

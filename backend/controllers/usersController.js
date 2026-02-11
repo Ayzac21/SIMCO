@@ -1,4 +1,5 @@
 import { pool } from "../db/connection.js";
+import bcrypt from "bcryptjs";
 
 const DEFAULT_PASSWORD = "C0mpr@s2026";
 
@@ -64,13 +65,14 @@ export const createUser = async (req, res) => {
     }
 
     const finalPassword = password || DEFAULT_PASSWORD;
+    const hashedPassword = await bcrypt.hash(finalPassword, 10);
 
     const [result] = await pool.query(
       `
       INSERT INTO users (name, user_name, ure, statuses_id, email, password, role)
       VALUES (?, ?, ?, 1, ?, ?, ?)
       `,
-      [name, user_name, isCompras ? null : ure, email, finalPassword, role]
+      [name, user_name, isCompras ? null : ure, email, hashedPassword, role]
     );
 
     res.json({ ok: true, id: result.insertId });
@@ -169,7 +171,7 @@ export const resetUserPassword = async (req, res) => {
       SET password = ?
       WHERE id = ?
       `,
-      [DEFAULT_PASSWORD, id]
+      [await bcrypt.hash(DEFAULT_PASSWORD, 10), id]
     );
 
     if (!result.affectedRows) {

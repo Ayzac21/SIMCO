@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, Info, Save } from "lucide-react";
 import { toast } from "sonner";
+import { getAuthHeaders } from "../../api/auth";
+import { API_BASE_URL } from "../../api/config";
 
-const API = "http://localhost:4000/api";
+const API = API_BASE_URL;
 
 /** ✅ Modal inline (sin archivo extra) */
 function ConfirmModal({
@@ -314,7 +316,9 @@ export default function RevisionCotizacion() {
       setLoading(true);
 
       // ✅ endpoint correcto
-      const resp = await fetch(`${API}/requisiciones/revision/${id}/data`);
+      const resp = await fetch(`${API}/requisiciones/revision/${id}/data`, {
+        headers: getAuthHeaders(),
+      });
       const data = await resp.json().catch(() => ({}));
 
       if (!resp.ok) throw new Error(data?.message || "Error cargando revisión");
@@ -411,7 +415,7 @@ export default function RevisionCotizacion() {
       // ✅ endpoint correcto
       const resp = await fetch(`${API}/requisiciones/revision/${id}/select`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ selections }),
       });
 

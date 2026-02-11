@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { getAuthHeaders } from "../../api/auth";
+import { API_BASE_URL } from "../../api/config";
 
 // --- TUS ICONOS ORIGINALES ---
 const IconSuccess = () => <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>;
@@ -45,8 +47,8 @@ export default function RequisicionesUre() {
         const fetchInitialData = async () => {
             try {
                 const [catRes, unitRes] = await Promise.all([
-                    fetch("http://localhost:4000/api/categories"),
-                    fetch("http://localhost:4000/api/units"),
+                    fetch(`${API_BASE_URL}/categories`, { headers: getAuthHeaders() }),
+                    fetch(`${API_BASE_URL}/units`, { headers: getAuthHeaders() }),
                 ]);
 
                 
@@ -119,9 +121,9 @@ export default function RequisicionesUre() {
         };
 
         try {
-            const res = await fetch("http://localhost:4000/api/requisiciones", {
+            const res = await fetch(`${API_BASE_URL}/requisiciones`, {
                 method: "POST", 
-                headers: { "Content-Type": "application/json" }, 
+                headers: { "Content-Type": "application/json", ...getAuthHeaders() }, 
                 body: JSON.stringify(body),
             });
             const data = await res.json();

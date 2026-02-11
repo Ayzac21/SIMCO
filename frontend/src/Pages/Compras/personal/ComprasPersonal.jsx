@@ -1,12 +1,30 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import ConfirmModal from "../../../components/ConfirmModal";
+import { API_BASE_URL } from "../../../api/config";
 
-const API_CATALOG = "http://localhost:4000/api/catalogs/ures";
-const API_USERS = "http://localhost:4000/api/users";
+const API_CATALOG = `${API_BASE_URL}/catalogs/ures`;
+const API_USERS = `${API_BASE_URL}/users`;
 const DEFAULT_PASSWORD = "C0mpr@s2026";
 
+const getAuthHeaders = () => {
+  const userStr = localStorage.getItem("usuario");
+  const user = userStr ? JSON.parse(userStr) : null;
+  const token = localStorage.getItem("token");
+  return {
+    "x-user-id": String(user?.id || ""),
+    "x-user-role": String(user?.role || ""),
+    Authorization: token ? `Bearer ${token}` : "",
+  };
+};
+
 export default function ComprasPersonal() {
+  const userStr = localStorage.getItem("usuario");
+  const user = userStr ? JSON.parse(userStr) : null;
+  const isAdmin = user?.role === "compras_admin";
+  const navigate = useNavigate();
+
   const [ures, setUres] = useState([]);
   const [loadingUres, setLoadingUres] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -16,7 +34,7 @@ export default function ComprasPersonal() {
   const [confirmAction, setConfirmAction] = useState({ open: false, type: null, user: null });
   const [q, setQ] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all"); // all | 1 | 0
+  const [statusFilter, setStatusFilter] = useState("all"); // all | 1 | 2
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [userNameError, setUserNameError] = useState("");
@@ -59,13 +77,15 @@ export default function ComprasPersonal() {
 
   useEffect(() => {
     const load = async () => {
-      try {
-        setLoadingUres(true);
-        const params = new URLSearchParams({ role: form.role });
-        const res = await fetch(`${API_CATALOG}?${params.toString()}`);
-        const data = await res.json();
-        setUres(Array.isArray(data) ? data : []);
-      } catch (e) {
+    try {
+      setLoadingUres(true);
+      const params = new URLSearchParams({ role: form.role });
+      const res = await fetch(`${API_CATALOG}?${params.toString()}`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      setUres(Array.isArray(data) ? data : []);
+    } catch (e) {
         console.error(e);
         toast.error("Error al cargar UREs");
       } finally {
@@ -78,7 +98,7 @@ export default function ComprasPersonal() {
   const loadUsers = async () => {
     try {
       setLoadingUsers(true);
-      const res = await fetch(API_USERS);
+      const res = await fetch(API_USERS, { headers: getAuthHeaders() });
       const data = await res.json();
       setUsers(Array.isArray(data) ? data : []);
     } catch (e) {
@@ -90,8 +110,13 @@ export default function ComprasPersonal() {
   };
 
   useEffect(() => {
+    if (!isAdmin) {
+      toast.warning("Acceso solo para compras admin");
+      navigate("/compras/dashboard");
+      return;
+    }
     loadUsers();
-  }, []);
+  }, [isAdmin, navigate]);
 
   const setField = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -145,6 +170,10 @@ export default function ComprasPersonal() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (saving) return;
+    if (!isAdmin) {
+      toast.warning("Solo compras admin puede crear o editar usuarios");
+      return;
+    }
     if (!validate()) return;
     setUserNameError("");
     setUreError("");
@@ -152,17 +181,21 @@ export default function ComprasPersonal() {
     try {
       setSaving(true);
       const isEdit = Boolean(editing?.id);
+      const passwordValue = isEdit ? (form.password || "").trim() : form.password || DEFAULT_PASSWORD;
+      const payload = {
+        name: form.name.trim(),
+        user_name: form.user_name.trim(),
+        role: form.role,
+        ure: isComprasRole ? null : form.ure,
+        email: form.email.trim() || null,
+      };
+      if (passwordValue) {
+        payload.password = passwordValue;
+      }
       const res = await fetch(isEdit ? `${API_USERS}/${editing.id}` : API_USERS, {
         method: isEdit ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.name.trim(),
-          user_name: form.user_name.trim(),
-          role: form.role,
-          ure: isComprasRole ? null : form.ure,
-          email: form.email.trim() || null,
-          password: form.password || DEFAULT_PASSWORD,
-        }),
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -201,6 +234,10 @@ export default function ComprasPersonal() {
   };
 
   const startEdit = (u) => {
+    if (!isAdmin) {
+      toast.warning("Solo compras admin puede editar usuarios");
+      return;
+    }
     setEditing(u);
     setUserNameError("");
     setUreError("");
@@ -210,7 +247,7 @@ export default function ComprasPersonal() {
       role: u.role || "head_office",
       ure: u.ure || "",
       email: u.email || "",
-      password: DEFAULT_PASSWORD,
+      password: "",
     });
     toast("Editando usuario...");
     requestAnimationFrame(() => {
@@ -234,11 +271,15 @@ export default function ComprasPersonal() {
   };
 
   const doDeactivate = async (u) => {
+    if (!isAdmin) {
+      toast.warning("Solo compras admin puede desactivar usuarios");
+      return;
+    }
     const toastId = toast.loading("Procesando...");
     try {
       const res = await fetch(`${API_USERS}/${u.id}/status`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ statuses_id: 2 }),
       });
       if (!res.ok) throw new Error();
@@ -250,11 +291,15 @@ export default function ComprasPersonal() {
   };
 
   const doActivate = async (u) => {
+    if (!isAdmin) {
+      toast.warning("Solo compras admin puede activar usuarios");
+      return;
+    }
     const toastId = toast.loading("Procesando...");
     try {
       const res = await fetch(`${API_USERS}/${u.id}/status`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ statuses_id: 1 }),
       });
       if (!res.ok) throw new Error();
@@ -266,10 +311,15 @@ export default function ComprasPersonal() {
   };
 
   const doResetPassword = async (u) => {
+    if (!isAdmin) {
+      toast.warning("Solo compras admin puede resetear contraseñas");
+      return;
+    }
     const toastId = toast.loading("Procesando...");
     try {
       const res = await fetch(`${API_USERS}/${u.id}/reset-password`, {
         method: "PUT",
+        headers: getAuthHeaders(),
       });
       if (!res.ok) throw new Error();
       toast.success("Contraseña reseteada", { id: toastId });
@@ -316,6 +366,7 @@ export default function ComprasPersonal() {
         }}
         onCancel={() => setConfirmAction({ open: false, type: null, user: null })}
       />
+      {isAdmin && (
       <div ref={formRef} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 md:p-8">
         <div className="flex items-center justify-between">
           <div>
@@ -475,7 +526,7 @@ export default function ComprasPersonal() {
             onChange={(e) => setField("password", e.target.value)}
           />
           <p className="text-[11px] text-gray-400 mt-1">
-            Contraseña genérica sugerida.
+            {editing ? "Dejar vacío para no cambiar." : "Contraseña genérica sugerida."}
           </p>
         </div>
 
@@ -490,6 +541,7 @@ export default function ComprasPersonal() {
         </div>
       </form>
       </div>
+      )}
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 md:p-8">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
@@ -526,7 +578,7 @@ export default function ComprasPersonal() {
             >
               <option value="all">Todos</option>
               <option value="1">Activos</option>
-              <option value="0">Inactivos</option>
+              <option value="2">Inactivos</option>
             </select>
             <select
               value={pageSize}
@@ -554,7 +606,7 @@ export default function ComprasPersonal() {
                   <th className="px-3 py-2 text-left">Estado</th>
                   <th className="px-3 py-2 text-left">URE</th>
                   <th className="px-3 py-2 text-left">Email</th>
-                  <th className="px-3 py-2 text-right">Acciones</th>
+                  {isAdmin && <th className="px-3 py-2 text-right">Acciones</th>}
                 </tr>
               </thead>
               <tbody className="divide-y bg-white">
@@ -601,37 +653,39 @@ export default function ComprasPersonal() {
                       </td>
                       <td className="px-3 py-2 text-gray-600">{u.ure || "—"}</td>
                       <td className="px-3 py-2 text-gray-600">{u.email || "—"}</td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            onClick={() => startEdit(u)}
-                            className="px-3 py-1.5 text-[10px] font-bold rounded bg-secundario text-white hover:opacity-90"
-                          >
-                            Editar
-                          </button>
-                          <button
-                            onClick={() => setConfirmAction({ open: true, type: "reset", user: u })}
-                            className="px-3 py-1.5 text-[10px] font-bold rounded bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200"
-                          >
-                            Restablecer
-                          </button>
-                          {Number(u.statuses_id) === 1 ? (
+                      {isAdmin && (
+                        <td className="px-3 py-2 text-right">
+                          <div className="flex justify-end gap-2">
                             <button
-                              onClick={() => setConfirmAction({ open: true, type: "deactivate", user: u })}
-                              className="px-3 py-1.5 text-[10px] font-bold rounded bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
+                              onClick={() => startEdit(u)}
+                              className="px-3 py-1.5 text-[10px] font-bold rounded bg-secundario text-white hover:opacity-90"
                             >
-                              Desactivar
+                              Editar
                             </button>
-                          ) : (
                             <button
-                              onClick={() => setConfirmAction({ open: true, type: "activate", user: u })}
-                              className="px-3 py-1.5 text-[10px] font-bold rounded bg-secundario/10 text-secundario border border-secundario/30 hover:bg-secundario/20"
+                              onClick={() => setConfirmAction({ open: true, type: "reset", user: u })}
+                              className="px-3 py-1.5 text-[10px] font-bold rounded bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200"
                             >
-                              Activar
+                              Restablecer
                             </button>
-                          )}
-                        </div>
-                      </td>
+                            {Number(u.statuses_id) === 1 ? (
+                              <button
+                                onClick={() => setConfirmAction({ open: true, type: "deactivate", user: u })}
+                                className="px-3 py-1.5 text-[10px] font-bold rounded bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
+                              >
+                                Desactivar
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => setConfirmAction({ open: true, type: "activate", user: u })}
+                                className="px-3 py-1.5 text-[10px] font-bold rounded bg-secundario/10 text-secundario border border-secundario/30 hover:bg-secundario/20"
+                              >
+                                Activar
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
               </tbody>

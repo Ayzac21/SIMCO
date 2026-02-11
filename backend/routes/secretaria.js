@@ -4,12 +4,13 @@ import {
     updateEstatusSecretaria,
     getSecretariaItems
 } from '../controllers/secretariaController.js';
+import { requireRoles } from "../middleware/auth.js";
 
 const router = express.Router();
 
-router.get('/secretaria/:id/recibidas', getRequisicionesSecretaria);
+router.get('/secretaria/:id/recibidas', requireRoles("secretaria"), getRequisicionesSecretaria);
 
-router.get('/secretaria/requisiciones/:id/items', getSecretariaItems);
-router.put('/secretaria/requisiciones/:id/estatus', updateEstatusSecretaria);
+router.get('/secretaria/requisiciones/:id/items', requireRoles("secretaria"), getSecretariaItems);
+router.put('/secretaria/requisiciones/:id/estatus', requireRoles("secretaria"), updateEstatusSecretaria);
 
 export default router;
