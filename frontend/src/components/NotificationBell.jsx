@@ -1,0 +1,225 @@
+import React, { useEffect, useRef, useState } from "react";
+import { Bell, CheckCheck, RotateCw } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { getAuthHeaders } from "../api/auth";
+import { API_BASE_URL } from "../api/config";
+
+const API_NOTIFICATIONS = `${API_BASE_URL}/notifications`;
+
+function formatWhen(value) {
+  if (!value) return "";
+  const created = new Date(value).getTime();
+  if (!Number.isFinite(created)) return "";
+  const diff = Date.now() - created;
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "Ahora";
+  if (min < 60) return `Hace ${min} min`;
+  const hrs = Math.floor(min / 60);
+  if (hrs < 24) return `Hace ${hrs} h`;
+  const days = Math.floor(hrs / 24);
+  return `Hace ${days} d`;
+}
+
+function normalizeActionPath(notification) {
+  const base = String(notification?.action_path || "").trim();
+  const reqId = Number(notification?.entity_id || 0);
+  if (!base) return "";
+
+  const isRequisition = String(notification?.entity_type || "") === "requisition";
+  if (!isRequisition || !reqId) return base;
+
+  const hasOpenReq = base.includes("openReq=");
+  if (hasOpenReq) return base;
+
+  if (
+    base.startsWith("/coordinador/requisiciones") ||
+    base.startsWith("/secretaria/recibidas") ||
+    base.startsWith("/unidad/mi-requisiciones") ||
+    base.startsWith("/compras/dashboard")
+  ) {
+    const joiner = base.includes("?") ? "&" : "?";
+    return `${base}${joiner}openReq=${reqId}`;
+  }
+  return base;
+}
+
+export default function NotificationBell() {
+  const navigate = useNavigate();
+  const rootRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [markingAll, setMarkingAll] = useState(false);
+  const [rows, setRows] = useState([]);
+  const [unread, setUnread] = useState(0);
+  const hasAttention = unread > 0 && !open;
+
+  const loadNotifications = async ({ silent = false } = {}) => {
+    try {
+      if (!silent) setLoading(true);
+      const res = await fetch(`${API_NOTIFICATIONS}?limit=12`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error();
+      setRows(Array.isArray(data.rows) ? data.rows : []);
+      setUnread(Number(data.unread || 0));
+    } catch {
+      if (!silent) {
+        setRows([]);
+        setUnread(0);
+      }
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadNotifications();
+    const timer = setInterval(() => loadNotifications({ silent: true }), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const onDocClick = (evt) => {
+      if (!rootRef.current?.contains(evt.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  const markRead = async (id) => {
+    try {
+      await fetch(`${API_NOTIFICATIONS}/${id}/read`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+      });
+      setRows((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: 1 } : n)));
+      setUnread((prev) => Math.max(0, prev - 1));
+    } catch {
+      // noop
+    }
+  };
+
+  const markAllRead = async () => {
+    try {
+      setMarkingAll(true);
+      await fetch(`${API_NOTIFICATIONS}/read-all`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+      });
+      setRows((prev) => prev.map((n) => ({ ...n, is_read: 1 })));
+      setUnread(0);
+    } catch {
+      // noop
+    } finally {
+      setMarkingAll(false);
+    }
+  };
+
+  const onItemClick = async (n) => {
+    if (!Number(n.is_read)) await markRead(n.id);
+    setOpen(false);
+    const target = normalizeActionPath(n);
+    if (target) navigate(target);
+  };
+
+  return (
+    <div className="relative" ref={rootRef}>
+      <style>{`
+        @keyframes notif-wiggle {
+          0%, 100% { transform: rotate(0deg); }
+          20% { transform: rotate(10deg); }
+          40% { transform: rotate(-8deg); }
+          60% { transform: rotate(6deg); }
+          80% { transform: rotate(-4deg); }
+        }
+        .notif-wiggle {
+          animation: notif-wiggle 0.8s ease-in-out infinite;
+          transform-origin: top center;
+        }
+      `}</style>
+      <button
+        type="button"
+        onClick={() => {
+          const next = !open;
+          setOpen(next);
+          if (next) loadNotifications();
+        }}
+        className={`relative p-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition ${
+          hasAttention ? "ring-2 ring-red-200" : ""
+        }`}
+        title={unread > 0 ? `Tienes ${unread} notificación(es)` : "Notificaciones"}
+      >
+        <Bell size={18} className={`text-gray-600 ${hasAttention ? "notif-wiggle" : ""}`} />
+        {unread > 0 && (
+          <>
+            <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center animate-pulse">
+              {unread > 99 ? "99+" : unread}
+            </span>
+            <span className="absolute -top-1 -right-1 min-w-5 h-5 rounded-full bg-red-500/50 animate-ping" />
+          </>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 mt-2 w-[380px] max-w-[92vw] bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+          <div className="px-3 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50">
+            <div>
+              <p className="text-xs font-bold text-gray-700">Notificaciones</p>
+              <p className="text-[11px] text-gray-500">
+                {unread > 0 ? `${unread} pendiente(s)` : "Sin pendientes"}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => loadNotifications()}
+                className="text-[11px] font-semibold text-gray-600 hover:text-gray-800 inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-200 bg-white"
+              >
+                <RotateCw size={12} />
+                Actualizar
+              </button>
+              <button
+                type="button"
+                onClick={markAllRead}
+                disabled={markingAll || unread === 0}
+                className="text-[11px] font-semibold text-gray-600 hover:text-gray-800 inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-200 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <CheckCheck size={14} />
+                {markingAll ? "Marcando..." : "Marcar todo"}
+              </button>
+            </div>
+          </div>
+
+          <div className="max-h-96 overflow-y-auto">
+            {loading ? (
+              <div className="p-4 text-sm text-gray-500">Cargando...</div>
+            ) : rows.length === 0 ? (
+              <div className="p-5 text-sm text-gray-500 text-center">Sin notificaciones.</div>
+            ) : (
+              rows.map((n) => (
+                <button
+                  key={n.id}
+                  type="button"
+                  onClick={() => onItemClick(n)}
+                  className={`w-full text-left px-3 py-3 border-b border-gray-100 hover:bg-gray-50 transition ${
+                    Number(n.is_read) ? "bg-white" : "bg-blue-50/50"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {!Number(n.is_read) && <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0 mt-0.5" />}
+                      <p className="text-xs font-bold text-gray-800 truncate">{n.title}</p>
+                    </div>
+                    <span className="text-[10px] text-gray-400 shrink-0">{formatWhen(n.created_at)}</span>
+                  </div>
+                  <p className="text-[11px] text-gray-600 mt-1 leading-snug pl-4">{n.message}</p>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

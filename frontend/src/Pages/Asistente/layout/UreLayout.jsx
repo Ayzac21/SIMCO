@@ -22,6 +22,10 @@ export default function UreLayout() {
             title: "Nueva Requisición",
             subtitle: "Crear una solicitud nueva",
         },
+        "/unidad/requisiciones/editar": {
+            title: "Editar Requisición",
+            subtitle: "Modifica los detalles de la solicitud existente",
+        },
 
         // ✅ NUEVO (ruta dinámica)
         "/unidad/requisiciones/revision": {
@@ -35,6 +39,9 @@ export default function UreLayout() {
     // ✅ Soporta rutas con :id (startsWith)
     const headerInfo =
         headers[pathname] ||
+        (pathname.startsWith("/unidad/requisiciones/editar/")
+        ? headers["/unidad/requisiciones/editar"]
+        : null) ||
         (pathname.startsWith("/unidad/requisiciones/revision")
         ? headers["/unidad/requisiciones/revision"]
         : null);

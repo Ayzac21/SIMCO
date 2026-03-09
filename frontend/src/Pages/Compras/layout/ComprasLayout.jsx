@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Menu, X, ShoppingCart, Archive, LayoutGrid, Users, Truck } from "lucide-react";
+import { Menu, X, ShoppingCart, Archive, LayoutGrid, Users, Truck, Ruler } from "lucide-react";
+import { canManageUnits } from "../unidades/unitsAccess";
+import NotificationBell from "../../../components/NotificationBell";
 
 export default function ComprasLayout() {
     const [open, setOpen] = useState(false);
@@ -12,6 +14,7 @@ export default function ComprasLayout() {
     const user = userStr ? JSON.parse(userStr) : null;
     const role = user?.role || "";
     const isAdmin = role === "compras_admin";
+    const canAccessUnits = canManageUnits(user);
 
     const userName = user ? (user.name || user.user_name || "Compras") : "Compras";
     const userInitial = (userName?.[0] || "C").toUpperCase();
@@ -38,6 +41,10 @@ export default function ComprasLayout() {
         "/compras/proveedores": {
             title: "Proveedores",
             subtitle: "Registro y administración de proveedores",
+        },
+        "/compras/unidades": {
+            title: "Unidades de Medida",
+            subtitle: "Catálogo de unidades para requisiciones",
         },
         "/compras/orden": {
             title: "Proceso de Compra",
@@ -69,6 +76,12 @@ export default function ComprasLayout() {
             navigate("/compras/dashboard");
         }
     }, [isAdmin, pathname, navigate]);
+
+    useEffect(() => {
+        if (!canAccessUnits && pathname.startsWith("/compras/unidades")) {
+            navigate("/compras/dashboard");
+        }
+    }, [canAccessUnits, pathname, navigate]);
 
     // --- Bloquear scroll del body cuando el menú está abierto ---
     useEffect(() => {
@@ -137,6 +150,13 @@ export default function ComprasLayout() {
                     <Truck size={20} />
                     Proveedores
                 </NavLink>
+
+                {canAccessUnits && (
+                    <NavLink to="/compras/unidades" className={linkClass}>
+                        <Ruler size={20} />
+                        Unidades
+                    </NavLink>
+                )}
             </nav>
 
             <div className="p-4 border-t border-white/20">
@@ -175,6 +195,7 @@ export default function ComprasLayout() {
 
                 {/* Derecha */}
                 <div className="flex items-center gap-3">
+                    <NotificationBell />
                     <div className="text-right hidden md:block">
                     <p className="text-sm font-bold text-gray-800">Hola, {userName}</p>
                     <p className="text-xs text-gray-500 uppercase">

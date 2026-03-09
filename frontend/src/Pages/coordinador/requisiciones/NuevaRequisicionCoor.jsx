@@ -29,6 +29,8 @@ export default function RequisicionesUre() {
 
     const [errors, setErrors] = useState({ 
         nombreReq: false,
+        justificacion: false,
+        observacion: false,
         producto: false, 
         cantidad: false, 
         unidad: false 
@@ -68,9 +70,18 @@ export default function RequisicionesUre() {
 
     // --- NAVEGACIÓN ---
     const irAlPaso2 = () => {
-        if (!nombreReq.trim()) { 
-            setErrors(prev => ({ ...prev, nombreReq: true }));
-            showAlert("El nombre es obligatorio", "error"); 
+        const missingNombre = !nombreReq.trim();
+        const missingJustificacion = !justificacion.trim();
+        const missingObservacion = !observacion.trim();
+
+        if (missingNombre || missingJustificacion || missingObservacion) {
+            setErrors(prev => ({
+                ...prev,
+                nombreReq: missingNombre,
+                justificacion: missingJustificacion,
+                observacion: missingObservacion,
+            }));
+            showAlert("Nombre, justificación y observaciones son obligatorios", "error");
             return; 
         }
         setStep(2);
@@ -108,6 +119,17 @@ export default function RequisicionesUre() {
     const enviarRequisicion = async () => {
         const user = JSON.parse(localStorage.getItem("usuario"));
         if (!user) { showAlert("Sesión expirada", "error"); return; }
+        if (!nombreReq.trim() || !justificacion.trim() || !observacion.trim()) {
+            setErrors(prev => ({
+                ...prev,
+                nombreReq: !nombreReq.trim(),
+                justificacion: !justificacion.trim(),
+                observacion: !observacion.trim(),
+            }));
+            showAlert("Completa nombre, justificación y observaciones", "error");
+            setStep(1);
+            return;
+        }
 
         const body = {
             users_id: user.id,
@@ -135,7 +157,7 @@ export default function RequisicionesUre() {
             } else {
                 showAlert(data.message || "Error", "error");
             }
-        } catch (err) { showAlert("Error de conexión", "error"); }
+        } catch { showAlert("Error de conexión", "error"); }
     };
 
     return (
@@ -216,19 +238,35 @@ export default function RequisicionesUre() {
                                 
                                 <div className="space-y-4">
                                     <div>
-                                        <label className="font-semibold block mb-2 text-gray-700">Justificación</label>
+                                        <label className="font-semibold block mb-2 text-gray-700">Justificación <span className="text-red-500">*</span></label>
                                         <textarea
+                                            placeholder="Describe por qué necesitas esta compra y qué problema resuelve en tu área."
                                             value={justificacion}
-                                            onChange={(e) => setJustificacion(e.target.value)}
-                                            className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-red-100 focus:border-principal transition-all h-24 resize-none"
+                                            onChange={(e) => {
+                                                setJustificacion(e.target.value);
+                                                if (errors.justificacion) setErrors(prev => ({ ...prev, justificacion: false }));
+                                            }}
+                                            className={`w-full p-3 border rounded-lg outline-none focus:ring-2 transition-all h-24 resize-none ${
+                                                errors.justificacion
+                                                    ? 'border-red-500 bg-red-50 focus:ring-red-200'
+                                                    : 'border-gray-300 focus:ring-red-100 focus:border-principal'
+                                            }`}
                                         />
                                     </div>
                                     <div>
-                                        <label className="font-semibold block mb-2 text-gray-700">Observaciones</label>
+                                        <label className="font-semibold block mb-2 text-gray-700">Observaciones <span className="text-red-500">*</span></label>
                                         <textarea
+                                            placeholder="Agrega detalles clave: fecha requerida, lugar de entrega y condiciones importantes."
                                             value={observacion}
-                                            onChange={(e) => setObservacion(e.target.value)}
-                                            className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-red-100 focus:border-principal transition-all h-24 resize-none"
+                                            onChange={(e) => {
+                                                setObservacion(e.target.value);
+                                                if (errors.observacion) setErrors(prev => ({ ...prev, observacion: false }));
+                                            }}
+                                            className={`w-full p-3 border rounded-lg outline-none focus:ring-2 transition-all h-24 resize-none ${
+                                                errors.observacion
+                                                    ? 'border-red-500 bg-red-50 focus:ring-red-200'
+                                                    : 'border-gray-300 focus:ring-red-100 focus:border-principal'
+                                            }`}
                                         />
                                     </div>
                                 </div>

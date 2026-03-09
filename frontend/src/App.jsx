@@ -33,6 +33,8 @@ import ComprasHistorial from "./Pages/Compras/historial/ComprasHistorial";
 import ComprasPersonal from "./Pages/Compras/personal/ComprasPersonal";
 import OrdenCompra from "./Pages/Compras/orden/OrdenCompra";
 import ComprasProveedores from "./Pages/Compras/proveedores/ComprasProveedores";
+import ComprasUnidades from "./Pages/Compras/unidades/ComprasUnidades";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 export default function App() {
   return (
@@ -41,7 +43,14 @@ export default function App() {
       <Route path="/login" element={<Login />} />
 
       {/* Rutas de Unidad */}
-      <Route path="/unidad" element={<UreLayout />}>
+      <Route
+        path="/unidad"
+        element={
+          <ProtectedRoute allowedRoles={["head_office"]}>
+            <UreLayout />
+          </ProtectedRoute>
+        }
+      >
         <Route path="dashboard" element={<UreDashboard />} />
         <Route path="mi-requisiciones" element={<ListaRequisiciones />} />
         <Route path="requisiciones/nueva" element={<RequisicionesUre />} />
@@ -53,7 +62,14 @@ export default function App() {
       </Route>
 
       {/* Rutas de Coordinador */}
-      <Route path="/coordinador" element={<CoordinadorLayout />}>
+      <Route
+        path="/coordinador"
+        element={
+          <ProtectedRoute allowedRoles={["coordinador"]}>
+            <CoordinadorLayout />
+          </ProtectedRoute>
+        }
+      >
         <Route path="dashboard" element={<CoorDasboard />} />
         <Route path="requisiciones" element={<Recibidas />} />
         <Route path="requisiciones/nueva" element={<NuevaRequisicionCoor />} /> {/* ✅ NUEVO */}
@@ -61,19 +77,34 @@ export default function App() {
       </Route>
 
       {/* Rutas de Secretaría */}
-      <Route path="/secretaria" element={<SecretariaLayout />}>
+      <Route
+        path="/secretaria"
+        element={
+          <ProtectedRoute allowedRoles={["secretaria"]}>
+            <SecretariaLayout />
+          </ProtectedRoute>
+        }
+      >
         <Route path="dashboard" element={<SecDashboard />} />
         <Route path="recibidas" element={<SecRecibidas />} />
       </Route>
 
       {/* RUTAS DE COMPRAS */}
-      <Route path="/compras" element={<ComprasLayout />}>
+      <Route
+        path="/compras"
+        element={
+          <ProtectedRoute allowedRoles={["compras_admin", "compras_operador", "compras_lector"]}>
+            <ComprasLayout />
+          </ProtectedRoute>
+        }
+      >
         <Route path="dashboard" element={<ComprasDashboard />} />
         <Route path="cotizar/:id" element={<GestionCotizacion />} />
         <Route path="orden/:id" element={<OrdenCompra />} />
         <Route path="historial" element={<ComprasHistorial />} />
         <Route path="empleados" element={<ComprasPersonal />} />
         <Route path="proveedores" element={<ComprasProveedores />} />
+        <Route path="unidades" element={<ComprasUnidades />} />
       </Route>
     </Routes>
   );

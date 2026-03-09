@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { FileText, Clock3, CheckCircle2, XCircle, ArrowRight, X, User, Info } from "lucide-react";
 import { getAuthHeaders } from "../../api/auth";
 import { API_BASE_URL } from "../../api/config";
+import useEscapeKey from "../../hooks/useEscapeKey";
 
 const API = API_BASE_URL;
 const PRIMARY = "#8B1D35";
@@ -19,8 +20,10 @@ function getUserId() {
       if (u?.id) return Number(u.id);
       if (u?.users_id) return Number(u.users_id);
     }
-  } catch {}
-  return 1;
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function fmtDate(value) {
@@ -82,6 +85,68 @@ function nextStepText(statusId) {
   return "Revisa el detalle.";
 }
 
+function actionConfigByStatus(statusId, id) {
+  const st = Number(statusId);
+  if (st === 7) {
+    return {
+      enabled: true,
+      label: "Editar borrador",
+      hint: "Puedes retomar y enviar la requisición.",
+      to: `/unidad/requisiciones/editar/${id}`,
+    };
+  }
+  if (st === 14) {
+    return {
+      enabled: true,
+      label: "Ir a revisión",
+      hint: "Selecciona proveedor por partida.",
+      to: `/unidad/revision/${id}`,
+    };
+  }
+  if (st === 11) {
+    return {
+      enabled: false,
+      label: "Finalizada",
+      hint: "La compra ya se completó. No hay acciones pendientes.",
+      to: null,
+    };
+  }
+  if (st === 10) {
+    return {
+      enabled: false,
+      label: "Rechazada",
+      hint: "Revisa el motivo para volver a capturar o ajustar.",
+      to: null,
+    };
+  }
+  return {
+    enabled: false,
+    label: "Sin acciones pendientes",
+    hint: "La solicitud sigue su proceso interno.",
+    to: null,
+  };
+}
+
+function emphasisByStatus(statusId) {
+  const st = Number(statusId);
+  if (st === 11) {
+    return {
+      hint: "text-emerald-700",
+      marker: "bg-emerald-50 border-emerald-200 text-emerald-700",
+    };
+  }
+  if (st === 10) {
+    return {
+      hint: "text-red-700",
+      marker: "bg-red-50 border-red-200 text-red-700",
+    };
+  }
+  return {
+    hint: "text-gray-500",
+    marker: "bg-gray-100 border-gray-200 text-gray-700",
+  };
+}
+
 export default function UreDashboard() {
   const navigate = useNavigate();
   const usersId = useMemo(() => getUserId(), []);
@@ -104,6 +169,11 @@ export default function UreDashboard() {
   const [detail, setDetail] = useState(null);
 
   const loadDashboard = async () => {
+    if (!usersId) {
+      setLoading(false);
+      toast.error("Sesión no válida. Vuelve a iniciar sesión.");
+      return;
+    }
     try {
       setLoading(true);
 
@@ -154,6 +224,8 @@ export default function UreDashboard() {
     setDetailLoading(false);
   };
 
+  useEscapeKey(open, closeModal, detailLoading);
+
   const openModal = async (row) => {
     setSelectedRow(row);
     setDetail(null);
@@ -177,15 +249,10 @@ export default function UreDashboard() {
 
   const continuar = () => {
     if (!selectedRow) return;
-
-    const st = Number(selectedRow.statuses_id);
-    const rid = selectedRow.id;
-
+    const action = actionConfigByStatus(selectedRow.statuses_id, selectedRow.id);
+    if (!action.enabled || !action.to) return;
     closeModal();
-
-    if (st === 7) return navigate(`/unidad/requisiciones/editar/${rid}`);
-    if (st === 14) return navigate(`/unidad/revision/${rid}`);
-    return navigate(`/unidad/mi-requisiciones`);
+    navigate(action.to);
   };
 
   const StatCard = ({ label, value, icon, iconBg, helper }) => (
@@ -233,7 +300,14 @@ export default function UreDashboard() {
                       );
                     })()}
 
-                    <span className="text-xs text-gray-600">• {nextStepText(selectedRow.statuses_id)}</span>
+                    {(() => {
+                      const em = emphasisByStatus(selectedRow.statuses_id);
+                      return (
+                        <span className={`text-xs px-2 py-0.5 rounded border ${em.marker}`}>
+                          {nextStepText(selectedRow.statuses_id)}
+                        </span>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -323,17 +397,36 @@ export default function UreDashboard() {
               </div>
 
               <div className="p-5 border-t border-gray-100 flex items-center justify-between gap-3">
+                {(() => {
+                  const action = actionConfigByStatus(selectedRow.statuses_id, selectedRow.id);
+                  const em = emphasisByStatus(selectedRow.statuses_id);
+                  return <div className={`text-xs ${em.hint}`}>{action.hint}</div>;
+                })()}
+              </div>
+
+              <div className="px-5 pb-5 flex items-center justify-between gap-3">
                 <button onClick={closeModal} className="px-4 py-2 rounded-xl text-xs font-extrabold bg-gray-100 hover:bg-gray-200 text-gray-900">
                   Cerrar
                 </button>
 
-                <button
-                  onClick={continuar}
-                  className="px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-sm"
-                  style={{ backgroundColor: PRIMARY }}
-                >
-                  Continuar <ArrowRight size={14} className="inline ml-1" />
-                </button>
+                {(() => {
+                  const action = actionConfigByStatus(selectedRow.statuses_id, selectedRow.id);
+                  return (
+                    <button
+                      onClick={continuar}
+                      disabled={!action.enabled}
+                      className={`px-4 py-2 rounded-xl text-xs font-extrabold shadow-sm inline-flex items-center gap-1 ${
+                        action.enabled
+                          ? "text-white hover:opacity-90"
+                          : "bg-gray-200 text-gray-500 cursor-not-allowed"
+                      }`}
+                      style={action.enabled ? { backgroundColor: PRIMARY } : undefined}
+                    >
+                      {action.label}
+                      {action.enabled ? <ArrowRight size={14} /> : null}
+                    </button>
+                  );
+                })()}
               </div>
             </div>
           </div>

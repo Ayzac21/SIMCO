@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Search, ArrowUpDown, X, FileText, Info, User } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { Search, ArrowUpDown, X, FileText, Info, User, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { getAuthHeaders } from "../../api/auth";
 import { API_BASE_URL } from "../../api/config";
+import useEscapeKey from "../../hooks/useEscapeKey";
 
 const API = API_BASE_URL;
 
@@ -36,6 +37,127 @@ function safeDate(d) {
   } catch {
     return "—";
   }
+}
+
+function statusGuidance(statusId) {
+  const st = Number(statusId);
+  if (st === 7) return "Esta solicitud está en borrador. Puedes editarla y enviarla.";
+  if (st === 8) return "La solicitud está en revisión de Coordinación.";
+  if (st === 9) return "La solicitud está en revisión de Secretaría.";
+  if (st === 10) return "La solicitud fue rechazada. Revisa el motivo para corregirla.";
+  if (st === 12) return "Compras está cotizando con proveedores.";
+  if (st === 13) return "La compra está en proceso. Solo queda esperar cierre.";
+  if (st === 14) return "Ya puedes elegir proveedor por partida.";
+  if (st === 11) return "La compra ya finalizó. Esta solicitud está cerrada.";
+  return "Revisa el detalle de la solicitud.";
+}
+
+function actionConfigByStatus(statusId, id) {
+  const st = Number(statusId);
+  if (st === 7) {
+    return {
+      enabled: true,
+      label: "Editar borrador",
+      hint: "Puedes retomar y enviar tu requisición.",
+      to: `/unidad/requisiciones/editar/${id}`,
+    };
+  }
+  if (st === 14) {
+    return {
+      enabled: true,
+      label: "Ir a revisión",
+      hint: "Selecciona proveedor por cada partida.",
+      to: `/unidad/revision/${id}`,
+    };
+  }
+  if (st === 10) {
+    return {
+      enabled: false,
+      label: "Rechazada",
+      hint: "Consulta el motivo y crea/ajusta una nueva solicitud.",
+      to: null,
+    };
+  }
+  if (st === 11) {
+    return {
+      enabled: false,
+      label: "Finalizada",
+      hint: "Compra concluida. No requiere más acciones.",
+      to: null,
+    };
+  }
+  return {
+    enabled: false,
+    label: "Sin acciones pendientes",
+    hint: "La solicitud sigue su flujo normal.",
+    to: null,
+  };
+}
+
+function emphasisByStatus(statusId) {
+  const st = Number(statusId);
+  if (st === 11) {
+    return {
+      panel: "border-emerald-200 bg-emerald-50",
+      title: "text-emerald-700",
+      text: "text-emerald-800",
+      hint: "text-emerald-700",
+    };
+  }
+  if (st === 10) {
+    return {
+      panel: "border-red-200 bg-red-50",
+      title: "text-red-700",
+      text: "text-red-800",
+      hint: "text-red-700",
+    };
+  }
+  return {
+    panel: "border-gray-200 bg-gray-50",
+    title: "text-gray-700",
+    text: "text-gray-700",
+    hint: "text-gray-500",
+  };
+}
+
+function parseAdjustmentNote(rawNote) {
+  const note = String(rawNote || "").trim();
+  if (!note.startsWith("AJUSTE_")) return null;
+
+  if (note.startsWith("AJUSTE_COORDINACION:")) {
+    return {
+      source: "Coordinación",
+      message: note.replace("AJUSTE_COORDINACION:", "").trim(),
+    };
+  }
+  if (note.startsWith("AJUSTE_SECRETARIA:")) {
+    return {
+      source: "Secretaría",
+      message: note.replace("AJUSTE_SECRETARIA:", "").trim(),
+    };
+  }
+  if (note.startsWith("AJUSTE_COMPRAS:")) {
+    return {
+      source: "Compras",
+      message: note.replace("AJUSTE_COMPRAS:", "").trim(),
+    };
+  }
+  return {
+    source: "Área revisora",
+    message: note.replace(/^AJUSTE_[A-Z_]+:\s*/i, "").trim(),
+  };
+}
+
+function statusBadgeClasses(statusId) {
+  const st = Number(statusId);
+  if (st === 7) return "bg-orange-50 text-orange-800 border-orange-200";
+  if (st === 8) return "bg-yellow-50 text-yellow-700 border-yellow-200";
+  if (st === 9) return "bg-blue-50 text-blue-700 border-blue-200";
+  if (st === 12) return "bg-orange-50 text-orange-700 border-orange-200";
+  if (st === 14) return "bg-gray-100 text-gray-700 border-gray-200";
+  if (st === 13 || st === 11) return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (st === 10) return "bg-red-50 text-red-700 border-red-200";
+  return "bg-gray-100 text-gray-700 border-gray-200";
 }
 
 /** ✅ Barra completa (para LISTA si quieres mantenerla ahí) */
@@ -110,6 +232,7 @@ const CurrentStatus = ({ statusId, statusName }) => {
 
 export default function ListaRequisiciones() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [requisiciones, setRequisiciones] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -233,6 +356,8 @@ export default function ListaRequisiciones() {
     setDetailLoading(false);
   };
 
+  useEscapeKey(open, closeModal, detailLoading);
+
   const openModal = async (row) => {
     setSelected(row);
     setOpen(true);
@@ -254,16 +379,26 @@ export default function ListaRequisiciones() {
     }
   };
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || "");
+    const openReq = Number(params.get("openReq") || 0);
+    if (!openReq) return;
+    if (!requisiciones.length) return;
+
+    const row = requisiciones.find((r) => Number(r.id) === openReq);
+    if (!row) return;
+
+    openModal(row);
+    navigate("/unidad/mi-requisiciones", { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search, requisiciones]);
+
   const continuar = () => {
     if (!selected) return;
-    const st = Number(selected.statuses_id);
-    const id = selected.id;
-
+    const action = actionConfigByStatus(selected.statuses_id, selected.id);
+    if (!action.enabled || !action.to) return;
     closeModal();
-
-    if (st === 7) return navigate(`/unidad/requisiciones/editar/${id}`);
-    if (st === 14) return navigate(`/unidad/revision/${id}`);
-    return navigate(`/unidad/mi-requisiciones`);
+    navigate(action.to);
   };
 
   return (
@@ -305,10 +440,43 @@ export default function ListaRequisiciones() {
               </div>
 
               <div className="p-5 space-y-4">
-                {detailLoading ? (
-                  <div className="text-sm text-gray-500">Cargando detalle...</div>
-                ) : (
-                  <>
+	                {detailLoading ? (
+	                  <div className="text-sm text-gray-500">Cargando detalle...</div>
+	                ) : (
+	                  <>
+	                    {(() => {
+	                      const st = Number(selected.statuses_id);
+	                      const adjustment = parseAdjustmentNote(detail?.notes);
+	                      if (st !== 7 || !adjustment?.message) return null;
+	                      return (
+	                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+	                          <div className="flex items-center gap-2 text-xs font-extrabold text-amber-800 uppercase">
+	                            <AlertTriangle size={14} /> Ajuste solicitado por {adjustment.source}
+	                          </div>
+	                          <div className="text-sm text-amber-900 mt-2">
+	                            {adjustment.message}
+	                          </div>
+	                          <div className="text-xs text-amber-800 mt-2">
+	                            Edita esta requisición y vuelve a enviarla para continuar el proceso.
+	                          </div>
+	                        </div>
+	                      );
+	                    })()}
+
+	                    {(() => {
+	                      const emphasis = emphasisByStatus(selected.statuses_id);
+	                      return (
+                        <div className={`rounded-xl border p-4 ${emphasis.panel}`}>
+                          <div className={`text-xs font-extrabold uppercase tracking-wide ${emphasis.title}`}>
+                            Estado actual
+                          </div>
+                          <div className={`text-sm mt-1 ${emphasis.text}`}>
+                            {statusGuidance(selected.statuses_id)}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     {Number(selected.statuses_id) === 10 && (
                       <div className="rounded-xl border border-red-200 bg-red-50 p-4">
                         <div className="flex items-center gap-2 text-xs font-extrabold text-red-700">
@@ -372,6 +540,18 @@ export default function ListaRequisiciones() {
               </div>
 
               <div className="p-5 border-t border-gray-100 flex items-center justify-between gap-3">
+                {(() => {
+                  const action = actionConfigByStatus(selected.statuses_id, selected.id);
+                  const emphasis = emphasisByStatus(selected.statuses_id);
+                  return (
+                    <div className={`text-xs ${emphasis.hint}`}>
+                      {action.hint}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="px-5 pb-5 flex items-center justify-between gap-3">
                 <button
                   onClick={closeModal}
                   className="px-4 py-2 rounded-xl text-xs font-extrabold bg-gray-100 hover:bg-gray-200 text-gray-800"
@@ -379,12 +559,22 @@ export default function ListaRequisiciones() {
                   Cerrar
                 </button>
 
-                <button
-                  onClick={continuar}
-                  className="px-4 py-2 rounded-xl text-xs font-extrabold bg-secundario text-white shadow-sm hover:opacity-90"
-                >
-                  Continuar
-                </button>
+                {(() => {
+                  const action = actionConfigByStatus(selected.statuses_id, selected.id);
+                  return (
+                    <button
+                      onClick={continuar}
+                      disabled={!action.enabled}
+                      className={`px-4 py-2 rounded-xl text-xs font-extrabold shadow-sm ${
+                        action.enabled
+                          ? "bg-secundario text-white hover:opacity-90"
+                          : "bg-gray-200 text-gray-500 cursor-not-allowed"
+                      }`}
+                    >
+                      {action.label}
+                    </button>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -521,15 +711,15 @@ export default function ListaRequisiciones() {
                     </div>
 
                     <div className="col-span-3">
-                      <div className="text-sm text-gray-800">
-                        Estatus: <b>{req.estatus}</b>
+                      <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-2">
+                        Estatus
                       </div>
+                      <span
+                        className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold border ${statusBadgeClasses(st)}`}
+                      >
+                        {req.estatus || STATUS_LABELS[st] || "Sin estatus"}
+                      </span>
 
-                      <div className="mt-2">
-                        <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-bold bg-gray-100 text-gray-700 border border-gray-200">
-                          Ver
-                        </span>
-                      </div>
                     </div>
 
                     <div className="col-span-2 text-right text-sm text-gray-700">

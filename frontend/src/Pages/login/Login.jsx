@@ -1,6 +1,8 @@
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import React, { useState } from "react";
 import { API_BASE_URL } from "../../api/config";
+import { useContext } from "react";
+import { AuthContext } from "../../context/auth-context";
 
 export default function Login() {
     const [user_name, setUserName] = useState("");
@@ -9,6 +11,7 @@ export default function Login() {
     const [loading, setLoading] = useState(false);
 
     const navigate = useNavigate();
+    const { login } = useContext(AuthContext);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -25,35 +28,44 @@ export default function Login() {
             const data = await response.json();
 
             if (data.ok) {
-                // --- DEBUG: MIRA ESTO EN LA CONSOLA (F12) ---
-                console.log("Usuario logueado:", data.user);
-                console.log("URE recibida:", data.user.ure);
-
                 localStorage.setItem("usuario", JSON.stringify(data.user));
                 if (data.token) {
                     localStorage.setItem("token", data.token);
                 }
                 localStorage.setItem("users_id", data.user.id);
+                login(data.user);
                 
-                // Normalizamos la URE para evitar errores de mayúsculas/espacios
                 const rawUre = data.user.ure || "";
                 const ureLimpia = rawUre.toString().toUpperCase().trim();
                 const userName = (data.user.user_name || "").toLowerCase();
+                const role = String(data.user?.role || "");
 
-                // 1. VALIDACIÓN COMPRAS (por rol o por URE/usuario)
-                if (String(data.user?.role || "").startsWith("compras_")) {
-                    console.log("Redirigiendo a Compras por rol...");
+                if (role.startsWith("compras_")) {
                     navigate("/compras/dashboard");
                     return;
                 }
+
+                if (role === "secretaria") {
+                    navigate("/secretaria/dashboard");
+                    return;
+                }
+
+                if (role === "coordinador") {
+                    navigate("/coordinador/dashboard");
+                    return;
+                }
+
+                if (role === "head_office") {
+                    navigate("/unidad/dashboard");
+                    return;
+                }
+
+                // Fallback por datos legacy (URE/usuario)
                 if (ureLimpia === "COMPRAS" || userName === "jefe.compras" || userName === "compras") {
-                    console.log("Redirigiendo a Compras...");
                     navigate("/compras/dashboard");
                     return;
                 }
 
-                // 2. VALIDACIÓN ACADÉMICA (Contar puntos)
-                // Si la URE no tiene puntos (ej: "0"), split devolverá 1 elemento
                 const niveles = rawUre.includes('.') ? rawUre.split('.').length : 0;
 
                 if (niveles === 3) {
@@ -66,8 +78,6 @@ export default function Login() {
                     navigate("/unidad/dashboard");
                 } 
                 else {
-                    // Si cae aquí es porque no cumplió ninguna condición anterior
-                    console.log("No se reconoció perfil.");
                     setMensaje("Perfil no reconocido. Contacta al administrador.");
                     navigate("/login");
                 }

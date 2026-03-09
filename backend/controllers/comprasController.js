@@ -4,6 +4,7 @@ import { PDFDocument as PDFLibDocument } from "pdf-lib";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createNotification } from "../services/notifications.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -273,8 +274,12 @@ export const updateEstatusCompras = async (req, res) => {
       return res.status(400).json({ message: "Falta status_id" });
     }
 
-    if (Number(status_id) === 10 && req.user?.role !== "compras_admin") {
-      return res.status(403).json({ message: "Solo admin puede rechazar" });
+    if ((Number(status_id) === 10 || Number(status_id) === 7) && req.user?.role !== "compras_admin") {
+      return res.status(403).json({ message: "Solo admin puede ejecutar esta acción" });
+    }
+
+    if ((Number(status_id) === 10 || Number(status_id) === 7) && !String(comentarios || "").trim()) {
+      return res.status(400).json({ message: "Debes incluir comentarios para esta acción" });
     }
 
     const ok = await ensureAssignedOrAdmin(req, res, id);
@@ -1438,6 +1443,23 @@ export const saveCotizacionPrices = async (req, res) => {
       return res.status(400).json({ message: "provider_id inválido" });
     }
 
+    // Compatibilidad sin "invitación por correo":
+    // si llegan proveedores en el cuadro comparativo, se registran en quotation_requests.
+    await Promise.all(
+      providerIdsIncoming.map((providerId) =>
+        pool.query(
+          `
+          INSERT INTO quotation_requests (requisition_id, provider_id, status, invited_at, deadline_at)
+          VALUES (?, ?, 'invited', NOW(), NULL)
+          ON DUPLICATE KEY UPDATE
+            status = IF(status = 'responded', status, status),
+            invited_at = COALESCE(invited_at, NOW())
+          `,
+          [id, providerId]
+        )
+      )
+    );
+
     const [invRows] = await pool.query(
       `SELECT provider_id FROM quotation_requests WHERE requisition_id = ?`,
       [id]
@@ -1455,9 +1477,7 @@ export const saveCotizacionPrices = async (req, res) => {
       const line_item_id = Number(p.line_item_id);
       const provider_id = Number(p.provider_id);
 
-      const offered_description = (p.offered_description ?? "")
-        .toString()
-        .trim();
+      const offered_description = "";
 
       const raw = p.unit_price;
       const unit_price =
@@ -1467,14 +1487,36 @@ export const saveCotizacionPrices = async (req, res) => {
           ? Number(raw)
           : null;
 
-      const notes = (p.notes ?? "").toString();
+      const vatRaw = p.vat_percentage;
+      const vatPct =
+        vatRaw === "" || vatRaw === null || vatRaw === undefined
+          ? null
+          : Number(vatRaw);
+      if (vatPct != null && (!Number.isFinite(vatPct) || vatPct < 0 || vatPct > 100)) {
+        return Promise.resolve();
+      }
+
+      const isrRaw = p.isr_percentage;
+      const isrPct =
+        isrRaw === "" || isrRaw === null || isrRaw === undefined
+          ? null
+          : Number(isrRaw);
+      if (isrPct != null && (!Number.isFinite(isrPct) || isrPct < 0 || isrPct > 100)) {
+        return Promise.resolve();
+      }
+
+      const notes = JSON.stringify({
+        include_iva: vatPct != null,
+        vat_percentage: vatPct,
+        include_isr: isrPct != null,
+        isr_percentage: isrPct,
+      });
       const is_winner = Number(p.is_winner) ? 1 : 0;
 
       if (!line_item_id || !provider_id) return Promise.resolve();
 
-      const hasDesc = offered_description.length > 0;
       const hasPrice = unit_price !== null;
-      if (!hasDesc && !hasPrice) return Promise.resolve();
+      if (!hasPrice) return Promise.resolve();
 
       const sql = `
         INSERT INTO quotation_prices
@@ -1505,11 +1547,9 @@ export const saveCotizacionPrices = async (req, res) => {
       new Set(
         filtered
           .filter((p) => {
-            const desc = (p.offered_description ?? "").toString().trim();
             const raw = p.unit_price;
-            const hasDesc = desc.length > 0;
             const hasPrice = !(raw === "" || raw === null || raw === undefined);
-            return hasDesc || hasPrice;
+            return hasPrice;
           })
           .map((p) => Number(p.provider_id))
           .filter(Boolean)
@@ -1903,7 +1943,7 @@ export const closeCotizacionInvites = async (req, res) => {
 
     const [reqRows] = await conn.query(
       `
-      SELECT id, statuses_id, quotation_closed_at
+      SELECT id, statuses_id, quotation_closed_at, users_id
       FROM requisition
       WHERE id = ? FOR UPDATE
       `,
@@ -1931,6 +1971,23 @@ export const closeCotizacionInvites = async (req, res) => {
       return res.status(400).json({
         message: "Solo se puede cerrar cuando está en 'En cotización' (12)",
         current_status: Number(reqRow.statuses_id),
+      });
+    }
+
+    const [[providersCountRow]] = await conn.query(
+      `
+      SELECT COUNT(DISTINCT provider_id) AS total_providers
+      FROM quotation_requests
+      WHERE requisition_id = ?
+      `,
+      [id]
+    );
+    const totalProviders = Number(providersCountRow?.total_providers || 0);
+    if (totalProviders < 3) {
+      await conn.rollback();
+      return res.status(400).json({
+        message: "Debes tener al menos 3 proveedores para cerrar recepción",
+        total_providers: totalProviders,
       });
     }
 
@@ -2011,6 +2068,23 @@ export const sendCotizacionToReview = async (req, res) => {
       });
     }
 
+    const [[providersCountRow]] = await conn.query(
+      `
+      SELECT COUNT(DISTINCT provider_id) AS total_providers
+      FROM quotation_requests
+      WHERE requisition_id = ?
+      `,
+      [id]
+    );
+    const totalProviders = Number(providersCountRow?.total_providers || 0);
+    if (totalProviders < 3) {
+      await conn.rollback();
+      return res.status(400).json({
+        message: "Debes tener al menos 3 proveedores para enviar a revisión",
+        total_providers: totalProviders,
+      });
+    }
+
     const [hasPricesRows] = await conn.query(
       `SELECT 1 FROM quotation_prices WHERE requisition_id = ? LIMIT 1`,
       [id]
@@ -2031,7 +2105,20 @@ export const sendCotizacionToReview = async (req, res) => {
       [id]
     );
 
+    const ownerId = Number(reqRow.users_id || 0);
+    const actorId = Number(req.user?.id || 0) || null;
     await conn.commit();
+    if (ownerId > 0) {
+      await createNotification({
+        recipientUserId: ownerId,
+        actorUserId: actorId,
+        title: "Cotización lista para revisión",
+        message: `La requisición #${id} está lista para que selecciones proveedor por partida.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/unidad/revision/${id}`,
+      });
+    }
     res.json({ message: "Enviado a revisión", requisition_statuses_id: 14 });
   } catch (error) {
     await conn.rollback();

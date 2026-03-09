@@ -25,6 +25,13 @@ router.post("/login", async (req, res) => {
         }
 
         const user = rows[0];
+        const statusId = Number(user.statuses_id);
+        if (Number.isFinite(statusId) && statusId !== 1) {
+            return res.status(403).json({
+                ok: false,
+                message: "Usuario inactivo"
+            });
+        }
 
         const stored = String(user.password || "");
         let passwordOk = false;

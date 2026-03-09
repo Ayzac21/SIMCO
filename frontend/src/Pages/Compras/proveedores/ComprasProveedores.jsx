@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import ConfirmModal from "../../../components/ConfirmModal";
 import { ChevronDown, FileText, Pencil, ShieldCheck, Power, CheckCircle } from "lucide-react";
 import { API_BASE_URL } from "../../../api/config";
+import useEscapeKey from "../../../hooks/useEscapeKey";
 
 const API_CATEGORIES = `${API_BASE_URL}/categories`;
 const API_PROVIDERS_ADMIN = `${API_BASE_URL}/compras/providers/admin`;
@@ -22,12 +23,12 @@ export default function ComprasProveedores() {
   const userStr = localStorage.getItem("usuario");
   const user = userStr ? JSON.parse(userStr) : null;
   const token = localStorage.getItem("token");
-  const headers = {
+  const headers = useMemo(() => ({
     "Content-Type": "application/json",
     "x-user-id": String(user?.id || ""),
     "x-user-role": String(user?.role || ""),
     Authorization: token ? `Bearer ${token}` : "",
-  };
+  }), [token, user?.id, user?.role]);
   const [categories, setCategories] = useState([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [providers, setProviders] = useState([]);
@@ -38,6 +39,7 @@ export default function ComprasProveedores() {
   const [detailProvider, setDetailProvider] = useState(null);
   const [confirmAction, setConfirmAction] = useState({ open: false, provider: null, nextStatus: null });
   const [openActionsId, setOpenActionsId] = useState(null);
+  useEscapeKey(Boolean(detailProvider), () => setDetailProvider(null));
 
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -77,9 +79,9 @@ export default function ComprasProveedores() {
       }
     };
     load();
-  }, []);
+  }, [headers]);
 
-  const loadProviders = async () => {
+  const loadProviders = useCallback(async () => {
     try {
       setLoadingProviders(true);
       const params = new URLSearchParams();
@@ -96,16 +98,12 @@ export default function ComprasProveedores() {
     } finally {
       setLoadingProviders(false);
     }
-  };
-
-  useEffect(() => {
-    loadProviders();
-  }, []);
+  }, [headers, q, statusFilter]);
 
   useEffect(() => {
     const t = setTimeout(() => loadProviders(), 250);
     return () => clearTimeout(t);
-  }, [q, statusFilter]);
+  }, [q, statusFilter, loadProviders]);
 
   const validate = () => {
     if (!form.name.trim()) {

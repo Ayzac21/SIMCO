@@ -1,8 +1,36 @@
 import { pool } from "../db/connection.js";
+import {
+    createNotification,
+    createNotificationsForUsers,
+    getCoordinatorUsersForRequisition,
+    getUsersByRolePrefix,
+} from "../services/notifications.js";
+
+const parseUserId = (value) => {
+    const n = Number(value);
+    return Number.isInteger(n) && n > 0 ? n : 0;
+};
+
+const getAuthUserId = (req) => parseUserId(req.user?.id);
+
+const ensureSameSecretaria = (req, res, requestedId) => {
+    const authId = getAuthUserId(req);
+    if (!authId) {
+        res.status(401).json({ message: "No autorizado" });
+        return false;
+    }
+    if (requestedId != null && authId !== parseUserId(requestedId)) {
+        res.status(403).json({ message: "Acceso denegado" });
+        return false;
+    }
+    return true;
+};
 
 // --- 1. OBTENER REQUISICIONES  ---
 export const getRequisicionesSecretaria = async (req, res) => {
     try {
+        if (!ensureSameSecretaria(req, res, req.params.id)) return;
+
         const page = Math.max(1, Number(req.query.page || 1));
         const limit = Math.min(100, Math.max(1, Number(req.query.limit || 10)));
         const offset = (page - 1) * limit;
@@ -125,6 +153,32 @@ export const updateEstatusSecretaria = async (req, res) => {
     try {
         const { id } = req.params; 
         const { status_id, comentarios } = req.body; 
+        const targetStatus = Number(status_id);
+
+        if (!targetStatus) {
+            return res.status(400).json({ message: "Falta status_id" });
+        }
+        if (![8, 10, 12].includes(targetStatus)) {
+            return res.status(400).json({ message: "status_id no permitido para secretaría" });
+        }
+        if ((targetStatus === 10 || targetStatus === 8) && !String(comentarios || "").trim()) {
+            return res.status(400).json({ message: "Debes incluir comentarios para esta acción" });
+        }
+
+        const [[current]] = await pool.query(
+            `SELECT statuses_id, users_id FROM requisition WHERE id = ? LIMIT 1`,
+            [id]
+        );
+        if (!current) {
+            return res.status(404).json({ message: "Requisición no encontrada" });
+        }
+        const currentStatus = Number(current.statuses_id);
+        if (currentStatus === 11 || currentStatus === 13) {
+            return res.status(400).json({ message: "La requisición ya no puede modificarse en secretaría" });
+        }
+        if (currentStatus !== 9) {
+            return res.status(400).json({ message: "Solo se puede gestionar cuando está en secretaría (9)" });
+        }
         
         const query = `
             UPDATE requisition 
@@ -132,11 +186,57 @@ export const updateEstatusSecretaria = async (req, res) => {
             WHERE id = ?
         `;
 
-        const [result] = await pool.query(query, [status_id, comentarios, id]);
+        const [result] = await pool.query(query, [targetStatus, comentarios, id]);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: "Requisición no encontrada" });
         }
+
+        const actorId = getAuthUserId(req);
+        const ownerId = parseUserId(current.users_id);
+        if (targetStatus === 8) {
+            const coordinatorIds = await getCoordinatorUsersForRequisition(id);
+            await createNotificationsForUsers(coordinatorIds, {
+                actorUserId: actorId,
+                title: "Secretaría solicitó ajustes",
+                message: `La requisición #${id} necesita revisión de Coordinación antes de volver a URE.`,
+                entityType: "requisition",
+                entityId: Number(id),
+                actionPath: `/coordinador/requisiciones?openReq=${id}`,
+            });
+        } else if (targetStatus === 12) {
+            const comprasIds = await getUsersByRolePrefix("compras_");
+            await createNotificationsForUsers(comprasIds, {
+                actorUserId: actorId,
+                title: "Nueva requisición en Compras",
+                message: `La requisición #${id} fue autorizada en Secretaría y está lista para cotización.`,
+                entityType: "requisition",
+                entityId: Number(id),
+                actionPath: `/compras/dashboard`,
+            });
+            if (ownerId) {
+                await createNotification({
+                    recipientUserId: ownerId,
+                    actorUserId: actorId,
+                    title: "Requisición autorizada por Secretaría",
+                    message: `La requisición #${id} pasó a Compras para cotización.`,
+                    entityType: "requisition",
+                    entityId: Number(id),
+                    actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+                });
+            }
+        } else if (targetStatus === 10 && ownerId) {
+            await createNotification({
+                recipientUserId: ownerId,
+                actorUserId: actorId,
+                title: "Requisición rechazada en Secretaría",
+                message: `La requisición #${id} fue rechazada. Revisa el motivo en el detalle.`,
+                entityType: "requisition",
+                entityId: Number(id),
+                actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+            });
+        }
+
         res.json({ message: "Estatus actualizado correctamente" });
     } catch (error) {
         console.error("Error actualizando estatus:", error);

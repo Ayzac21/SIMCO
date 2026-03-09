@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion as Motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { getAuthHeaders } from "../../../api/auth";
 import { API_BASE_URL } from "../../../api/config";
+import useEscapeKey from "../../../hooks/useEscapeKey";
 
 /* ICONO ELIMINAR */
 const IconTrash = () => (
@@ -38,6 +39,10 @@ function ConfirmModal({
   onConfirm,
   onCancel,
 }) {
+  useEscapeKey(open, () => {
+    if (!loading) onCancel?.();
+  }, loading);
+
   if (!open) return null;
 
   return (
@@ -93,9 +98,13 @@ export default function EditarRequisicionCoor() {
   const [sending, setSending] = useState(false);
 
   const [requestName, setRequestName] = useState("");
+  const [categoryName, setCategoryName] = useState("");
   const [justification, setJustification] = useState("");
   const [observation, setObservation] = useState("");
   const [estatusId, setEstatusId] = useState(null);
+  const [resumeTo, setResumeTo] = useState(9);
+  const [adjustmentMessage, setAdjustmentMessage] = useState("");
+  const [adjustmentSource, setAdjustmentSource] = useState("");
 
   const [partidas, setPartidas] = useState([]);
   const [units, setUnits] = useState([]);
@@ -120,9 +129,24 @@ export default function EditarRequisicionCoor() {
         if (!resReq.ok) throw new Error(dataReq?.message || "No se pudo cargar requisición");
 
         setRequestName(dataReq.request_name || "");
+        setCategoryName(dataReq.categoria || "Sin categoría");
         setJustification(dataReq.justification || "");
         setObservation(dataReq.observation || "");
         setEstatusId(Number(dataReq.statuses_id));
+        const rawNotes = String(dataReq.notes || "");
+        if (rawNotes.startsWith("AJUSTE_COMPRAS:")) {
+          setResumeTo(12);
+          setAdjustmentSource("Compras");
+          setAdjustmentMessage(rawNotes.replace("AJUSTE_COMPRAS:", "").trim());
+        } else if (rawNotes.startsWith("AJUSTE_SECRETARIA:")) {
+          setResumeTo(9);
+          setAdjustmentSource("Secretaría");
+          setAdjustmentMessage(rawNotes.replace("AJUSTE_SECRETARIA:", "").trim());
+        } else {
+          setResumeTo(9);
+          setAdjustmentSource("");
+          setAdjustmentMessage("");
+        }
 
         setPartidas(
           (dataReq.partidas || []).map((p) => ({
@@ -214,11 +238,15 @@ export default function EditarRequisicionCoor() {
     try {
       setSaving(true);
 
-      const partidasLimpias = partidas.map(({ unique_key, ...rest }) => ({
-        ...rest,
-        quantity: Number(rest.quantity),
-        units_id: Number(rest.units_id),
-      }));
+      const partidasLimpias = partidas.map((partida) => {
+        const rest = { ...partida };
+        delete rest.unique_key;
+        return {
+          ...rest,
+          quantity: Number(rest.quantity),
+          units_id: Number(rest.units_id),
+        };
+      });
 
       const resp = await fetch(`${API}/requisiciones/${id}`, {
         method: "PUT",
@@ -273,7 +301,8 @@ export default function EditarRequisicionCoor() {
 
       const resp = await fetch(`${API}/coordinador/requisiciones/${id}/enviar`, {
         method: "PATCH",
-        headers: getAuthHeaders(),
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ resume_to: resumeTo }),
       });
 
       const data = await resp.json().catch(() => ({}));
@@ -282,13 +311,17 @@ export default function EditarRequisicionCoor() {
         throw new Error(data?.message || "No se pudo enviar la requisición");
       }
 
-      toast.success("Requisición enviada");
+      toast.success(
+        Number(data?.statuses_id || resumeTo) === 12
+          ? "Enviada a Compras"
+          : "Enviada a Secretaría"
+      );
 
-      setEstatusId(9);
+      setEstatusId(Number(data?.statuses_id || resumeTo));
       navigate("/coordinador/requisiciones");
     } catch (e) {
       console.error(e);
-      toast.error("Error al enviar");
+      toast.error("No se pudo enviar la requisición");
     } finally {
       setSending(false);
     }
@@ -307,8 +340,12 @@ export default function EditarRequisicionCoor() {
       <ConfirmModal
         open={confirmSendOpen}
         loading={sending}
-        title="Enviar a Secretaría"
-        description="¿Deseas enviar esta requisición a Secretaría? Al confirmar, ya no podrás editar el borrador."
+        title={resumeTo === 12 ? "Reenviar a Compras" : "Reenviar a Secretaría"}
+        description={
+          resumeTo === 12
+            ? `¿Deseas reenviar la requisición #${id} a Compras con los ajustes solicitados?`
+            : `¿Deseas reenviar la requisición #${id} a Secretaría con los ajustes solicitados?`
+        }
         confirmText="Sí, enviar"
         cancelText="Revisar"
         onCancel={() => setConfirmSendOpen(false)}
@@ -331,10 +368,22 @@ export default function EditarRequisicionCoor() {
             </div>
 
             <div className="space-y-6">
+              {adjustmentMessage && (
+                <div className="text-xs bg-amber-50 border border-amber-200 rounded-md p-3">
+                  <p className="font-bold text-amber-800 uppercase tracking-wide">
+                    Ajuste solicitado por {adjustmentSource}
+                  </p>
+                  <p className="mt-1 text-amber-800">{adjustmentMessage}</p>
+                  <p className="mt-1 text-amber-700">
+                    Estás editando la misma requisición #{id}, no necesitas capturarla de nuevo.
+                  </p>
+                </div>
+              )}
+
               <div>
                 <Label>Categoría</Label>
                 <select className={inputStyle} disabled>
-                  <option>Materiales y Suministros</option>
+                  <option>{categoryName || "Sin categoría"}</option>
                 </select>
               </div>
 
@@ -391,7 +440,7 @@ export default function EditarRequisicionCoor() {
             <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(100vh-340px)]">
               <AnimatePresence>
                 {partidas.map((p, index) => (
-                  <motion.div
+                  <Motion.div
                     key={p.unique_key}
                     layout
                     initial={{ opacity: 0, y: 10 }}
@@ -463,7 +512,7 @@ export default function EditarRequisicionCoor() {
                         )}
                       </select>
                     </div>
-                  </motion.div>
+                  </Motion.div>
                 ))}
               </AnimatePresence>
 
@@ -491,9 +540,13 @@ export default function EditarRequisicionCoor() {
                   disabled={saving || sending}
                   className="w-full py-3 font-bold rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
                   style={{ color: PRIMARY }}
-                  title="Enviar a Secretaría"
+                  title={resumeTo === 12 ? "Reenviar a Compras" : "Reenviar a Secretaría"}
                 >
-                  {sending ? "Enviando..." : "Guardar y Enviar a Secretaría →"}
+                  {sending
+                    ? "Enviando..."
+                    : resumeTo === 12
+                    ? "Guardar y Reenviar a Compras →"
+                    : "Guardar y Reenviar a Secretaría →"}
                 </button>
               )}
             </div>

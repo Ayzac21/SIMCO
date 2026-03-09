@@ -2,8 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
     ArrowLeft,
-    Send,
-    Users,
     CheckCircle2,
     Search,
     Save,
@@ -13,6 +11,7 @@ import { toast } from "sonner";
 import CotizacionClosedNotice from "./CotizacionClosedNotice";
 import ConfirmModal from "../../../components/ConfirmModal";
 import { API_BASE_URL } from "../../../api/config";
+import useEscapeKey from "../../../hooks/useEscapeKey";
 
 const API_URL = `${API_BASE_URL}/compras`;
 
@@ -25,6 +24,39 @@ const getAuthHeaders = () => {
         "x-user-role": String(user?.role || ""),
         Authorization: token ? `Bearer ${token}` : "",
     };
+};
+
+const parsePct = (raw) => {
+    if (raw === null || raw === undefined || raw === "") return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0 || n > 100) return null;
+    return n;
+};
+
+const parseTaxesFromNotes = (notes) => {
+    if (!notes) return { vat: null, isr: null };
+    try {
+        const parsed = typeof notes === "string" ? JSON.parse(notes) : notes;
+        return {
+            vat: parsePct(parsed?.vat_percentage),
+            isr: parsePct(parsed?.isr_percentage),
+        };
+    } catch {
+        return { vat: null, isr: null };
+    }
+};
+
+const sanitizePriceInput = (value) => String(value || "").replace(/,/g, "").trim();
+
+const formatPriceInput = (value) => {
+    const raw = sanitizePriceInput(value);
+    if (raw === "") return "";
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return "";
+    return n.toLocaleString("es-MX", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
 };
 
 function ProviderRow({ p, selectedProviderIds, toggleSelected, disabled = false }) {
@@ -60,7 +92,7 @@ export default function GestionCotizacion() {
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [inviting, setInviting] = useState(false);
+    const [applyingProviders, setApplyingProviders] = useState(false);
     const [closing, setClosing] = useState(false);
     const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
     const [confirmSendOpen, setConfirmSendOpen] = useState(false);
@@ -73,7 +105,6 @@ export default function GestionCotizacion() {
     const [providersSuggested, setProvidersSuggested] = useState([]);
     const [invitedProviders, setInvitedProviders] = useState([]);
 
-    const [invitationSent, setInvitationSent] = useState(false);
     const [tableSearch, setTableSearch] = useState("");
     const [showOnlyResponded, setShowOnlyResponded] = useState(true);
 
@@ -84,9 +115,14 @@ export default function GestionCotizacion() {
     const [providerSearch, setProviderSearch] = useState("");
     const [loadingAllProviders, setLoadingAllProviders] = useState(false);
     const [allProviders, setAllProviders] = useState([]);
+    useEscapeKey(isModalOpen, () => {
+        if (!applyingProviders) setIsModalOpen(false);
+    }, applyingProviders);
 
     const [prices, setPrices] = useState({});
-    const [descriptions, setDescriptions] = useState({});
+    const [vatPercentages, setVatPercentages] = useState({});
+    const [isrPercentages, setIsrPercentages] = useState({});
+    const [editingPriceKey, setEditingPriceKey] = useState(null);
 
     const statusLabel = (s) => {
         if (!s) return "";
@@ -102,7 +138,7 @@ export default function GestionCotizacion() {
         const st = Number(requisition?.statuses_id);
         const closedAt = requisition?.quotation_closed_at;
         return Boolean(closedAt || st === 14 || st === 13);
-    }, [requisition, invitedProviders]);
+    }, [requisition]);
 
     const fetchAllProviders = async (q = "") => {
         try {
@@ -141,17 +177,20 @@ export default function GestionCotizacion() {
         setInvitedProviders(Array.isArray(data.invitedProviders) ? data.invitedProviders : []);
 
         const pricesMap = {};
-        const descMap = {};
+        const vatMap = {};
+        const isrMap = {};
         (data.savedPrices || []).forEach((p) => {
             const key = `${p.line_item_id}_${p.provider_id}`;
             pricesMap[key] = p.unit_price == null ? "" : String(p.unit_price);
-            descMap[key] = p.offered_description ?? "";
+            const taxes = parseTaxesFromNotes(p.notes);
+            vatMap[key] = taxes.vat == null ? "" : String(taxes.vat);
+            isrMap[key] = taxes.isr == null ? "" : String(taxes.isr);
         });
 
         setPrices(pricesMap);
-        setDescriptions(descMap);
+        setVatPercentages(vatMap);
+        setIsrPercentages(isrMap);
 
-        if ((data.invitedProviders || []).length > 0) setInvitationSent(true);
         setShowOnlyResponded(false);
 
         setLoading(false);
@@ -168,37 +207,100 @@ export default function GestionCotizacion() {
     }, [id]);
 
     const handlePriceChange = (itemId, providerId, val) => {
-        setPrices((prev) => ({ ...prev, [`${itemId}_${providerId}`]: val }));
+        const key = `${itemId}_${providerId}`;
+        const clean = sanitizePriceInput(val);
+        if (clean !== "" && !/^\d*\.?\d{0,4}$/.test(clean)) return;
+
+        setPrices((prev) => ({ ...prev, [key]: clean }));
+        if (clean !== "" && vatPercentages[key] === undefined) {
+            setVatPercentages((prev) => ({ ...prev, [key]: "16" }));
+        }
     };
 
-    const handleDescChange = (itemId, providerId, val) => {
-        setDescriptions((prev) => ({ ...prev, [`${itemId}_${providerId}`]: val }));
+    const toggleVatForKey = (itemId, providerId) => {
+        const key = `${itemId}_${providerId}`;
+        setVatPercentages((prev) => ({
+            ...prev,
+            [key]: prev[key] === "" || prev[key] == null ? "16" : "",
+        }));
+    };
+
+    const handleVatChange = (itemId, providerId, val) => {
+        const key = `${itemId}_${providerId}`;
+        if (val === "") {
+            setVatPercentages((prev) => ({ ...prev, [key]: "" }));
+            return;
+        }
+        const n = Number(val);
+        if (!Number.isFinite(n)) return;
+        const clamped = Math.max(0, Math.min(100, n));
+        setVatPercentages((prev) => ({ ...prev, [key]: String(clamped) }));
+    };
+
+    const toggleIsrForKey = (itemId, providerId) => {
+        const key = `${itemId}_${providerId}`;
+        setIsrPercentages((prev) => ({
+            ...prev,
+            [key]: prev[key] === "" || prev[key] == null ? "1.25" : "",
+        }));
+    };
+
+    const handleIsrChange = (itemId, providerId, val) => {
+        const key = `${itemId}_${providerId}`;
+        if (val === "") {
+            setIsrPercentages((prev) => ({ ...prev, [key]: "" }));
+            return;
+        }
+        const n = Number(val);
+        if (!Number.isFinite(n)) return;
+        const clamped = Math.max(0, Math.min(100, n));
+        setIsrPercentages((prev) => ({ ...prev, [key]: String(clamped) }));
     };
 
     const calculateProviderTotal = (providerId) => {
         let total = 0;
         items.forEach((item) => {
-        const price = parseFloat(prices[`${item.id}_${providerId}`]) || 0;
-        total += price * item.quantity;
+        const key = `${item.id}_${providerId}`;
+        const price = parseFloat(prices[key]) || 0;
+        const base = price * item.quantity;
+        const vatPct = Number(vatPercentages[key]);
+        const hasVat = Number.isFinite(vatPct) && vatPct > 0;
+        const isrPct = Number(isrPercentages[key]);
+        const hasIsr = Number.isFinite(isrPct) && isrPct > 0;
+        const vatAmount = hasVat ? (base * vatPct) / 100 : 0;
+        const isrAmount = hasIsr ? (base * isrPct) / 100 : 0;
+        total += base + vatAmount - isrAmount;
         });
         return total;
     };
 
-    const providerHasAnyPriceOrDesc = (providerId) => {
+    const providerHasAnyPrice = (providerId) => {
         return items.some((item) => {
         const k = `${item.id}_${providerId}`;
         const price = parseFloat(prices[k]);
-        const hasPrice = Number.isFinite(price) && price > 0;
-        const hasDesc = (descriptions[k] || "").trim().length > 0;
-        return hasPrice || hasDesc;
+        return Number.isFinite(price) && price > 0;
         });
     };
 
+    const providerCatalogMap = useMemo(() => {
+        const map = new Map();
+        [...providersSuggested, ...allProviders, ...invitedProviders].forEach((p) => {
+            if (p?.id != null) map.set(Number(p.id), p);
+        });
+        return map;
+    }, [providersSuggested, allProviders, invitedProviders]);
+
     const visibleProviders = useMemo(() => {
-        let list = invitedProviders;
+        let list = Array.from(selectedProviderIds)
+            .map((id) => providerCatalogMap.get(Number(id)))
+            .filter(Boolean);
+
+        if (list.length === 0) {
+            list = invitedProviders.length > 0 ? invitedProviders : providersSuggested;
+        }
 
         if (showOnlyResponded) {
-        list = list.filter((p) => p.status === "responded" || providerHasAnyPriceOrDesc(p.id));
+        list = list.filter((p) => p.status === "responded" || providerHasAnyPrice(p.id));
         }
 
         const q = tableSearch.toLowerCase();
@@ -206,7 +308,25 @@ export default function GestionCotizacion() {
 
         return list;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [invitedProviders, tableSearch, showOnlyResponded, prices, descriptions, items]);
+    }, [
+        selectedProviderIds,
+        providerCatalogMap,
+        invitedProviders,
+        providersSuggested,
+        tableSearch,
+        showOnlyResponded,
+        prices,
+        vatPercentages,
+        isrPercentages,
+        items,
+    ]);
+
+    const providerCountForFlow = useMemo(() => {
+        if (selectedProviderIds.size > 0) return selectedProviderIds.size;
+        return invitedProviders.length;
+    }, [selectedProviderIds, invitedProviders]);
+
+    const hasMinimumProviders = providerCountForFlow >= 3;
 
     const openModal = () => {
         if (isReader) {
@@ -218,7 +338,14 @@ export default function GestionCotizacion() {
         return;
         }
 
-        const current = new Set(invitedProviders.map((p) => p.id));
+        const current =
+            selectedProviderIds.size > 0
+                ? new Set(selectedProviderIds)
+                : new Set(
+                    (invitedProviders.length > 0 ? invitedProviders : providersSuggested).map((p) =>
+                        Number(p.id)
+                    )
+                );
         setSelectedProviderIds(current);
 
         const hasSuggested = providersSuggested.length > 0;
@@ -239,7 +366,7 @@ export default function GestionCotizacion() {
         });
     };
 
-    const handleInviteSelected = async () => {
+    const applySelectedProviders = async () => {
         if (isClosed) {
         toast.warning("Recepción finalizada");
         return;
@@ -252,28 +379,12 @@ export default function GestionCotizacion() {
         }
 
         try {
-        setInviting(true);
-
-        const response = await fetch(`${API_URL}/cotizacion/${id}/invite`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-            body: JSON.stringify({ provider_ids, deadline_at: null }),
-        });
-
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data?.message || "Error al invitar");
-
-        toast.success("Proveedores invitados");
-
+        setApplyingProviders(true);
+        setSelectedProviderIds(new Set(provider_ids));
         setIsModalOpen(false);
-        setInvitationSent(true);
-
-        await loadData();
-        } catch (e) {
-        console.error(e);
-        toast.error("No se pudo invitar a los proveedores");
+        toast.success("Proveedores listos para comparar");
         } finally {
-        setInviting(false);
+        setApplyingProviders(false);
         }
     };
 
@@ -288,25 +399,57 @@ export default function GestionCotizacion() {
         }
         if (saving) return;
 
+        if (selectedProviderIds.size === 0) {
+        toast.warning("Selecciona proveedores para comparar");
+        return;
+        }
+
+        const selected = new Set(Array.from(selectedProviderIds).map((x) => Number(x)));
         const payload = [];
-        const keys = new Set([...Object.keys(prices), ...Object.keys(descriptions)]);
+        const keys = new Set([
+            ...Object.keys(prices),
+            ...Object.keys(vatPercentages),
+            ...Object.keys(isrPercentages),
+        ]);
 
         keys.forEach((key) => {
         const [itemId, providerId] = key.split("_");
 
         const unit_price = parseFloat(prices[key]);
-        const offered_description = (descriptions[key] ?? "").toString();
-
         const hasPrice = Number.isFinite(unit_price) && unit_price >= 0;
-        const hasDesc = offered_description.trim().length > 0;
+        if (!hasPrice) return;
 
-        if (!hasPrice && !hasDesc) return;
+        const provider_id = parseInt(providerId, 10);
+        if (!selected.has(provider_id)) return;
+
+        const vatRaw = vatPercentages[key];
+        const vat_percentage =
+            vatRaw === "" || vatRaw == null ? null : Number(vatRaw);
+
+        if (
+            vat_percentage != null &&
+            (!Number.isFinite(vat_percentage) || vat_percentage < 0 || vat_percentage > 100)
+        ) {
+            return;
+        }
+
+        const isrRaw = isrPercentages[key];
+        const isr_percentage =
+            isrRaw === "" || isrRaw == null ? null : Number(isrRaw);
+        if (
+            isr_percentage != null &&
+            (!Number.isFinite(isr_percentage) || isr_percentage < 0 || isr_percentage > 100)
+        ) {
+            return;
+        }
 
         payload.push({
             line_item_id: parseInt(itemId, 10),
-            provider_id: parseInt(providerId, 10),
+            provider_id,
             unit_price: Number.isFinite(unit_price) ? unit_price : 0,
-            offered_description,
+            offered_description: "",
+            vat_percentage,
+            isr_percentage,
             notes: "",
             is_winner: 0,
         });
@@ -345,6 +488,10 @@ export default function GestionCotizacion() {
         toast.warning("Solo lectura");
         return;
         }
+        if (!hasMinimumProviders) {
+        toast.warning("Debes tener al menos 3 proveedores para cerrar recepción");
+        return;
+        }
         if (closing) return;
         setConfirmCloseOpen(true);
     };
@@ -378,6 +525,10 @@ export default function GestionCotizacion() {
 
     const confirmSendToReview = async () => {
         if (isReader) return;
+        if (!hasMinimumProviders) {
+        toast.warning("Debes tener al menos 3 proveedores para enviar a revisión");
+        return;
+        }
         if (sendingReview) return;
         setConfirmSendOpen(false);
         const toastId = toast.loading("Enviando a revisión...");
@@ -484,8 +635,14 @@ export default function GestionCotizacion() {
             </div>
             </div>
 
-            {invitationSent && (
             <div className="flex items-center gap-3 w-full md:w-auto">
+                <div className={`text-xs font-semibold px-2 py-1 rounded-lg border ${
+                    hasMinimumProviders
+                        ? "bg-green-50 text-green-700 border-green-200"
+                        : "bg-yellow-50 text-yellow-700 border-yellow-200"
+                }`}>
+                Proveedores: {providerCountForFlow} / mínimo 3
+                </div>
                 <div className="flex items-center gap-2 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
@@ -510,9 +667,9 @@ export default function GestionCotizacion() {
 
                 <button
                 onClick={handleSaveChanges}
-                disabled={saving || isClosed || isReader}
+                disabled={saving || isClosed || isReader || visibleProviders.length === 0}
                 className={`bg-[#8B1D35] hover:bg-[#72182b] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm transition-colors ${
-                    saving || isClosed || isReader ? "opacity-60 cursor-not-allowed hover:bg-[#8B1D35]" : ""
+                    saving || isClosed || isReader || visibleProviders.length === 0 ? "opacity-60 cursor-not-allowed hover:bg-[#8B1D35]" : ""
                 }`}
                 title={isReader ? "Solo lectura" : isClosed ? "Recepción finalizada: no editable" : "Guardar cambios"}
                 >
@@ -520,56 +677,12 @@ export default function GestionCotizacion() {
                 {saving ? "GUARDANDO..." : "GUARDAR"}
                 </button>
             </div>
-            )}
         </div>
 
         {/* ✅ MENSAJE CLARO CUANDO ESTÁ CERRADA */}
-        {invitationSent && isClosed && <CotizacionClosedNotice requisition={requisition} />}
+        {isClosed && <CotizacionClosedNotice requisition={requisition} />}
 
-        {/* VISTA 1 */}
-        {!invitationSent && (
-            <div className="flex flex-col items-center justify-start pt-10">
-            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden max-w-lg w-full">
-                <div className="h-1.5 w-full bg-[#8B1D35]" />
-                <div className="p-6">
-                <div className="flex items-start gap-4 mb-4">
-                    <div className="p-3 bg-[#8B1D35]/10 rounded-full shrink-0">
-                    <Users size={24} className="text-[#8B1D35]" />
-                    </div>
-                    <div>
-                    <h2 className="text-lg font-bold text-gray-800">Proveedores sugeridos</h2>
-                    <p className="text-sm text-gray-500 mt-1 leading-relaxed">
-                        Se detectaron{" "}
-                        <span className="font-bold text-gray-800">{providersSuggested.length}</span>{" "}
-                        proveedores en la categoría{" "}
-                        <span className="italic">"{requisition?.category_name}"</span>.
-                    </p>
-                    </div>
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                    <button
-                    onClick={openModal}
-                    className="flex-1 px-4 py-2 bg-white border border-gray-300 text-gray-600 font-bold rounded-lg text-xs hover:bg-gray-50"
-                    >
-                    VER LISTA
-                    </button>
-
-                    <button
-                    onClick={openModal}
-                    className="flex-[2] px-4 py-2 bg-[#8B1D35] text-white font-bold rounded-lg text-xs hover:bg-[#72182b] shadow-md flex items-center justify-center gap-2"
-                    >
-                    <Send size={14} /> INVITAR PROVEEDORES
-                    </button>
-                </div>
-                </div>
-            </div>
-            </div>
-        )}
-
-        {/* VISTA 2 */}
-        {invitationSent && (
-            <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/50 flex justify-between items-center">
                 <div className="flex items-center gap-2 text-[#8B1D35]">
                 <CheckCircle2 size={16} />
@@ -582,9 +695,9 @@ export default function GestionCotizacion() {
                 {!isClosed && !isReader && (
                     <button
                     onClick={handleCloseInvites}
-                    disabled={closing}
+                    disabled={closing || !hasMinimumProviders}
                     className={`text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 ${
-                        closing ? "opacity-60 cursor-not-allowed" : ""
+                        closing || !hasMinimumProviders ? "opacity-60 cursor-not-allowed" : ""
                     }`}
                     >
                     {closing ? "CERRANDO..." : "CERRAR RECEPCIÓN"}
@@ -606,9 +719,9 @@ export default function GestionCotizacion() {
                 {Boolean(requisition?.quotation_closed_at) && Number(requisition?.statuses_id) === 12 && !isReader && (
                     <button
                     onClick={() => setConfirmSendOpen(true)}
-                    disabled={sendingReview}
+                    disabled={sendingReview || !hasMinimumProviders}
                     className={`text-xs font-bold px-3 py-1.5 rounded-lg bg-[#8B1D35] text-white shadow-sm hover:bg-[#72182b] ${
-                        sendingReview ? "opacity-60 cursor-not-allowed" : ""
+                        sendingReview || !hasMinimumProviders ? "opacity-60 cursor-not-allowed" : ""
                     }`}
                     >
                     {sendingReview ? "ENVIANDO..." : "ENVIAR A REVISIÓN"}
@@ -622,7 +735,7 @@ export default function GestionCotizacion() {
                     isClosed || isReader ? "text-gray-400 cursor-not-allowed" : "text-[#8B1D35] hover:underline"
                     }`}
                 >
-                    Gestionar invitados
+                    Seleccionar proveedores
                 </button>
                 </div>
             </div>
@@ -635,6 +748,11 @@ export default function GestionCotizacion() {
                         Artículo ({items.length})
                     </th>
 
+                    {visibleProviders.length === 0 && (
+                        <th className="px-4 py-3 text-xs text-gray-400 normal-case">
+                        Sin proveedores seleccionados
+                        </th>
+                    )}
                     {visibleProviders.map((prov) => (
                         <th
                         key={prov.id}
@@ -664,34 +782,90 @@ export default function GestionCotizacion() {
 
                         {visibleProviders.map((prov) => {
                         const k = `${item.id}_${prov.id}`;
+                        const vatValue = vatPercentages[k] ?? "";
+                        const hasVat = vatValue !== "";
+                        const isrValue = isrPercentages[k] ?? "";
+                        const hasIsr = isrValue !== "";
                         return (
                             <td key={prov.id} className="border-r border-gray-100 bg-white group-hover:bg-gray-50 relative align-top">
                             <div className="relative">
                                 <div className="absolute left-2 top-3 text-gray-300 text-[10px] pointer-events-none">$</div>
                                 <input
-                                type="number"
-                                min="0"
-                                step="0.01"
+                                type="text"
+                                inputMode="decimal"
                                 placeholder="0.00"
                                 disabled={isClosed}
-                                value={prices[k] ?? ""}
+                                value={
+                                    editingPriceKey === k
+                                        ? prices[k] ?? ""
+                                        : formatPriceInput(prices[k] ?? "")
+                                }
                                 className={`w-full text-right text-xs py-2 pr-2 bg-transparent outline-none font-medium text-gray-700 pl-4 ${
                                     isClosed ? "opacity-60 cursor-not-allowed" : ""
                                 }`}
+                                onFocus={() => setEditingPriceKey(k)}
+                                onBlur={() => setEditingPriceKey(null)}
                                 onChange={(e) => handlePriceChange(item.id, prov.id, e.target.value)}
                                 />
                             </div>
 
-                            <textarea
-                                rows={2}
-                                placeholder="Descripción / características..."
+                            <div className="px-2 pb-2 pt-1 flex items-center gap-2 flex-wrap">
+                                <button
+                                type="button"
                                 disabled={isClosed}
-                                value={descriptions[k] ?? ""}
-                                onChange={(e) => handleDescChange(item.id, prov.id, e.target.value)}
-                                className={`w-full text-[10px] px-2 pb-2 pt-1 bg-transparent resize-none outline-none text-gray-600 ${
+                                onClick={() => toggleVatForKey(item.id, prov.id)}
+                                className={`text-[10px] font-bold px-2 py-1 rounded border ${
+                                hasVat
+                                    ? "bg-[#8B1D35]/10 text-[#8B1D35] border-[#8B1D35]/30"
+                                    : "bg-gray-50 text-gray-500 border-gray-200"
+                                } ${isClosed ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-100"}`}
+                                >
+                                IVA
+                                </button>
+
+                                <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                placeholder="16"
+                                disabled={isClosed || !hasVat}
+                                value={vatValue}
+                                onChange={(e) => handleVatChange(item.id, prov.id, e.target.value)}
+                                className={`w-20 text-[10px] px-2 py-1 border rounded outline-none ${
                                 isClosed ? "opacity-60 cursor-not-allowed" : ""
-                                }`}
-                            />
+                                } ${!hasVat ? "bg-gray-50 text-gray-400 border-gray-200" : "bg-white border-gray-300 text-gray-700"}`}
+                                />
+                                <span className="text-[10px] text-gray-500">%</span>
+
+                                <button
+                                type="button"
+                                disabled={isClosed}
+                                onClick={() => toggleIsrForKey(item.id, prov.id)}
+                                className={`text-[10px] font-bold px-2 py-1 rounded border ${
+                                hasIsr
+                                    ? "bg-blue-100 text-blue-700 border-blue-300"
+                                    : "bg-gray-50 text-gray-500 border-gray-200"
+                                } ${isClosed ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-100"}`}
+                                >
+                                ISR
+                                </button>
+
+                                <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                placeholder="1.25"
+                                disabled={isClosed || !hasIsr}
+                                value={isrValue}
+                                onChange={(e) => handleIsrChange(item.id, prov.id, e.target.value)}
+                                className={`w-20 text-[10px] px-2 py-1 border rounded outline-none ${
+                                isClosed ? "opacity-60 cursor-not-allowed" : ""
+                                } ${!hasIsr ? "bg-gray-50 text-gray-400 border-gray-200" : "bg-white border-gray-300 text-gray-700"}`}
+                                />
+                                <span className="text-[10px] text-gray-500">%</span>
+                            </div>
                             </td>
                         );
                         })}
@@ -722,13 +896,12 @@ export default function GestionCotizacion() {
                 </tbody>
                 </table>
             </div>
-            </div>
-        )}
+        </div>
 
         {/* MODAL */}
         {isModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/30" onClick={() => !inviting && setIsModalOpen(false)} />
+            <div className="absolute inset-0 bg-black/30" onClick={() => !applyingProviders && setIsModalOpen(false)} />
 
             <div className="relative bg-white w-full max-w-3xl rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
@@ -737,7 +910,7 @@ export default function GestionCotizacion() {
                     <p className="text-xs text-gray-500">Sugeridos por categoría o busca en todos.</p>
                 </div>
 
-                <button onClick={() => !inviting && setIsModalOpen(false)} className="p-2 rounded-full hover:bg-gray-100">
+                <button onClick={() => !applyingProviders && setIsModalOpen(false)} className="p-2 rounded-full hover:bg-gray-100">
                     <X size={18} className="text-gray-500" />
                 </button>
                 </div>
@@ -797,7 +970,7 @@ export default function GestionCotizacion() {
                             p={p}
                             selectedProviderIds={selectedProviderIds}
                             toggleSelected={toggleSelected}
-                            disabled={inviting || isClosed}
+                            disabled={applyingProviders || isClosed}
                         />
                         ))}
                     </div>
@@ -812,7 +985,7 @@ export default function GestionCotizacion() {
                         p={p}
                         selectedProviderIds={selectedProviderIds}
                         toggleSelected={toggleSelected}
-                        disabled={inviting || isClosed}
+                        disabled={applyingProviders || isClosed}
                         />
                     ))}
                     {modalList.length === 0 && (
@@ -832,18 +1005,18 @@ export default function GestionCotizacion() {
                 <div className="flex gap-2">
                     <button
                     onClick={() => setIsModalOpen(false)}
-                    disabled={inviting}
+                    disabled={applyingProviders}
                     className="px-4 py-2 rounded-lg text-xs font-bold border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                     >
                     Cancelar
                     </button>
 
                     <button
-                    onClick={handleInviteSelected}
-                    disabled={inviting || selectedProviderIds.size === 0 || isClosed}
+                    onClick={applySelectedProviders}
+                    disabled={applyingProviders || selectedProviderIds.size === 0 || isClosed}
                     className="px-4 py-2 rounded-lg text-xs font-bold bg-[#8B1D35] text-white hover:bg-[#72182b] disabled:opacity-60"
                     >
-                    {inviting ? "INVITANDO..." : "INVITAR"}
+                    {applyingProviders ? "APLICANDO..." : "APLICAR"}
                     </button>
                 </div>
                 </div>

@@ -12,6 +12,7 @@ import comprasRoutes from "./routes/compras.js";
 import asistenteRoutes from "./routes/asistente.js";
 import catalogsRoutes from "./routes/catalogs.js";
 import usersRoutes from "./routes/users.js";
+import notificationsRoutes from "./routes/notifications.js";
 import { authenticateJWT } from "./middleware/auth.js";
 
 const app = express();
@@ -46,6 +47,7 @@ app.use("/api", secretariaRoutes);
 app.use("/api/compras", comprasRoutes);
 app.use("/api/asistente", asistenteRoutes);
 app.use("/api/users", usersRoutes);
+app.use("/api/notifications", notificationsRoutes);
 
 app.listen(4000, () => {
   console.log("Servidor listo en http://localhost:4000");

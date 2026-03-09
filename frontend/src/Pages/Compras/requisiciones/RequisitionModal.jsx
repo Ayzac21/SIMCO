@@ -4,6 +4,7 @@ import { X, User, FileText, CheckCircle, XCircle, ShoppingBag, Building2, MapPin
 import { toast } from 'sonner';
 import ConfirmModal from "../../../components/ConfirmModal";
 import { API_BASE_URL } from "../../../api/config";
+import useEscapeKey from "../../../hooks/useEscapeKey";
 
 const API_OPERATORS = `${API_BASE_URL}/compras/operators`;
 const API_ASSIGN = `${API_BASE_URL}/compras/requisiciones`;
@@ -26,10 +27,10 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
     const [items, setItems] = useState([]);
     const [loadingItems, setLoadingItems] = useState(false);
     
-    const [rejectReason, setRejectReason] = useState("");
-    const [showRejectInput, setShowRejectInput] = useState(false);
+    const [actionReason, setActionReason] = useState("");
+    const [actionType, setActionType] = useState(null); // reject | adjust | null
     const [confirmOpen, setConfirmOpen] = useState(false);
-    const [rejecting, setRejecting] = useState(false);
+    const [processingAction, setProcessingAction] = useState(false);
     const [operators, setOperators] = useState([]);
     const [assignOpen, setAssignOpen] = useState(false);
     const [assignOperatorId, setAssignOperatorId] = useState("");
@@ -37,6 +38,14 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
     const [downloading, setDownloading] = useState(false);
     const [providers, setProviders] = useState([]);
     const [loadingProviders, setLoadingProviders] = useState(false);
+
+    useEscapeKey(Boolean(req), () => {
+        if (assignOpen) {
+            if (!savingAssign) setAssignOpen(false);
+            return;
+        }
+        if (!processingAction && !loadingItems) onClose?.();
+    }, savingAssign || processingAction);
 
     // Cargar items cuando se abre el modal
     useEffect(() => {
@@ -91,22 +100,25 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
     const textoJustificacion = req.justification || req.observation || req.observaciones || 'Sin justificación';
 
     const handleConfirmReject = () => {
-        if (!rejectReason.trim()) {
-            toast.error("Debes escribir el motivo del rechazo.");
+        if (!actionReason.trim()) {
+            toast.error(actionType === "adjust" ? "Debes escribir qué debe editar." : "Debes escribir el motivo del rechazo.");
             return;
         }
         setConfirmOpen(true);
     };
 
     const doReject = async () => {
-        if (rejecting) return;
+        if (processingAction) return;
         setConfirmOpen(false);
         if (!onAction) return;
         try {
-            setRejecting(true);
-            await onAction('rechazar', { ...req, motivo: rejectReason });
+            setProcessingAction(true);
+            await onAction(actionType === "adjust" ? "ajustar" : "rechazar", {
+                ...req,
+                motivo: actionReason,
+            });
         } finally {
-            setRejecting(false);
+            setProcessingAction(false);
         }
     };
 
@@ -214,10 +226,14 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
             )}
             <ConfirmModal
                 open={confirmOpen}
-                title="Rechazar por presupuesto"
-                headerText="Confirmar rechazo"
-                description="Esta acción marcará la requisición como rechazada. ¿Deseas continuar?"
-                confirmText={rejecting ? "Procesando..." : "Sí, rechazar"}
+                title={actionType === "adjust" ? "Solicitar edición" : "Rechazar por presupuesto"}
+                headerText={actionType === "adjust" ? "Confirmar solicitud de edición" : "Confirmar rechazo"}
+                description={
+                    actionType === "adjust"
+                        ? "La requisición regresará a borrador para que el solicitante la edite. ¿Deseas continuar?"
+                        : "Esta acción marcará la requisición como rechazada. ¿Deseas continuar?"
+                }
+                confirmText={processingAction ? "Procesando..." : actionType === "adjust" ? "Sí, solicitar edición" : "Sí, rechazar"}
                 cancelText="Cancelar"
                 onConfirm={doReject}
                 onCancel={() => setConfirmOpen(false)}
@@ -361,17 +377,17 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                     </div>
 
                     {/* Área de Rechazo */}
-                    {showRejectInput && (
+                    {actionType && (
                         <div className="bg-red-50 p-4 rounded-xl border border-red-100 animate-in slide-in-from-bottom-2">
                                 <label className="text-[10px] font-bold text-red-700 uppercase mb-2 block">
-                                Motivo del rechazo (Obligatorio):
+                                {actionType === "adjust" ? "Motivo de edición (Obligatorio):" : "Motivo del rechazo (Obligatorio):"}
                             </label>
                             <textarea 
                                 className="w-full p-3 rounded-lg border border-red-200 focus:outline-none focus:ring-2 focus:ring-red-500/20 text-xs bg-white text-gray-700"
                                 rows="3"
-                                placeholder="Ej. Falta de presupuesto, fuera de alcance, no aprobado..."
-                                value={rejectReason}
-                                onChange={(e) => setRejectReason(e.target.value)}
+                                placeholder={actionType === "adjust" ? "Ej. Corrige cantidades, especificaciones o justificación..." : "Ej. Falta de presupuesto, fuera de alcance, no aprobado..."}
+                                value={actionReason}
+                                onChange={(e) => setActionReason(e.target.value)}
                             />
                         </div>
                     )}
@@ -383,11 +399,11 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                         <button onClick={onClose} className="px-4 py-2 rounded-lg text-gray-500 font-bold text-xs hover:bg-gray-200">
                             Cerrar
                         </button>
-                    ) : showRejectInput ? (
+                    ) : actionType ? (
                         <>
-                            <button onClick={() => setShowRejectInput(false)} className="px-4 py-2 rounded-lg text-gray-500 font-bold text-xs hover:bg-gray-200">CANCELAR</button>
-                            <button onClick={handleConfirmReject} disabled={rejecting} className="px-4 py-2 rounded-lg bg-red-600 text-white font-bold text-xs hover:bg-red-700 flex items-center gap-2 disabled:opacity-60">
-                                <XCircle size={14}/> RECHAZAR POR PRESUPUESTO
+                            <button onClick={() => setActionType(null)} className="px-4 py-2 rounded-lg text-gray-500 font-bold text-xs hover:bg-gray-200">CANCELAR</button>
+                            <button onClick={handleConfirmReject} disabled={processingAction} className="px-4 py-2 rounded-lg bg-red-600 text-white font-bold text-xs hover:bg-red-700 flex items-center gap-2 disabled:opacity-60">
+                                <XCircle size={14}/> {actionType === "adjust" ? "SOLICITAR EDICIÓN" : "RECHAZAR POR PRESUPUESTO"}
                             </button>
                         </>
                     ) : (
@@ -401,7 +417,12 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                                 </button>
                             )}
                             {isAdmin && (
-                                <button onClick={() => setShowRejectInput(true)} className="px-4 py-2 rounded-lg border border-red-200 text-red-600 font-bold text-xs hover:bg-red-50 flex items-center gap-2">
+                                <button onClick={() => setActionType("adjust")} className="px-4 py-2 rounded-lg border border-amber-200 text-amber-700 font-bold text-xs hover:bg-amber-50 flex items-center gap-2">
+                                    <XCircle size={14}/> SOLICITAR EDICIÓN
+                                </button>
+                            )}
+                            {isAdmin && (
+                                <button onClick={() => setActionType("reject")} className="px-4 py-2 rounded-lg border border-red-200 text-red-600 font-bold text-xs hover:bg-red-50 flex items-center gap-2">
                                     <XCircle size={14}/> RECHAZAR
                                 </button>
                             )}

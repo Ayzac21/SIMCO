@@ -1,5 +1,6 @@
 import React from "react";
 import { AlertTriangle } from "lucide-react";
+import useEscapeKey from "../hooks/useEscapeKey";
 
 export default function ConfirmModal({
   open,
@@ -11,10 +12,14 @@ export default function ConfirmModal({
   loading = false,
   variant = "primary",
   highlight,
-  icon: Icon = AlertTriangle,
+  icon = AlertTriangle,
   onConfirm,
   onCancel,
 }) {
+  useEscapeKey(open, () => {
+    if (!loading) onCancel?.();
+  }, loading);
+
   if (!open) return null;
 
   const styles = {
@@ -66,7 +71,7 @@ export default function ConfirmModal({
         <div className="p-5">
           <div className="flex items-start gap-3">
             <div className={`shrink-0 h-10 w-10 rounded-full ${s.iconBg} flex items-center justify-center ${s.iconText}`}>
-              <Icon size={18} />
+              {React.createElement(icon, { size: 18 })}
             </div>
             <div className="min-w-0">
               <div className="text-base font-bold text-gray-900">{title}</div>

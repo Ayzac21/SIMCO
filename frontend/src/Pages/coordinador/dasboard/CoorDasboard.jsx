@@ -69,6 +69,19 @@ const renderStatusBadge = (statusId, statusName) => {
   );
 };
 
+const actionHintByStatus = (statusId) => {
+  const st = Number(statusId);
+  if (st === 8) return "Acción requerida: revisar y decidir en Coordinación.";
+  if (st === 7) return "Pendiente de corrección por la URE.";
+  if (st === 9) return "En revisión de Secretaría.";
+  if (st === 12) return "Compras está cotizando proveedores.";
+  if (st === 14) return "Solicitante revisa cotizaciones por partida.";
+  if (st === 13) return "Compra en proceso.";
+  if (st === 11) return "Proceso finalizado.";
+  if (st === 10) return "Requisición rechazada.";
+  return "Sin acción pendiente.";
+};
+
 function getCoordinadorId() {
   try {
     const userStr = localStorage.getItem("usuario");
@@ -184,7 +197,7 @@ export default function CoorDashboard() {
     setModalItems([]);
     setLoadingItems(true);
 
-    const MIN_MS = 5000; // 👈 cámbialo a 1000 o 2000 si quieres
+    const MIN_MS = 1500;
     const t0 = Date.now();
 
     try {
@@ -227,13 +240,17 @@ export default function CoorDashboard() {
     );
   };
 
+  const removeReqLocal = (reqId) => {
+    setAllReqs((prev) => prev.filter((r) => Number(r.id) !== Number(reqId)));
+  };
+
   const handleApprove = (req) => {
     setConfirmConfig({
       type: "approve",
       req,
       title: `Autorizar Folio #${req.id}`,
       highlight: `Folio #${req.id}`,
-      description: "Se enviará a Secretaría.",
+      description: "La solicitud pasará a Secretaría para su revisión.",
       confirmText: "Sí, autorizar",
       headerText: "Autorizar Requisición",
       variant: "success",
@@ -252,13 +269,36 @@ export default function CoorDashboard() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || "No se pudo rechazar");
 
-      toast.success("Rechazada");
+      toast.success("Requisición rechazada");
 
       patchReqStatusLocal(req.id, 10, "Rechazada");
       setSelectedReq(null);
     } catch (e) {
       console.error(e);
       toast.error("No se pudo rechazar");
+    }
+  };
+
+  const handleRequestChanges = async (req, reason) => {
+    try {
+      const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/estatus`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({
+          status_id: 7,
+          comentarios: `AJUSTE_COORDINACION: ${reason}`,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "No se pudo solicitar ajustes");
+
+      toast.success("Ajustes solicitados a la URE");
+      removeReqLocal(req.id);
+      setSelectedReq(null);
+    } catch (e) {
+      console.error(e);
+      toast.error("No se pudo solicitar ajustes");
     }
   };
 
@@ -289,14 +329,14 @@ export default function CoorDashboard() {
         const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/estatus`, {
           method: "PUT",
           headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-          body: JSON.stringify({ status_id: 9, comentarios: "Autorizado desde Dashboard" }),
+          body: JSON.stringify({ status_id: 9, comentarios: "Autorizado por Coordinación" }),
         });
 
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.message || "No se pudo autorizar");
 
-        toast.success("Autorizado");
-        patchReqStatusLocal(req.id, 9, "En secretaría");
+        toast.success("Enviada a Secretaría");
+        patchReqStatusLocal(req.id, 9, "Secretaría");
         setSelectedReq(null);
       } catch (e) {
         console.error(e);
@@ -317,8 +357,8 @@ export default function CoorDashboard() {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.message || "No se pudo enviar");
 
-        toast.success("Enviado");
-        patchReqStatusLocal(req.id, 9, "En secretaría");
+        toast.success("Enviada a Secretaría");
+        patchReqStatusLocal(req.id, 9, "Secretaría");
         setSelectedReq(null);
       } catch (e) {
         console.error(e);
@@ -352,6 +392,7 @@ export default function CoorDashboard() {
         onClose={() => (loadingItems ? null : setSelectedReq(null))}
         onApprove={handleApprove}
         onReject={handleReject}
+        onRequestChanges={handleRequestChanges}
         onEditDraft={handleEditDraft}
         onSendDraft={handleSendDraft}
       />
@@ -463,7 +504,7 @@ export default function CoorDashboard() {
                 {recentReqs.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="p-5 text-center text-sm text-gray-400">
-                      Sin actividad reciente
+                      No hay requisiciones recientes para mostrar
                     </td>
                   </tr>
                 ) : (
@@ -495,7 +536,12 @@ export default function CoorDashboard() {
                       </td>
 
                       <td className="px-5 py-3 text-right">
-                        {renderStatusBadge(req.statuses_id, req.nombre_estatus)}
+                        <div className="flex flex-col items-end gap-1">
+                          {renderStatusBadge(req.statuses_id, req.nombre_estatus)}
+                          <p className="text-[11px] text-gray-500 max-w-[260px] text-right leading-snug">
+                            {actionHintByStatus(req.statuses_id)}
+                          </p>
+                        </div>
                       </td>
                     </tr>
                   ))

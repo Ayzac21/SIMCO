@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Search, Clock, AlertTriangle, ShoppingCart, FileText, BarChart3, Lightbulb, Briefcase, User } from "lucide-react";
 import { toast } from "sonner";
 import RequisitionModal from "../requisiciones/RequisitionModal";
 import { API_BASE_URL } from "../../../api/config";
+import useEscapeKey from "../../../hooks/useEscapeKey";
 
 const API = `${API_BASE_URL}/compras/dashboard`;
 const API_OPERATORS = `${API_BASE_URL}/compras/operators`;
@@ -20,6 +22,8 @@ const getAuthHeaders = () => {
 };
 
 export default function ComprasDashboard() {
+    const location = useLocation();
+    const navigate = useNavigate();
     const [requisitions, setRequisitions] = useState([]);
     const [selectedReq, setSelectedReq] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -29,6 +33,11 @@ export default function ComprasDashboard() {
     const [assigningReq, setAssigningReq] = useState(null);
     const [assignOperatorId, setAssignOperatorId] = useState("");
     const [savingAssign, setSavingAssign] = useState(false);
+    useEscapeKey(Boolean(assigningReq), () => {
+        if (savingAssign) return;
+        setAssigningReq(null);
+        setAssignOperatorId("");
+    }, savingAssign);
 
     const [tab, setTab] = useState("all"); // all | 12 | 14 | 13
     const [q, setQ] = useState("");
@@ -40,7 +49,6 @@ export default function ComprasDashboard() {
     const role = user?.role || "";
     const isAdmin = role === "compras_admin";
     const isOperator = role === "compras_operador";
-    const isReader = role === "compras_lector";
 
     const fetchRequisitions = async () => {
         try {
@@ -80,6 +88,19 @@ export default function ComprasDashboard() {
         fetchRequisitions();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tab, q, currentPage]);
+
+    useEffect(() => {
+        const params = new URLSearchParams(location.search || "");
+        const openReq = Number(params.get("openReq") || 0);
+        if (!openReq) return;
+        if (!requisitions.length) return;
+
+        const row = requisitions.find((r) => Number(r.id) === openReq);
+        if (!row) return;
+
+        setSelectedReq(row);
+        navigate("/compras/dashboard", { replace: true });
+    }, [location.search, requisitions, navigate]);
 
     useEffect(() => {
         const loadOperators = async () => {
@@ -463,7 +484,7 @@ export default function ComprasDashboard() {
                 await fetchRequisitions();
             }}
             onAction={async (type, payload) => {
-                if (type !== "rechazar") return;
+                if (type !== "rechazar" && type !== "ajustar") return;
 
                 const toastId = toast.loading("Procesando...");
                 try {
@@ -472,16 +493,19 @@ export default function ComprasDashboard() {
                     {
                         method: "PUT",
                         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-                        body: JSON.stringify({ status_id: 10, comentarios: payload.motivo }),
+                        body: JSON.stringify({
+                            status_id: type === "ajustar" ? 7 : 10,
+                            comentarios: type === "ajustar" ? `AJUSTE_COMPRAS: ${payload.motivo}` : payload.motivo,
+                        }),
                     }
                 );
                 if (!res.ok) throw new Error();
 
-                toast.success("Rechazada", { id: toastId });
+                toast.success(type === "ajustar" ? "Edición solicitada" : "Rechazada", { id: toastId });
                 await fetchRequisitions();
                 setSelectedReq(null);
-                } catch (e) {
-                toast.error("Error al rechazar", { id: toastId });
+                } catch {
+                toast.error(type === "ajustar" ? "Error al solicitar edición" : "Error al rechazar", { id: toastId });
                 }
             }}
             />

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Search, ArrowUpDown, RefreshCw } from "lucide-react";
 import RequisitionModal from "./RequisitionModal";
 import ConfirmModal from "../../../components/ConfirmModal";
@@ -109,8 +109,22 @@ const ProgressBar = ({ statusId }) => {
     );
 };
 
+const actionHintByStatus = (statusId) => {
+    const st = Number(statusId);
+    if (st === 8) return "Acción requerida: revisar y decidir en Coordinación.";
+    if (st === 7) return "Pendiente de corrección por la URE.";
+    if (st === 9) return "En revisión de Secretaría.";
+    if (st === 12) return "Compras está cotizando proveedores.";
+    if (st === 14) return "Solicitante revisa cotizaciones por partida.";
+    if (st === 13) return "Compra en proceso.";
+    if (st === 11) return "Proceso finalizado.";
+    if (st === 10) return "Requisición rechazada.";
+    return "Sin acción pendiente.";
+};
+
 export default function Recibidas() {
     const navigate = useNavigate();
+    const location = useLocation();
 
     const [requisiciones, setRequisiciones] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -255,6 +269,20 @@ export default function Recibidas() {
         }
     };
 
+    useEffect(() => {
+        const params = new URLSearchParams(location.search || "");
+        const openReq = Number(params.get("openReq") || 0);
+        if (!openReq) return;
+        if (!requisiciones.length) return;
+
+        const row = requisiciones.find((r) => Number(r.id) === openReq);
+        if (!row) return;
+
+        handleRowClick(row);
+        navigate("/coordinador/requisiciones", { replace: true });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location.search, requisiciones]);
+
     const handleApprove = (req) => {
         setConfirmConfig({
         type: "approve",
@@ -279,11 +307,32 @@ export default function Recibidas() {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.message || "No se pudo rechazar");
 
-        toast.success("Rechazada");
+        toast.success("Requisición rechazada");
         setRequisiciones((prev) => prev.filter((r) => r.id !== req.id));
         setSelectedReq(null);
-        } catch (e) {
+        } catch {
         toast.error("Ocurrió un error al rechazar");
+        }
+    };
+
+    const handleRequestChanges = async (req, reason) => {
+        try {
+        const res = await fetch(`${API}/coordinador/requisiciones/${req.id}/estatus`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+            body: JSON.stringify({
+            status_id: 7,
+            comentarios: `AJUSTE_COORDINACION: ${reason}`,
+            }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.message || "No se pudo solicitar ajustes");
+
+        toast.success("Ajustes solicitados a la URE");
+        setRequisiciones((prev) => prev.filter((r) => r.id !== req.id));
+        setSelectedReq(null);
+        } catch {
+        toast.error("No se pudo solicitar ajustes");
         }
     };
 
@@ -319,10 +368,10 @@ export default function Recibidas() {
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data?.message || "No se pudo autorizar");
 
-            toast.success("Autorizado");
+            toast.success("Enviada a Secretaría");
             setRequisiciones((prev) => prev.filter((r) => r.id !== req.id));
             setSelectedReq(null);
-        } catch (e) {
+        } catch {
             toast.error("No se pudo autorizar");
         } finally {
             setConfirmOpen(false);
@@ -340,16 +389,16 @@ export default function Recibidas() {
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data?.message || "No se pudo enviar");
 
-            toast.success("Enviado");
+            toast.success("Enviada a Secretaría");
             setRequisiciones((prev) =>
             prev.map((r) =>
                 Number(r.id) === Number(req.id)
-                ? { ...r, statuses_id: 9, nombre_estatus: "En secretaría" }
+                ? { ...r, statuses_id: 9, nombre_estatus: "Secretaría" }
                 : r
             )
             );
             setSelectedReq(null);
-        } catch (e) {
+        } catch {
             toast.error("No se pudo enviar");
         } finally {
             setConfirmOpen(false);
@@ -367,6 +416,7 @@ export default function Recibidas() {
                 onClose={() => setSelectedReq(null)}
                 onApprove={handleApprove}
                 onReject={handleReject}
+                onRequestChanges={handleRequestChanges}
                 onEditDraft={handleEditDraft}
                 onSendDraft={handleSendDraft}
             />
@@ -467,7 +517,7 @@ export default function Recibidas() {
                 {loading ? (
                 <AppLoader label="Cargando..." />
                 ) : page.length === 0 ? (
-                <div className="p-6 text-center text-sm text-gray-500">No hay requisiciones.</div>
+                <div className="p-6 text-center text-sm text-gray-500">No hay requisiciones pendientes en Coordinación.</div>
                 ) : (
                 <div className="divide-y">
                     {page.map((req) => {
@@ -497,11 +547,11 @@ export default function Recibidas() {
                                 </div>
 
                                 <div className="col-span-3">
-                                    <div className="text-sm text-gray-800">
-                                        Estatus: <b>{req.nombre_estatus || req.estatus || "—"}</b>
-                                    </div>
-                                    <div className="mt-2">
+                                    <div>
                                         {renderStatusBadge(st, req.nombre_estatus || req.estatus)}
+                                    </div>
+                                    <div className="mt-2 text-[11px] text-gray-500 leading-snug">
+                                        {actionHintByStatus(st)}
                                     </div>
                                 </div>
 

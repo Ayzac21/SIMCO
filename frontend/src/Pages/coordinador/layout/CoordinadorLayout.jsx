@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { Menu, X } from "lucide-react";
+import NotificationBell from "../../../components/NotificationBell";
 // Ya no necesitamos importar PageHeader porque lo integraremos directamente para tener el layout de dos columnas
 // import PageHeader from "../../Asistente/PageHeader"; 
 
@@ -146,6 +147,7 @@ export default function CoordinadorLayout() {
 
                     {/* DERECHA: INFORMACIÓN DEL USUARIO */}
                     <div className="flex items-center gap-3">
+                        <NotificationBell />
                         <div className="text-right hidden md:block">
                             <p className="text-sm font-bold text-gray-800">Hola, {userName}</p>
                             <p className="text-xs text-gray-500">

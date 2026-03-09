@@ -1,13 +1,47 @@
 import { pool } from "../db/connection.js";
 
+const parseUserId = (value) => {
+    const n = Number(value);
+    return Number.isInteger(n) && n > 0 ? n : 0;
+};
+
+const getAuthUserId = (req) => parseUserId(req.user?.id);
+
+const ensureOwnsRequisition = async (req, res, requisitionId, connOrPool = pool) => {
+    const authId = getAuthUserId(req);
+    if (!authId) {
+        res.status(401).json({ message: "No autorizado" });
+        return false;
+    }
+
+    const [[row]] = await connOrPool.query(
+        `SELECT users_id FROM requisition WHERE id = ? LIMIT 1`,
+        [requisitionId]
+    );
+    if (!row) {
+        res.status(404).json({ message: "Requisición no encontrada" });
+        return false;
+    }
+
+    if (parseUserId(row.users_id) !== authId) {
+        res.status(403).json({ message: "Acceso denegado" });
+        return false;
+    }
+    return true;
+};
+
 /**
  * Lista requisiciones en revisión (14) del usuario solicitante
  * (por ahora recibe user_id por query)
  */
 export const getRevisionRequisitions = async (req, res) => {
     try {
-        const userId = Number(req.query.user_id);
-        if (!userId) return res.status(400).json({ message: "user_id requerido" });
+        const authUserId = getAuthUserId(req);
+        if (!authUserId) return res.status(401).json({ message: "No autorizado" });
+
+        const requestedUserId = req.query.user_id == null ? authUserId : Number(req.query.user_id);
+        if (!requestedUserId) return res.status(400).json({ message: "user_id inválido" });
+        if (requestedUserId !== authUserId) return res.status(403).json({ message: "Acceso denegado" });
 
         const sql = `
         SELECT 
@@ -28,7 +62,7 @@ export const getRevisionRequisitions = async (req, res) => {
             AND r.statuses_id = 14
         ORDER BY r.created_at DESC
         `;
-        const [rows] = await pool.query(sql, [userId]);
+        const [rows] = await pool.query(sql, [authUserId]);
         res.json(rows);
     } catch (e) {
         console.error("getRevisionRequisitions:", e);
@@ -43,6 +77,8 @@ export const getRevisionRequisitions = async (req, res) => {
 export const getRevisionCotizacionData = async (req, res) => {
     try {
         const { id } = req.params;
+        const ownsReq = await ensureOwnsRequisition(req, res, id);
+        if (!ownsReq) return;
 
         const queryReq = `
         SELECT r.id, r.request_name, r.statuses_id, r.quotation_closed_at,
@@ -102,6 +138,8 @@ export const submitRevisionSelection = async (req, res) => {
     try {
         const { id } = req.params;
         const { selection } = req.body;
+        const ownsReq = await ensureOwnsRequisition(req, res, id, conn);
+        if (!ownsReq) return;
 
         if (!Array.isArray(selection) || selection.length === 0) {
         return res.status(400).json({ message: "selection requerida" });

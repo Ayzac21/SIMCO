@@ -10,12 +10,13 @@ import {
     Info,
 } from "lucide-react";
 import { toast } from "sonner";
+import useEscapeKey from "../../../hooks/useEscapeKey";
 
 // ✅ Loader doble (tu diseño)
 const DoubleSpinner = ({ label = "Cargando..." }) => (
   <div className="flex-col gap-4 w-full flex items-center justify-center py-8">
-    <div className="w-20 h-20 border-4 border-transparent text-blue-400 text-4xl animate-spin flex items-center justify-center border-t-blue-400 rounded-full">
-      <div className="w-16 h-16 border-4 border-transparent text-red-400 text-2xl animate-spin flex items-center justify-center border-t-red-400 rounded-full" />
+    <div className="w-20 h-20 border-4 border-transparent text-secundario text-4xl animate-spin flex items-center justify-center border-t-secundario rounded-full">
+      <div className="w-16 h-16 border-4 border-transparent text-principal text-2xl animate-spin flex items-center justify-center border-t-principal rounded-full" />
     </div>
     <div className="text-xs text-gray-500 mt-2">{label}</div>
   </div>
@@ -28,27 +29,58 @@ export default function RequisitionModal({
   onClose,
   onApprove,
   onReject,
+  onRequestChanges,
   onEditDraft,
   onSendDraft,
 }) {
-  const [isRejecting, setIsRejecting] = useState(false);
+  const [actionMode, setActionMode] = useState(null); // reject | adjust | null
   const [reason, setReason] = useState("");
+
+  useEscapeKey(Boolean(req), () => {
+    if (!loadingItems) onClose?.();
+  }, loadingItems);
 
   // ✅ Cuando cambia el req (abriste otro), reseteamos rechazo
   useEffect(() => {
-    setIsRejecting(false);
+    setActionMode(null);
     setReason("");
   }, [req?.id]);
 
   if (!req) return null;
   const statusId = Number(req.statuses_id);
+  const isAdjustMode = actionMode === "adjust";
 
-  const handleConfirmReject = () => {
+  const notesText = String(req.notes || "");
+  const noteIsAdjustment =
+    notesText.startsWith("AJUSTE_COORDINACION:") ||
+    notesText.startsWith("AJUSTE_SECRETARIA:");
+  const adjustmentSource = notesText.startsWith("AJUSTE_SECRETARIA:")
+    ? "Secretaría"
+    : notesText.startsWith("AJUSTE_COORDINACION:")
+    ? "Coordinación"
+    : "";
+  const readableNote = noteIsAdjustment
+    ? notesText.replace(/^AJUSTE_(COORDINACION|SECRETARIA):\s*/i, "")
+    : notesText;
+
+  const statusTone = (() => {
+    if (statusId === 8) return "bg-yellow-50 text-yellow-800 border-yellow-200";
+    if (statusId === 9) return "bg-blue-50 text-blue-800 border-blue-200";
+    if (statusId === 10) return "bg-red-50 text-red-800 border-red-200";
+    if (statusId === 12) return "bg-orange-50 text-orange-800 border-orange-200";
+    if (statusId === 13) return "bg-indigo-50 text-indigo-800 border-indigo-200";
+    if (statusId === 14) return "bg-slate-100 text-slate-800 border-slate-300";
+    if (statusId === 11) return "bg-emerald-50 text-emerald-800 border-emerald-200";
+    return "bg-gray-100 text-gray-700 border-gray-200";
+  })();
+
+  const handleConfirmAction = () => {
     if (!reason.trim()) {
       toast.warning("Falta información");
       return;
     }
-    onReject(req, reason);
+    if (actionMode === "reject") onReject(req, reason);
+    if (actionMode === "adjust") onRequestChanges?.(req, reason);
   };
 
   return (
@@ -64,6 +96,9 @@ export default function RequisitionModal({
             <p className="text-sm text-gray-500 mt-1">
               Folio: #{req.id} • {req.area_folio || "S/F"}
             </p>
+            <span className={`mt-2 inline-flex px-2.5 py-1 rounded-full text-[11px] font-bold border ${statusTone}`}>
+              {req.nombre_estatus || "Sin estatus"}
+            </span>
           </div>
 
           {/* ✅ opcional: evitar cerrar mientras carga */}
@@ -82,29 +117,51 @@ export default function RequisitionModal({
 
         {/* Body */}
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
-          {isRejecting ? (
-            <div className="bg-red-50 p-6 rounded-xl border border-red-100">
-              <div className="flex items-center gap-2 text-red-700 font-bold mb-3">
-                <AlertTriangle size={20} /> Motivo del Rechazo
+          {actionMode ? (
+            <div
+              className={`p-6 rounded-xl border ${
+                isAdjustMode ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-100"
+              }`}
+            >
+              <div
+                className={`flex items-center gap-2 font-bold mb-2 ${
+                  isAdjustMode ? "text-amber-800" : "text-red-700"
+                }`}
+              >
+                <AlertTriangle size={20} />
+                {isAdjustMode ? "Solicitar ajustes de la requisición" : "Motivo del rechazo"}
               </div>
+              <p className={`text-xs mb-3 ${isAdjustMode ? "text-amber-700" : "text-red-600"}`}>
+                {isAdjustMode
+                  ? "Describe de forma clara qué debe corregir el solicitante para poder continuar el proceso."
+                  : "Especifica por qué se rechaza la requisición."}
+              </p>
               <textarea
-                className="w-full p-3 border border-red-300 rounded-lg focus:outline-none bg-white"
-                rows="3"
+                className={`w-full p-3 border rounded-lg focus:outline-none bg-white text-sm ${
+                  isAdjustMode
+                    ? "border-amber-300 focus:ring-2 focus:ring-amber-200"
+                    : "border-red-300 focus:ring-2 focus:ring-red-200"
+                }`}
+                rows="4"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 autoFocus
-                placeholder="Escribe el motivo..."
+                placeholder={
+                  isAdjustMode
+                    ? "Ejemplo: agrega especificaciones técnicas en la partida 2 y corrige la cantidad de la partida 4."
+                    : "Escribe el motivo del rechazo..."
+                }
               />
             </div>
           ) : (
             <>
               {/* Datos del Solicitante */}
-              <div className="flex items-start gap-4 p-4 bg-blue-50/50 rounded-xl border border-blue-100">
+              <div className="flex items-start gap-4 p-4 bg-principal/10 rounded-xl border border-principal/25">
                 <div className="p-2 bg-white rounded-full shadow-sm">
-                  <User className="text-blue-600" size={20} />
+                  <User className="text-principal" size={20} />
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-blue-800 uppercase">
+                  <p className="text-xs font-bold text-principal uppercase">
                     Solicitante
                   </p>
                   <p className="font-semibold text-gray-800">{req.solicitante}</p>
@@ -113,15 +170,31 @@ export default function RequisitionModal({
               </div>
 
               {/* Motivo de rechazo previo */}
-              {req.notes && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex gap-3 animate-pulse">
-                  <AlertTriangle className="text-red-600 shrink-0 mt-1" size={18} />
+              {readableNote && (
+                <div
+                  className={`rounded-lg p-3 flex gap-3 border ${
+                    noteIsAdjustment
+                      ? "bg-amber-50 border-amber-200"
+                      : "bg-slate-50 border-slate-200"
+                  }`}
+                >
+                  {noteIsAdjustment ? (
+                    <AlertTriangle className="text-amber-700 shrink-0 mt-1" size={18} />
+                  ) : (
+                    <Info className="text-slate-600 shrink-0 mt-1" size={18} />
+                  )}
                   <div>
-                    <p className="text-xs font-bold text-red-800 uppercase mb-1">
-                      Motivo / Notas
+                    <p
+                      className={`text-xs font-bold uppercase mb-1 ${
+                        noteIsAdjustment ? "text-amber-800" : "text-slate-700"
+                      }`}
+                    >
+                      {noteIsAdjustment
+                        ? `Ajustes solicitados${adjustmentSource ? ` por ${adjustmentSource}` : ""}`
+                        : "Motivo / Notas"}
                     </p>
-                    <p className="text-sm text-gray-800 font-medium">
-                      "{req.notes}"
+                    <p className="text-sm text-gray-800 font-medium leading-snug">
+                      "{readableNote}"
                     </p>
                   </div>
                 </div>
@@ -130,10 +203,10 @@ export default function RequisitionModal({
               {/* Justificación y Observaciones */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {req.justification && (
-                  <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 flex gap-3">
-                    <Info className="text-blue-600 shrink-0 mt-1" size={18} />
+                  <div className="bg-principal/10 border border-principal/25 rounded-lg p-3 flex gap-3">
+                    <Info className="text-principal shrink-0 mt-1" size={18} />
                     <div>
-                      <p className="text-xs font-bold text-blue-800 uppercase mb-1">
+                      <p className="text-xs font-bold text-principal uppercase mb-1">
                         Justificación
                       </p>
                       <p className="text-sm text-gray-700 leading-snug">
@@ -143,13 +216,13 @@ export default function RequisitionModal({
                   </div>
                 )}
                 {req.observation && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex gap-3">
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex gap-3">
                     <MessageSquare
-                      className="text-yellow-600 shrink-0 mt-1"
+                      className="text-slate-600 shrink-0 mt-1"
                       size={18}
                     />
                     <div>
-                      <p className="text-xs font-bold text-yellow-800 uppercase mb-1">
+                      <p className="text-xs font-bold text-slate-700 uppercase mb-1">
                         Observaciones
                       </p>
                       <p className="text-sm text-gray-700 italic leading-snug">
@@ -237,7 +310,19 @@ export default function RequisitionModal({
           ) : statusId !== 8 ? (
             <div
               className={`w-full text-center font-bold py-3 rounded-lg flex items-center justify-center gap-2
-                ${statusId === 10 ? "bg-red-100 text-red-700" : "bg-secundario/10 text-secundario"}`}
+                ${
+                  statusId === 10
+                    ? "bg-red-100 text-red-700"
+                    : statusId === 9
+                    ? "bg-blue-100 text-blue-800"
+                    : statusId === 12
+                    ? "bg-orange-100 text-orange-800"
+                    : statusId === 13
+                    ? "bg-indigo-100 text-indigo-800"
+                    : statusId === 14
+                    ? "bg-slate-200 text-slate-800"
+                    : "bg-slate-100 text-slate-700"
+                }`}
             >
               {statusId === 10 ? (
                 <>
@@ -245,37 +330,61 @@ export default function RequisitionModal({
                 </>
               ) : statusId === 9 ? (
                 <>
-                  <CheckCircle size={20} /> Esta solicitud ya fue AUTORIZADA
+                  <CheckCircle size={20} /> Esta solicitud fue enviada a SECRETARÍA para revisión
+                </>
+              ) : statusId === 12 ? (
+                <>
+                  <Info size={20} /> Esta solicitud está en COTIZACIÓN en Compras
+                </>
+              ) : statusId === 13 ? (
+                <>
+                  <Info size={20} /> Esta solicitud está en PROCESO DE COMPRA
+                </>
+              ) : statusId === 14 ? (
+                <>
+                  <Info size={20} /> Esta solicitud está en REVISIÓN DE COTIZACIONES
                 </>
               ) : (
                 <>
-                  <Info size={20} /> Esta solicitud ya fue procesada
+                  <Info size={20} /> Esta solicitud continúa en proceso
                 </>
               )}
             </div>
           ) : (
             <>
-              {isRejecting ? (
+              {actionMode ? (
                 <>
                   <button
-                    onClick={() => setIsRejecting(false)}
+                    onClick={() => setActionMode(null)}
                     className="px-4 py-2 text-gray-500 hover:bg-gray-200 rounded-lg transition-colors"
                     disabled={loadingItems}
                   >
                     Cancelar
                   </button>
                   <button
-                    onClick={handleConfirmReject}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg shadow-md transition-colors disabled:opacity-60"
+                    onClick={handleConfirmAction}
+                    className={`px-4 py-2 text-white rounded-lg shadow-md transition-colors disabled:opacity-60 ${
+                      isAdjustMode
+                        ? "bg-amber-600 hover:bg-amber-700"
+                        : "bg-red-600 hover:bg-red-700"
+                    }`}
                     disabled={loadingItems}
                   >
-                    Confirmar Rechazo
+                    {isAdjustMode ? "Enviar solicitud de ajustes" : "Confirmar rechazo"}
                   </button>
                 </>
               ) : (
                 <>
                   <button
-                    onClick={() => setIsRejecting(true)}
+                    onClick={() => setActionMode("adjust")}
+                    className="px-4 py-2 border border-amber-300 text-amber-700 hover:bg-amber-50 rounded-lg flex gap-2 items-center transition-colors disabled:opacity-60"
+                    disabled={loadingItems}
+                  >
+                    <AlertTriangle size={18} /> Solicitar ajustes
+                  </button>
+
+                  <button
+                    onClick={() => setActionMode("reject")}
                     className="px-4 py-2 border border-gray-300 text-red-600 hover:bg-red-50 rounded-lg flex gap-2 items-center transition-colors disabled:opacity-60"
                     disabled={loadingItems}
                   >

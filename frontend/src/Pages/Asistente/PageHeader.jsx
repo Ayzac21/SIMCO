@@ -1,5 +1,6 @@
 import React from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import NotificationBell from "../../components/NotificationBell";
 
 export default function PageHeader({ title, subtitle }) {
     const navigate = useNavigate();
@@ -28,24 +29,27 @@ export default function PageHeader({ title, subtitle }) {
                 </div>
 
                 {/* Header principal */}
-                <div className="flex items-start gap-4">
-                    <button
-                        onClick={() => navigate(-1)}
-                        className="text-2xl text-gray-500 hover:text-gray-800 transition"
-                    >
-                        ←
-                    </button>
+                <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-4">
+                        <button
+                            onClick={() => navigate(-1)}
+                            className="text-2xl text-gray-500 hover:text-gray-800 transition"
+                        >
+                            ←
+                        </button>
 
-                    <div>
-                        <h1 className="text-2xl font-bold text-gray-800">
-                            {title}
-                        </h1>
-                        {subtitle && (
-                            <p className="text-sm text-gray-500 mt-1">
-                                {subtitle}
-                            </p>
-                        )}
+                        <div>
+                            <h1 className="text-2xl font-bold text-gray-800">
+                                {title}
+                            </h1>
+                            {subtitle && (
+                                <p className="text-sm text-gray-500 mt-1">
+                                    {subtitle}
+                                </p>
+                            )}
+                        </div>
                     </div>
+                    <NotificationBell />
                 </div>
 
             </div>

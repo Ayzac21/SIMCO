@@ -1,14 +1,134 @@
 import express from "express";
 import { pool } from "../db/connection.js";
+import { requireRoles } from "../middleware/auth.js";
+import multer from "multer";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import {
+  createNotificationsForUsers,
+  getCoordinatorUsersForRequisition,
+  getUsersByRole,
+  getUsersByRolePrefix,
+} from "../services/notifications.js";
 
 const router = express.Router();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const uploadsDir = path.resolve(__dirname, "..", "uploads", "requisiciones");
+const maxAttachmentSizeBytes = 8 * 1024 * 1024;
+
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const ensureAttachmentsTablePromise = pool.query(`
+  CREATE TABLE IF NOT EXISTS requisition_attachments (
+    id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    requisition_id INT NOT NULL,
+    original_name VARCHAR(255) NOT NULL,
+    stored_name VARCHAR(255) NOT NULL,
+    mime_type VARCHAR(120) NOT NULL,
+    size_bytes INT NOT NULL,
+    file_path VARCHAR(500) NOT NULL,
+    uploaded_by INT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_req_att_req (requisition_id),
+    CONSTRAINT fk_req_att_req FOREIGN KEY (requisition_id) REFERENCES requisition(id) ON DELETE CASCADE
+  )
+`);
+
+const ensureAttachmentsTable = async () => {
+  await ensureAttachmentsTablePromise;
+};
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadsDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || "").toLowerCase();
+      const safeExt = ext || ".bin";
+      const unique = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+      cb(null, `req-${unique}${safeExt}`);
+    },
+  }),
+  limits: {
+    fileSize: maxAttachmentSizeBytes,
+    files: 5,
+  },
+  fileFilter: (_req, file, cb) => {
+    const mime = String(file.mimetype || "").toLowerCase();
+    const ext = path.extname(String(file.originalname || "")).toLowerCase();
+    const isPdf = mime.includes("pdf") || ext === ".pdf";
+    const isImage =
+      mime.startsWith("image/") || [".png", ".jpg", ".jpeg", ".webp"].includes(ext);
+    const ok = isPdf || isImage;
+    if (!ok) {
+      return cb(new Error("Solo se permiten archivos PDF o imágenes (PNG/JPG/WEBP)"));
+    }
+    return cb(null, true);
+  },
+});
+
+const parseUserId = (value) => {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : 0;
+};
+
+const getAuthUserId = (req) => parseUserId(req.user?.id);
+
+const ensureSelf = (req, res, requestedUserId) => {
+  const authUserId = getAuthUserId(req);
+  if (!authUserId) {
+    res.status(401).json({ ok: false, message: "No autorizado" });
+    return false;
+  }
+  if (authUserId !== parseUserId(requestedUserId)) {
+    res.status(403).json({ ok: false, message: "Acceso denegado" });
+    return false;
+  }
+  return true;
+};
+
+const getRequisitionOwnerId = async (id, connOrPool = pool) => {
+  const [[ownerRow]] = await connOrPool.query(
+    `SELECT users_id FROM requisition WHERE id = ? LIMIT 1`,
+    [id]
+  );
+  return parseUserId(ownerRow?.users_id);
+};
+
+const ensureOwnsRequisition = async (req, res, requisitionId, connOrPool = pool) => {
+  const authUserId = getAuthUserId(req);
+  if (!authUserId) {
+    res.status(401).json({ ok: false, message: "No autorizado" });
+    return false;
+  }
+  const ownerId = await getRequisitionOwnerId(requisitionId, connOrPool);
+  if (!ownerId) {
+    res.status(404).json({ ok: false, message: "Requisición no encontrada" });
+    return false;
+  }
+  if (ownerId !== authUserId) {
+    res.status(403).json({ ok: false, message: "Acceso denegado" });
+    return false;
+  }
+  return true;
+};
+
+router.use((req, res, next) => {
+  const role = String(req.user?.role || "");
+  if (role === "head_office" || role === "coordinador") {
+    return next();
+  }
+  return res.status(403).json({ ok: false, message: "Acceso denegado" });
+});
 
 /* Crear requisición */
 async function createRequisitionHandler(req, res) {
   const conn = await pool.getConnection();
   try {
     const {
-      users_id,
       categoria,
       articulos,
       notes = "",
@@ -17,6 +137,7 @@ async function createRequisitionHandler(req, res) {
       observation = "",
     } = req.body;
 
+    const users_id = getAuthUserId(req);
     if (!users_id || !Array.isArray(articulos) || articulos.length === 0) {
       return res.status(400).json({ ok: false, message: "Datos incompletos" });
     }
@@ -96,10 +217,123 @@ async function createRequisitionHandler(req, res) {
   }
 }
 
+router.get("/:id/attachments", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ownsReq = await ensureOwnsRequisition(req, res, id);
+    if (!ownsReq) return;
+    await ensureAttachmentsTable();
+
+    const [rows] = await pool.query(
+      `
+      SELECT id, original_name, mime_type, size_bytes, created_at
+      FROM requisition_attachments
+      WHERE requisition_id = ?
+      ORDER BY created_at DESC, id DESC
+      `,
+      [id]
+    );
+    return res.json(rows);
+  } catch (err) {
+    console.error("ERROR list attachments:", err);
+    return res.status(500).json({ ok: false, message: "Error interno" });
+  }
+});
+
+router.post("/:id/attachments", upload.array("files", 5), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ownsReq = await ensureOwnsRequisition(req, res, id);
+    if (!ownsReq) return;
+    await ensureAttachmentsTable();
+
+    const files = Array.isArray(req.files) ? req.files : [];
+    if (!files.length) {
+      return res.status(400).json({ ok: false, message: "No se recibieron archivos" });
+    }
+
+    const uploadedBy = getAuthUserId(req);
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      for (const f of files) {
+        await conn.query(
+          `
+          INSERT INTO requisition_attachments
+            (requisition_id, original_name, stored_name, mime_type, size_bytes, file_path, uploaded_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            Number(id),
+            f.originalname || f.filename,
+            f.filename,
+            String(f.mimetype || "application/octet-stream"),
+            Number(f.size || 0),
+            f.path,
+            uploadedBy || 0,
+          ]
+        );
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+
+    return res.json({ ok: true, uploaded: files.length });
+  } catch (err) {
+    console.error("ERROR upload attachments:", err);
+    const message = err?.message?.includes("Solo se permiten")
+      ? err.message
+      : "No se pudieron subir los archivos";
+    return res.status(400).json({ ok: false, message });
+  }
+});
+
+router.get("/:id/attachments/:attachmentId/download", async (req, res) => {
+  try {
+    const { id, attachmentId } = req.params;
+    const ownsReq = await ensureOwnsRequisition(req, res, id);
+    if (!ownsReq) return;
+    await ensureAttachmentsTable();
+
+    const [[row]] = await pool.query(
+      `
+      SELECT id, original_name, mime_type, file_path
+      FROM requisition_attachments
+      WHERE id = ? AND requisition_id = ?
+      LIMIT 1
+      `,
+      [attachmentId, id]
+    );
+
+    if (!row) {
+      return res.status(404).json({ ok: false, message: "Adjunto no encontrado" });
+    }
+
+    const absPath = path.resolve(String(row.file_path || ""));
+    if (!absPath.startsWith(uploadsDir) || !fs.existsSync(absPath)) {
+      return res.status(404).json({ ok: false, message: "Archivo no disponible" });
+    }
+
+    res.setHeader("Content-Type", row.mime_type || "application/octet-stream");
+    return res.download(absPath, row.original_name || "adjunto");
+  } catch (err) {
+    console.error("ERROR download attachment:", err);
+    return res.status(500).json({ ok: false, message: "Error interno" });
+  }
+});
+
+router.use("/revision", requireRoles("head_office"));
+
 /* Revisión: data */
 router.get("/revision/:id/data", async (req, res) => {
   try {
     const { id } = req.params;
+    const ownsReq = await ensureOwnsRequisition(req, res, id);
+    if (!ownsReq) return;
 
     const [reqRows] = await pool.query(
       `
@@ -206,6 +440,8 @@ router.post("/revision/:id/select", async (req, res) => {
   try {
     const { id } = req.params;
     const { selections } = req.body;
+    const ownsReq = await ensureOwnsRequisition(req, res, id, conn);
+    if (!ownsReq) return;
 
     if (!Array.isArray(selections) || selections.length === 0) {
       return res.status(400).json({ message: "selections es requerido" });
@@ -317,6 +553,18 @@ router.post("/revision/:id/select", async (req, res) => {
 
     await conn.commit();
 
+    if (sent_to_purchase) {
+      const comprasIds = await getUsersByRolePrefix("compras_");
+      await createNotificationsForUsers(comprasIds, {
+        actorUserId: getAuthUserId(req),
+        title: "Requisición en proceso de compra",
+        message: `La requisición #${id} ya tiene selección completa por partida y pasó a proceso de compra.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/compras/dashboard`,
+      });
+    }
+
     return res.json({
       ok: true,
       sent_to_purchase,
@@ -340,6 +588,7 @@ router.post("/revision/:id/select", async (req, res) => {
 router.get("/dashboard/:users_id/stats", async (req, res) => {
   try {
     const { users_id } = req.params;
+    if (!ensureSelf(req, res, users_id)) return;
 
     const [rows] = await pool.query(
       `
@@ -375,6 +624,8 @@ router.post("/", createRequisitionHandler);
 router.get("/mis-requisiciones/:users_id", async (req, res) => {
   try {
     const { users_id } = req.params;
+    if (!ensureSelf(req, res, users_id)) return;
+
     const [rows] = await pool.query(
       `
       SELECT
@@ -403,21 +654,77 @@ router.get("/mis-requisiciones/:users_id", async (req, res) => {
 router.patch("/:id/enviar", async (req, res) => {
   try {
     const { id } = req.params;
+    const ownsReq = await ensureOwnsRequisition(req, res, id);
+    if (!ownsReq) return;
+
+    const [[row]] = await pool.query(
+      `SELECT notes FROM requisition WHERE id = ? AND statuses_id = 7 LIMIT 1`,
+      [id]
+    );
+    const currentNote = String(row?.notes || "");
+    const requestedResume = Number(req.body?.resume_to || 0);
+
+    let resumeTo = 8;
+    if (currentNote.startsWith("AJUSTE_SECRETARIA:")) resumeTo = 8;
+    if (currentNote.startsWith("AJUSTE_COMPRAS:")) resumeTo = 12;
+    if (requestedResume === 8 && !currentNote.startsWith("AJUSTE_")) resumeTo = 8;
 
     const [result] = await pool.query(
       `
       UPDATE requisition
-      SET statuses_id = 8
+      SET statuses_id = ?, notes = NULL
       WHERE id = ? AND statuses_id = 7
       `,
-      [id]
+      [resumeTo, id]
     );
 
     if (!result.affectedRows) {
       return res.status(400).json({ ok: false, message: "No se puede enviar" });
     }
 
-    return res.json({ ok: true, statuses_id: 8, status: "En coordinación" });
+    const actorId = getAuthUserId(req);
+    if (resumeTo === 8) {
+      const coordinatorIds = await getCoordinatorUsersForRequisition(id);
+      await createNotificationsForUsers(coordinatorIds, {
+        actorUserId: actorId,
+        title: "Requisición en Coordinación",
+        message: `La requisición #${id} fue enviada para revisión de Coordinación.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/coordinador/requisiciones?openReq=${id}`,
+      });
+    } else if (resumeTo === 9) {
+      const secretariaIds = await getUsersByRole("secretaria");
+      await createNotificationsForUsers(secretariaIds, {
+        actorUserId: actorId,
+        title: "Requisición en Secretaría",
+        message: `La requisición #${id} fue reenviada a Secretaría para revisión.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/secretaria/recibidas?openReq=${id}`,
+      });
+    } else if (resumeTo === 12) {
+      const comprasIds = await getUsersByRolePrefix("compras_");
+      await createNotificationsForUsers(comprasIds, {
+        actorUserId: actorId,
+        title: "Requisición en Compras",
+        message: `La requisición #${id} fue reenviada a Compras para cotización.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: "/compras/dashboard",
+      });
+    }
+
+    return res.json({
+      ok: true,
+      statuses_id: resumeTo,
+      status:
+        resumeTo === 12
+          ? "En cotización"
+          : resumeTo === 9
+          ? "En secretaría"
+          : "En coordinación",
+    });
   } catch (err) {
     console.error("ERROR enviar:", err);
     return res.status(500).json({ ok: false, message: "Error interno" });
@@ -428,6 +735,9 @@ router.patch("/:id/enviar", async (req, res) => {
 router.get("/:id", async (req, res) => {
   const { id } = req.params;
   try {
+    const ownsReq = await ensureOwnsRequisition(req, res, id);
+    if (!ownsReq) return;
+
     const [[requisicion]] = await pool.query(
       `
       SELECT
@@ -436,11 +746,13 @@ router.get("/:id", async (req, res) => {
         r.request_name,
         r.justification,
         r.observation,
+        c.name AS categoria,
         r.statuses_id,
         s.name AS estatus,
         u.name AS solicitante,
         u.ure AS ure
       FROM requisition r
+      JOIN categories c ON r.categories_id = c.id
       JOIN statuses s ON r.statuses_id = s.id
       JOIN users u ON r.users_id = u.id
       WHERE r.id = ?
@@ -464,7 +776,18 @@ router.get("/:id", async (req, res) => {
       [id]
     );
 
-    return res.json({ ...requisicion, partidas });
+    await ensureAttachmentsTable();
+    const [attachments] = await pool.query(
+      `
+      SELECT id, original_name, mime_type, size_bytes, created_at
+      FROM requisition_attachments
+      WHERE requisition_id = ?
+      ORDER BY created_at DESC, id DESC
+      `,
+      [id]
+    );
+
+    return res.json({ ...requisicion, partidas, attachments });
   } catch (err) {
     console.error("ERROR get requisicion:", err);
     return res.status(500).json({ ok: false, message: "Error interno" });
@@ -478,13 +801,16 @@ router.put("/:id", async (req, res) => {
   const { notes, request_name, justification, observation, partidas } = req.body;
 
   try {
+    const ownsReq = await ensureOwnsRequisition(req, res, id, conn);
+    if (!ownsReq) return;
+
     await conn.beginTransaction();
 
     await conn.query(
       `
       UPDATE requisition
       SET
-        notes = ?,
+        notes = COALESCE(?, notes),
         request_name = ?,
         justification = ?,
         observation = ?

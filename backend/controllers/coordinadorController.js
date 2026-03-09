@@ -1,8 +1,79 @@
 import { pool } from "../db/connection.js"; 
+import {
+    createNotification,
+    createNotificationsForUsers,
+    getUsersByRole,
+} from "../services/notifications.js";
+
+const parseUserId = (value) => {
+    const n = Number(value);
+    return Number.isInteger(n) && n > 0 ? n : 0;
+};
+
+const getAuthUserId = (req) => parseUserId(req.user?.id);
+
+const getCoordinatorUre = async (coordinadorId) => {
+    const [rows] = await pool.query("SELECT ure FROM users WHERE id = ? LIMIT 1", [coordinadorId]);
+    const ureBase = String(rows?.[0]?.ure || "").trim();
+    return ureBase;
+};
+
+const ensureSameCoordinator = (req, res, requestedId) => {
+    const authId = getAuthUserId(req);
+    if (!authId) {
+        res.status(401).json({ message: "No autorizado" });
+        return false;
+    }
+    if (authId !== parseUserId(requestedId)) {
+        res.status(403).json({ message: "Acceso denegado" });
+        return false;
+    }
+    return true;
+};
+
+const ensureCoordinatorScopeByRequisition = async (req, res, requisitionId) => {
+    const authId = getAuthUserId(req);
+    if (!authId) {
+        res.status(401).json({ message: "No autorizado" });
+        return null;
+    }
+
+    const ureBase = await getCoordinatorUre(authId);
+    if (!ureBase) {
+        res.status(404).json({ message: "Coordinador no encontrado" });
+        return null;
+    }
+
+    const [rows] = await pool.query(
+        `
+        SELECT r.id, r.statuses_id, r.users_id
+        FROM requisition r
+        JOIN users u ON r.users_id = u.id
+        WHERE r.id = ? AND u.ure LIKE CONCAT(?, '%')
+        LIMIT 1
+        `,
+        [requisitionId, ureBase]
+    );
+
+    if (rows.length === 0) {
+        res.status(404).json({ message: "Requisición no encontrada o sin acceso" });
+        return null;
+    }
+
+    const scoped = rows[0];
+    if (Number(scoped.statuses_id) === 7 && Number(scoped.users_id) !== authId) {
+        res.status(403).json({ message: "Borrador en ajuste por URE. Espera su reenvío a Coordinación." });
+        return null;
+    }
+
+    return scoped;
+};
 
 export const getRequisicionItems = async (req, res) => {
     try {
         const { id } = req.params;
+        const inScope = await ensureCoordinatorScopeByRequisition(req, res, id);
+        if (!inScope) return;
 
         const query = `
             SELECT 
@@ -27,13 +98,13 @@ export const getRequisicionItems = async (req, res) => {
 export const getRequisicionesCoordinador = async (req, res) => {
     try {
         const { coordinador_id } = req.params;
+        if (!ensureSameCoordinator(req, res, coordinador_id)) return;
+        const authId = getAuthUserId(req);
 
-        const [rows] = await pool.query("SELECT ure FROM users WHERE id = ?", [coordinador_id]);
-        
-        if (rows.length === 0) {
+        const ureBase = await getCoordinatorUre(authId);
+        if (!ureBase) {
             return res.status(404).json({ message: "Coordinador no encontrado" });
         }
-        const ureBase = rows[0].ure; 
 
         const [requisiciones] = await pool.query(
             `
@@ -53,9 +124,10 @@ export const getRequisicionesCoordinador = async (req, res) => {
             JOIN users u ON r.users_id = u.id
             JOIN statuses s ON r.statuses_id = s.id 
             WHERE u.ure LIKE CONCAT(?, '%')
+              AND (r.statuses_id <> 7 OR r.users_id = ?)
             ORDER BY r.created_at DESC
             `,
-            [ureBase]
+            [ureBase, authId]
         );
 
         res.json(requisiciones);
@@ -71,18 +143,68 @@ export const updateEstatusRequisicion = async (req, res) => {
     try {
         const { id } = req.params;            
         const { status_id, comentarios } = req.body;
+        const targetStatus = Number(status_id);
+        const reqScope = await ensureCoordinatorScopeByRequisition(req, res, id);
+        if (!reqScope) return;
+        const currentStatus = Number(reqScope.statuses_id);
         
-        if (!status_id) {
+        if (!targetStatus) {
             return res.status(400).json({ message: "Falta el status_id" });
+        }
+        if (![7, 9, 10].includes(targetStatus)) {
+            return res.status(400).json({ message: "status_id no permitido para coordinación" });
+        }
+        if (currentStatus === 11 || currentStatus === 13) {
+            return res.status(400).json({ message: "La requisición ya no puede modificarse en coordinación" });
+        }
+        if ((targetStatus === 7 || targetStatus === 9 || targetStatus === 10) && currentStatus !== 8) {
+            return res.status(400).json({ message: "Solo se puede gestionar cuando está en coordinación (8)" });
+        }
+        if ((targetStatus === 10 || targetStatus === 7) && !String(comentarios || "").trim()) {
+            return res.status(400).json({ message: "Debes incluir comentarios para esta acción" });
         }
 
         const [result] = await pool.query(
             "UPDATE requisition SET statuses_id = ?, notes = ? WHERE id = ?",
-            [status_id, comentarios || null, id]
+            [targetStatus, comentarios || null, id]
         );
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: "Requisición no encontrada" });
+        }
+
+        const actorId = getAuthUserId(req);
+        const ownerId = parseUserId(reqScope.users_id);
+        if (targetStatus === 7 && ownerId) {
+            await createNotification({
+                recipientUserId: ownerId,
+                actorUserId: actorId,
+                title: "Coordinación solicitó ajustes",
+                message: `La requisición #${id} requiere correcciones. Revisa los comentarios y reenvía.`,
+                entityType: "requisition",
+                entityId: Number(id),
+                actionPath: `/unidad/requisiciones/editar/${id}`,
+            });
+        } else if (targetStatus === 10 && ownerId) {
+            await createNotification({
+                recipientUserId: ownerId,
+                actorUserId: actorId,
+                title: "Requisición rechazada en Coordinación",
+                message: `La requisición #${id} fue rechazada. Revisa el motivo en el detalle.`,
+                entityType: "requisition",
+                entityId: Number(id),
+                actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+            });
+        } else if (targetStatus === 9) {
+            const secretariaIds = await getUsersByRole("secretaria");
+            await createNotificationsForUsers(secretariaIds, {
+                actorUserId: actorId,
+                title: "Nueva requisición en Secretaría",
+                message: `La requisición #${id} fue autorizada por Coordinación y está lista para revisión.`,
+                entityType: "requisition",
+                entityId: Number(id),
+                actionPath: `/secretaria/recibidas?openReq=${id}`,
+            });
         }
 
         res.json({ message: "Estatus actualizado correctamente" });
@@ -97,7 +219,6 @@ export const createRequisicionCoordinador = async (req, res) => {
     const conn = await pool.getConnection();
     try {
         const {
-            users_id,
             categoria,
             articulos,
             notes = "",
@@ -105,6 +226,7 @@ export const createRequisicionCoordinador = async (req, res) => {
             justification = "",
             observation = "",
         } = req.body;
+        const users_id = getAuthUserId(req);
 
         if (!users_id || !Array.isArray(articulos) || articulos.length === 0) {
             return res.status(400).json({ ok: false, message: "Datos incompletos" });
@@ -188,21 +310,42 @@ export const createRequisicionCoordinador = async (req, res) => {
 export const enviarBorradorCoordinador = async (req, res) => {
     try {
         const { id } = req.params;
+        const reqScope = await ensureCoordinatorScopeByRequisition(req, res, id);
+        if (!reqScope) return;
+        const currentStatus = Number(reqScope.statuses_id);
+        if (currentStatus !== 7) {
+            return res.status(400).json({ ok: false, message: "Solo se pueden enviar requisiciones en borrador" });
+        }
+
+        const [[row]] = await pool.query(
+            `SELECT notes FROM requisition WHERE id = ? AND statuses_id = 7 LIMIT 1`,
+            [id]
+        );
+        const currentNote = String(row?.notes || "");
+        const requestedResume = Number(req.body?.resume_to || 0);
+
+        let resumeTo = 9;
+        if (currentNote.startsWith("AJUSTE_COMPRAS:")) resumeTo = 12;
+        if (requestedResume === 9 && !currentNote.startsWith("AJUSTE_")) resumeTo = 9;
 
         const [result] = await pool.query(
             `
             UPDATE requisition
-            SET statuses_id = 9
+            SET statuses_id = ?, notes = NULL
             WHERE id = ? AND statuses_id = 7
             `,
-            [id]
+            [resumeTo, id]
         );
 
         if (!result.affectedRows) {
             return res.status(400).json({ ok: false, message: "No se puede enviar" });
         }
 
-        return res.json({ ok: true, statuses_id: 9, status: "En secretaría" });
+        return res.json({
+            ok: true,
+            statuses_id: resumeTo,
+            status: resumeTo === 12 ? "En cotización" : "En secretaría",
+        });
     } catch (err) {
         console.error("ERROR enviar borrador (coordinador):", err);
         return res.status(500).json({ ok: false, message: "Error interno" });

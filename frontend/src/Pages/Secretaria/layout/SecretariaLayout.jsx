@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Menu, X, LayoutGrid, LogOut, FileText } from "lucide-react";
 import { Toaster } from 'sonner';
+import NotificationBell from "../../../components/NotificationBell";
 
 export default function SecretariaLayout() {
     const [open, setOpen] = useState(false);
@@ -123,6 +124,7 @@ export default function SecretariaLayout() {
 
                     {/* DERECHA: INFORMACIÓN DEL USUARIO */}
                     <div className="flex items-center gap-3">
+                        <NotificationBell />
                         <div className="text-right hidden md:block">
                             <p className="text-sm font-bold text-gray-800 uppercase">{userName}</p>
                             <p className="text-[10px] text-gray-500">Administración</p>

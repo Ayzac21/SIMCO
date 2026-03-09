@@ -1,7 +1,10 @@
 import React from "react";
 import { X, User, FileText, CheckCircle, XCircle, Briefcase, Building2 } from "lucide-react";
+import useEscapeKey from "../../../hooks/useEscapeKey";
 
 export default function SecModal({ req, items, loadingItems, onClose, onAction }) {
+    useEscapeKey(Boolean(req), () => onClose?.(), loadingItems);
+
     if (!req) return null;
 
     const jefatura = req.nombre_unidad;
@@ -200,6 +203,12 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
                 <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
                     {req.statuses_id === 9 && (
                         <>
+                            <button 
+                                onClick={() => onAction('adjust', req)}
+                                className="px-4 py-2 rounded-lg border border-amber-200 text-amber-700 font-bold text-xs hover:bg-amber-50 transition-all flex items-center gap-2 shadow-sm"
+                            >
+                                <XCircle size={14}/> SOLICITAR AJUSTES
+                            </button>
                             <button 
                                 onClick={() => onAction('reject', req)}
                                 className="px-4 py-2 rounded-lg border border-red-200 text-red-600 font-bold text-xs hover:bg-red-50 transition-all flex items-center gap-2 shadow-sm"

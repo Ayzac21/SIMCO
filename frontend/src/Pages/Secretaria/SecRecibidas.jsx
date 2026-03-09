@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { 
     Search, Filter, ChevronLeft, ChevronRight, 
     FileText, User, Calendar, Briefcase, 
@@ -8,6 +9,7 @@ import { toast } from 'sonner';
 import SecModal from "./dashboard/SecModal"; // Usamos tu mismo modal
 import { getAuthHeaders } from "../../api/auth";
 import { API_BASE_URL } from "../../api/config";
+import useEscapeKey from "../../hooks/useEscapeKey";
 
 function AppLoader({ label = "Cargando..." }) {
     return (
@@ -21,6 +23,8 @@ function AppLoader({ label = "Cargando..." }) {
 }
 
 export default function SecRecibidas() {
+    const location = useLocation();
+    const navigate = useNavigate();
     // --- ESTADOS ---
     const [allReqs, setAllReqs] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -37,6 +41,7 @@ export default function SecRecibidas() {
 
     // Estado para confirmar acción (copiado del dashboard para que funcione igual)
     const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, type: null, req: null, motivo: '' });
+    useEscapeKey(confirmDialog.isOpen, () => setConfirmDialog((prev) => ({ ...prev, isOpen: false })));
 
     const userId = localStorage.getItem("users_id");
 
@@ -100,12 +105,26 @@ export default function SecRecibidas() {
                 const data = await res.json();
                 setModalItems(Array.isArray(data) ? data : []);
             }
-        } catch (error) {
+        } catch {
             toast.error("Error al cargar items");
         } finally {
             setLoadingItems(false);
         }
     };
+
+    useEffect(() => {
+        const params = new URLSearchParams(location.search || "");
+        const openReq = Number(params.get("openReq") || 0);
+        if (!openReq) return;
+        if (!allReqs.length) return;
+
+        const row = allReqs.find((r) => Number(r.id) === openReq);
+        if (!row) return;
+
+        handleRowClick(row);
+        navigate("/secretaria/recibidas", { replace: true });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location.search, allReqs]);
 
     // --- LOGICA DE ACCIÓN (Autorizar/Rechazar) ---
     // Esto es necesario para que el modal funcione en esta pantalla también
@@ -117,8 +136,9 @@ export default function SecRecibidas() {
         const { type, req, motivo } = confirmDialog;
         if (!req) return;
 
-        if (type === 'reject' && !motivo.trim()) {
-            toast.error("Debes escribir un motivo para rechazar.");
+        const needsComment = type === 'reject' || type === 'adjust';
+        if (needsComment && !motivo.trim()) {
+            toast.error(type === 'adjust' ? "Debes escribir qué debe ajustar." : "Debes escribir un motivo para rechazar.");
             return;
         }
 
@@ -126,8 +146,13 @@ export default function SecRecibidas() {
         const toastId = toast.loading("Procesando...");
         
         try {
-            const statusId = type === 'approve' ? 12 : 10;
-            const comentarios = type === 'approve' ? "Autorizado por Secretaría" : motivo;
+            const statusId = type === 'approve' ? 12 : type === 'adjust' ? 8 : 10;
+            const comentarios =
+                type === 'approve'
+                    ? "Autorizado por Secretaría"
+                    : type === 'adjust'
+                    ? `AJUSTE_SECRETARIA: ${motivo}`
+                    : motivo;
             
             const res = await fetch(`${API_BASE_URL}/secretaria/requisiciones/${req.id}/estatus`, {
                 method: "PUT",
@@ -136,13 +161,16 @@ export default function SecRecibidas() {
             });
 
             if (res.ok) {
-                toast.success(type === 'approve' ? "¡Autorizado!" : "Rechazada", { id: toastId });
+                toast.success(
+                    type === 'approve' ? "¡Autorizado!" : type === 'adjust' ? "Enviada a Coordinación para ajustes" : "Rechazada",
+                    { id: toastId }
+                );
                 setSelectedReq(null); // Cierra el modal grande
                 fetchData(); // Recarga la lista completa
             } else {
                 throw new Error();
             }
-        } catch (error) {
+        } catch {
             toast.error("Error al procesar", { id: toastId });
         }
     };
@@ -312,41 +340,88 @@ export default function SecRecibidas() {
             {/* 2. Diálogo Confirmación (El mismo que usas en dashboard) */}
             {confirmDialog.isOpen && (
                 <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center">
-                        <div className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 ${confirmDialog.type === 'approve' ? 'bg-secundario/10 text-secundario' : 'bg-red-100 text-red-600'}`}>
-                            {confirmDialog.type === 'approve' ? <CheckCircle size={24}/> : <XCircle size={24}/>}
+                    <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+                        <div className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
+                            confirmDialog.type === "approve"
+                                ? "bg-secundario/10 text-secundario"
+                                : confirmDialog.type === "adjust"
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-red-100 text-red-600"
+                        }`}>
+                            {confirmDialog.type === "approve" ? <CheckCircle size={24} /> : <XCircle size={24} />}
                         </div>
-                        
-                        <h3 className="font-bold text-gray-800 text-lg mb-2">
-                            {confirmDialog.type === 'approve' ? '¿Autorizar Solicitud?' : '¿Rechazar Solicitud?'}
+
+                        <h3 className="font-bold text-gray-800 text-lg mb-2 text-center">
+                            {confirmDialog.type === "approve"
+                                ? "¿Autorizar solicitud?"
+                                : confirmDialog.type === "adjust"
+                                ? "¿Solicitar ajustes?"
+                                : "¿Rechazar solicitud?"}
                         </h3>
-                        
-                        {confirmDialog.type === 'reject' ? (
-                            <div className="text-left mb-4">
-                                <label className="text-xs font-bold text-gray-500 mb-1 block">Motivo del rechazo:</label>
-                                <textarea 
-                                    className="w-full text-sm p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none resize-none bg-gray-50"
+
+                        {confirmDialog.type === "reject" || confirmDialog.type === "adjust" ? (
+                            <div
+                                className={`p-4 rounded-xl border mb-4 ${
+                                    confirmDialog.type === "adjust"
+                                        ? "bg-amber-50 border-amber-200"
+                                        : "bg-red-50 border-red-200"
+                                }`}
+                            >
+                                <p
+                                    className={`text-xs mb-2 font-semibold ${
+                                        confirmDialog.type === "adjust" ? "text-amber-800" : "text-red-700"
+                                    }`}
+                                >
+                                    {confirmDialog.type === "adjust"
+                                        ? "Describe de forma clara qué debe corregir la URE."
+                                        : "Indica el motivo del rechazo de la requisición."}
+                                </p>
+                                <textarea
+                                    className={`w-full text-sm p-3 border rounded-lg outline-none resize-none bg-white ${
+                                        confirmDialog.type === "adjust"
+                                            ? "border-amber-300 focus:ring-2 focus:ring-amber-200"
+                                            : "border-red-300 focus:ring-2 focus:ring-red-200"
+                                    }`}
                                     rows="3"
-                                    placeholder="Escribe aquí por qué se rechaza..."
+                                    placeholder={
+                                        confirmDialog.type === "adjust"
+                                            ? "Ejemplo: falta especificación técnica en la partida 2."
+                                            : "Escribe aquí por qué se rechaza..."
+                                    }
                                     value={confirmDialog.motivo}
-                                    onChange={(e) => setConfirmDialog({...confirmDialog, motivo: e.target.value})}
+                                    onChange={(e) => setConfirmDialog({ ...confirmDialog, motivo: e.target.value })}
                                     autoFocus
-                                ></textarea>
+                                />
                             </div>
                         ) : (
-                            <p className="text-gray-500 text-sm mb-6">La solicitud pasará a compras.</p>
+                            <p className="text-gray-500 text-sm mb-6 text-center">
+                                La solicitud pasará al departamento de Compras.
+                            </p>
                         )}
 
                         <div className="flex gap-3">
-                            <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="flex-1 py-2.5 rounded-lg border border-gray-300 font-semibold text-gray-700 hover:bg-gray-50 text-sm">Cancelar</button>
-                            <button 
-                                onClick={executeAction} 
-                                disabled={confirmDialog.type === 'reject' && !confirmDialog.motivo.trim()}
-                                className={`flex-1 py-2.5 rounded-lg font-bold text-white shadow-md text-sm ${
-                                    confirmDialog.type === 'approve' ? 'bg-[#8B1D35] hover:bg-[#72182b]' : 'bg-red-600 hover:bg-red-700'
+                            <button
+                                onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+                                className="flex-1 py-2.5 rounded-lg border border-gray-300 font-semibold text-gray-700 hover:bg-gray-50 text-sm"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={executeAction}
+                                disabled={(confirmDialog.type === "reject" || confirmDialog.type === "adjust") && !confirmDialog.motivo.trim()}
+                                className={`flex-1 py-2.5 rounded-lg font-bold text-white shadow-md text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+                                    confirmDialog.type === "approve"
+                                        ? "bg-[#8B1D35] hover:bg-[#72182b]"
+                                        : confirmDialog.type === "adjust"
+                                        ? "bg-amber-600 hover:bg-amber-700"
+                                        : "bg-red-600 hover:bg-red-700"
                                 }`}
                             >
-                                {confirmDialog.type === 'approve' ? 'Confirmar' : 'Rechazar'}
+                                {confirmDialog.type === "approve"
+                                    ? "Confirmar"
+                                    : confirmDialog.type === "adjust"
+                                    ? "Solicitar ajustes"
+                                    : "Rechazar"}
                             </button>
                         </div>
                     </div>

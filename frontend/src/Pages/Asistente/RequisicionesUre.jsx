@@ -26,15 +26,26 @@ export default function RequisicionesUre() {
     const [cantidad, setCantidad] = useState("");
     const [especificaciones, setEspecificaciones] = useState("");
     const [articulos, setArticulos] = useState([]);
+    const [attachments, setAttachments] = useState([]);
+    const [dragActive, setDragActive] = useState(false);
 
     const [errors, setErrors] = useState({ 
         nombreReq: false,
+        justificacion: false,
+        observacion: false,
         producto: false, 
         cantidad: false, 
         unidad: false 
     });
 
     const [notification, setNotification] = useState({ show: false, message: "", type: "success" });
+
+    const fmtSize = (bytes) => {
+        const n = Number(bytes || 0);
+        if (n < 1024) return `${n} B`;
+        if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+        return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    };
 
     // --- ALERTA ---
     const showAlert = (message, type = "success") => {
@@ -68,9 +79,18 @@ export default function RequisicionesUre() {
 
     // --- NAVEGACIÓN ---
     const irAlPaso2 = () => {
-        if (!nombreReq.trim()) { 
-            setErrors(prev => ({ ...prev, nombreReq: true }));
-            showAlert("El nombre es obligatorio", "error"); 
+        const missingNombre = !nombreReq.trim();
+        const missingJustificacion = !justificacion.trim();
+        const missingObservacion = !observacion.trim();
+
+        if (missingNombre || missingJustificacion || missingObservacion) {
+            setErrors(prev => ({
+                ...prev,
+                nombreReq: missingNombre,
+                justificacion: missingJustificacion,
+                observacion: missingObservacion,
+            }));
+            showAlert("Nombre, justificación y observaciones son obligatorios", "error");
             return; 
         }
         setStep(2);
@@ -103,11 +123,50 @@ export default function RequisicionesUre() {
     };
 
     const eliminarArticulo = (id) => setArticulos(articulos.filter(a => a.id !== id));
+    const eliminarAdjunto = (index) => setAttachments(attachments.filter((_, i) => i !== index));
+
+    const procesarAdjuntos = (filesRaw) => {
+        const files = Array.from(filesRaw || []);
+        if (!files.length) return;
+
+        const clean = files.filter((f) => {
+            const type = String(f.type || "").toLowerCase();
+            const name = String(f.name || "").toLowerCase();
+            const byMime = type.includes("pdf") || type.startsWith("image/");
+            const byExt = [".pdf", ".png", ".jpg", ".jpeg", ".webp"].some((ext) => name.endsWith(ext));
+            return byMime || byExt;
+        });
+        if (clean.length !== files.length) {
+            showAlert("Solo se permiten imágenes (PNG/JPG/WEBP) y PDF", "error");
+        }
+
+        const merged = [...attachments, ...clean].slice(0, 5);
+        if (attachments.length + clean.length > 5) {
+            showAlert("Máximo 5 adjuntos por requisición", "error");
+        }
+        setAttachments(merged);
+    };
+
+    const agregarAdjuntos = (e) => {
+        procesarAdjuntos(e.target.files);
+        e.target.value = "";
+    };
 
     // --- ENVIAR ---
     const enviarRequisicion = async () => {
         const user = JSON.parse(localStorage.getItem("usuario"));
         if (!user) { showAlert("Sesión expirada", "error"); return; }
+        if (!nombreReq.trim() || !justificacion.trim() || !observacion.trim()) {
+            setErrors(prev => ({
+                ...prev,
+                nombreReq: !nombreReq.trim(),
+                justificacion: !justificacion.trim(),
+                observacion: !observacion.trim(),
+            }));
+            showAlert("Completa nombre, justificación y observaciones", "error");
+            setStep(1);
+            return;
+        }
 
         const body = {
             users_id: user.id,
@@ -129,13 +188,27 @@ export default function RequisicionesUre() {
             const data = await res.json();
 
             if (res.ok && data.ok) {
+                if (attachments.length && data.id) {
+                    const fd = new FormData();
+                    attachments.forEach((file) => fd.append("files", file));
+                    const up = await fetch(`${API_BASE_URL}/requisiciones/${data.id}/attachments`, {
+                        method: "POST",
+                        headers: getAuthHeaders(),
+                        body: fd,
+                    });
+                    const upData = await up.json().catch(() => ({}));
+                    if (!up.ok) throw new Error(upData?.message || "No se pudieron subir adjuntos");
+                }
                 showAlert(`Enviada: ${data.folio}`, "success");
                 setArticulos([]); setNombreReq(""); setObservacion(""); setJustificacion("");
+                setAttachments([]);
                 setStep(1); 
             } else {
                 showAlert(data.message || "Error", "error");
             }
-        } catch (err) { showAlert("Error de conexión", "error"); }
+        } catch (err) {
+            showAlert(err?.message || "Error de conexión", "error");
+        }
     };
 
     return (
@@ -216,19 +289,35 @@ export default function RequisicionesUre() {
                                 
                                 <div className="space-y-4">
                                     <div>
-                                        <label className="font-semibold block mb-2 text-gray-700">Justificación</label>
+                                        <label className="font-semibold block mb-2 text-gray-700">Justificación <span className="text-red-500">*</span></label>
                                         <textarea
+                                            placeholder="Describe por qué necesitas esta compra y qué problema resuelve en tu área."
                                             value={justificacion}
-                                            onChange={(e) => setJustificacion(e.target.value)}
-                                            className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-red-100 focus:border-principal transition-all h-24 resize-none"
+                                            onChange={(e) => {
+                                                setJustificacion(e.target.value);
+                                                if (errors.justificacion) setErrors(prev => ({ ...prev, justificacion: false }));
+                                            }}
+                                            className={`w-full p-3 border rounded-lg outline-none focus:ring-2 transition-all h-24 resize-none ${
+                                                errors.justificacion
+                                                    ? 'border-red-500 bg-red-50 focus:ring-red-200'
+                                                    : 'border-gray-300 focus:ring-red-100 focus:border-principal'
+                                            }`}
                                         />
                                     </div>
                                     <div>
-                                        <label className="font-semibold block mb-2 text-gray-700">Observaciones</label>
+                                        <label className="font-semibold block mb-2 text-gray-700">Observaciones <span className="text-red-500">*</span></label>
                                         <textarea
+                                            placeholder="Agrega detalles clave: fecha requerida, lugar de entrega y condiciones importantes."
                                             value={observacion}
-                                            onChange={(e) => setObservacion(e.target.value)}
-                                            className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-red-100 focus:border-principal transition-all h-24 resize-none"
+                                            onChange={(e) => {
+                                                setObservacion(e.target.value);
+                                                if (errors.observacion) setErrors(prev => ({ ...prev, observacion: false }));
+                                            }}
+                                            className={`w-full p-3 border rounded-lg outline-none focus:ring-2 transition-all h-24 resize-none ${
+                                                errors.observacion
+                                                    ? 'border-red-500 bg-red-50 focus:ring-red-200'
+                                                    : 'border-gray-300 focus:ring-red-100 focus:border-principal'
+                                            }`}
                                         />
                                     </div>
                                 </div>
@@ -343,7 +432,72 @@ export default function RequisicionesUre() {
                     </div>
 
                     {/* Footer Resumen (Fijo) */}
-                    <div className="p-6 border-t border-gray-200 bg-white flex-none">
+                    <div className="p-6 border-t border-gray-200 bg-white flex-none space-y-3">
+                        <div>
+                            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                                Adjuntos (imagen o PDF)
+                            </p>
+                            <input
+                                id="adjuntos-requisicion"
+                                type="file"
+                                accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
+                                multiple
+                                onChange={agregarAdjuntos}
+                                className="hidden"
+                            />
+                            <label
+                                htmlFor="adjuntos-requisicion"
+                                onDragOver={(e) => {
+                                    e.preventDefault();
+                                    setDragActive(true);
+                                }}
+                                onDragLeave={(e) => {
+                                    e.preventDefault();
+                                    setDragActive(false);
+                                }}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    setDragActive(false);
+                                    procesarAdjuntos(e.dataTransfer.files);
+                                }}
+                                className={`block w-full rounded-lg border-2 border-dashed p-3 text-center cursor-pointer transition-all ${
+                                    dragActive
+                                        ? "border-secundario bg-red-50"
+                                        : "border-gray-300 bg-white hover:bg-gray-50"
+                                }`}
+                            >
+                                <p className="text-xs font-semibold text-gray-700">
+                                    Haz clic para seleccionar archivos
+                                </p>
+                                <p className="text-[11px] text-gray-500 mt-1">
+                                    o arrástralos aquí (imagen o PDF)
+                                </p>
+                            </label>
+                            <p className="text-[11px] text-gray-500 mt-1">
+                                Máximo 5 archivos. Úsalos como referencia visual o cotización de ejemplo.
+                            </p>
+
+                            {attachments.length > 0 && (
+                                <div className="mt-2 max-h-24 overflow-y-auto space-y-1 pr-1">
+                                    {attachments.map((f, i) => (
+                                        <div key={`${f.name}-${i}`} className="flex items-center justify-between bg-white border border-gray-200 rounded px-2 py-1 text-xs">
+                                            <div className="min-w-0">
+                                                <p className="truncate font-semibold text-gray-700">{f.name}</p>
+                                                <p className="text-gray-500">{fmtSize(f.size)}</p>
+                                            </div>
+                                            <button
+                                                onClick={() => eliminarAdjunto(i)}
+                                                className="text-gray-400 hover:text-red-600 px-2"
+                                                title="Quitar"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
                         <button
                             onClick={enviarRequisicion}
                             disabled={articulos.length === 0 || step === 1}

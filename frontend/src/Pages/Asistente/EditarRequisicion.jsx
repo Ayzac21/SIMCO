@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import PageHeader from "./PageHeader";
+import { motion as Motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { getAuthHeaders } from "../../api/auth";
 import { API_BASE_URL } from "../../api/config";
+import useEscapeKey from "../../hooks/useEscapeKey";
 
 /* ICONO ELIMINAR */
 const IconTrash = () => (
@@ -39,6 +39,10 @@ function ConfirmModal({
   onConfirm,
   onCancel,
 }) {
+  useEscapeKey(open, () => {
+    if (!loading) onCancel?.();
+  }, loading);
+
   if (!open) return null;
 
   return (
@@ -94,17 +98,33 @@ export default function EditarRequisicion() {
   const [sending, setSending] = useState(false);
 
   const [requestName, setRequestName] = useState("");
+  const [categoryName, setCategoryName] = useState("");
   const [justification, setJustification] = useState("");
   const [observation, setObservation] = useState("");
   const [estatusId, setEstatusId] = useState(null);
+  const [resumeTo, setResumeTo] = useState(8);
+  const [adjustmentMessage, setAdjustmentMessage] = useState("");
+  const [adjustmentSource, setAdjustmentSource] = useState("");
 
   const [partidas, setPartidas] = useState([]);
   const [units, setUnits] = useState([]);
+  const [attachments, setAttachments] = useState([]);
+  const [pendingAttachments, setPendingAttachments] = useState([]);
+  const [uploadingAttachments, setUploadingAttachments] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
 
   // ✅ Modal enviar
   const [confirmSendOpen, setConfirmSendOpen] = useState(false);
 
   const isBorrador = Number(estatusId) === 7;
+  const maxAttachments = 5;
+
+  const fmtSize = (bytes) => {
+    const n = Number(bytes || 0);
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  };
 
   /* ===== FETCH ===== */
   useEffect(() => {
@@ -123,9 +143,28 @@ export default function EditarRequisicion() {
         if (!resReq.ok) throw new Error(dataReq?.message || "No se pudo cargar requisición");
 
         setRequestName(dataReq.request_name || "");
+        setCategoryName(dataReq.categoria || "Sin categoría");
         setJustification(dataReq.justification || "");
         setObservation(dataReq.observation || "");
         setEstatusId(Number(dataReq.statuses_id));
+        const rawNotes = String(dataReq.notes || "");
+        if (rawNotes.startsWith("AJUSTE_COMPRAS:")) {
+          setResumeTo(12);
+          setAdjustmentSource("Compras");
+          setAdjustmentMessage(rawNotes.replace("AJUSTE_COMPRAS:", "").trim());
+        } else if (rawNotes.startsWith("AJUSTE_SECRETARIA:")) {
+          setResumeTo(9);
+          setAdjustmentSource("Secretaría");
+          setAdjustmentMessage(rawNotes.replace("AJUSTE_SECRETARIA:", "").trim());
+        } else if (rawNotes.startsWith("AJUSTE_COORDINACION:")) {
+          setResumeTo(8);
+          setAdjustmentSource("Coordinación");
+          setAdjustmentMessage(rawNotes.replace("AJUSTE_COORDINACION:", "").trim());
+        } else {
+          setResumeTo(8);
+          setAdjustmentSource("");
+          setAdjustmentMessage("");
+        }
 
         setPartidas(
           (dataReq.partidas || []).map((p) => ({
@@ -137,6 +176,7 @@ export default function EditarRequisicion() {
             description: p.description ?? "",
           }))
         );
+        setAttachments(Array.isArray(dataReq.attachments) ? dataReq.attachments : []);
 
         if (Array.isArray(dataUnits)) setUnits(dataUnits);
       } catch (err) {
@@ -164,6 +204,86 @@ export default function EditarRequisicion() {
         units_id: "",
       },
     ]);
+  };
+
+  const processPickedAttachments = (rawFiles) => {
+    const files = Array.from(rawFiles || []);
+    if (!files.length) return;
+    const valid = files.filter((f) => {
+      const type = String(f.type || "").toLowerCase();
+      const name = String(f.name || "").toLowerCase();
+      const byMime = type.includes("pdf") || type.startsWith("image/");
+      const byExt = [".pdf", ".png", ".jpg", ".jpeg", ".webp"].some((ext) => name.endsWith(ext));
+      return byMime || byExt;
+    });
+    if (valid.length !== files.length) {
+      toast.warning("Solo se permiten imágenes (PNG/JPG/WEBP) y PDF");
+    }
+    const available = Math.max(0, maxAttachments - attachments.length - pendingAttachments.length);
+    const accepted = valid.slice(0, available);
+    if (accepted.length < valid.length) {
+      toast.warning(`Solo puedes tener ${maxAttachments} adjuntos por requisición`);
+    }
+    setPendingAttachments((prev) => [...prev, ...accepted]);
+  };
+
+  const onPickAttachments = (e) => {
+    processPickedAttachments(e.target.files);
+    e.target.value = "";
+  };
+
+  const removePendingAttachment = (index) => {
+    setPendingAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const uploadAttachments = async () => {
+    if (!pendingAttachments.length) return;
+    if (uploadingAttachments) return;
+    try {
+      setUploadingAttachments(true);
+      const fd = new FormData();
+      pendingAttachments.forEach((file) => fd.append("files", file));
+      const resp = await fetch(`${API}/requisiciones/${id}/attachments`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: fd,
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data?.ok === false) {
+        throw new Error(data?.message || "No se pudieron subir adjuntos");
+      }
+      setPendingAttachments([]);
+      const listResp = await fetch(`${API}/requisiciones/${id}`, { headers: getAuthHeaders() });
+      const listData = await listResp.json().catch(() => ({}));
+      if (listResp.ok) {
+        setAttachments(Array.isArray(listData.attachments) ? listData.attachments : []);
+      }
+      toast.success("Adjuntos cargados");
+    } catch (e) {
+      toast.error(e?.message || "Error al subir adjuntos");
+    } finally {
+      setUploadingAttachments(false);
+    }
+  };
+
+  const downloadAttachment = async (attachment) => {
+    try {
+      const resp = await fetch(`${API}/requisiciones/${id}/attachments/${attachment.id}/download`, {
+        headers: getAuthHeaders(),
+      });
+      if (!resp.ok) throw new Error();
+      const blob = await resp.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = attachment.original_name || "adjunto";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      toast.error("No se pudo descargar el adjunto");
+    }
   };
 
   const eliminarPartida = (index) => {
@@ -218,11 +338,15 @@ export default function EditarRequisicion() {
     try {
       setSaving(true);
 
-      const partidasLimpias = partidas.map(({ unique_key, ...rest }) => ({
-        ...rest,
-        quantity: Number(rest.quantity),
-        units_id: Number(rest.units_id),
-      }));
+      const partidasLimpias = partidas.map((partida) => {
+        const rest = { ...partida };
+        delete rest.unique_key;
+        return {
+          ...rest,
+          quantity: Number(rest.quantity),
+          units_id: Number(rest.units_id),
+        };
+      });
 
       const resp = await fetch(`${API}/requisiciones/${id}`, {
         method: "PUT",
@@ -279,7 +403,8 @@ export default function EditarRequisicion() {
 
       const resp = await fetch(`${API}/requisiciones/${id}/enviar`, {
         method: "PATCH",
-        headers: getAuthHeaders(),
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ resume_to: resumeTo }),
       });
 
       const data = await resp.json().catch(() => ({}));
@@ -290,7 +415,7 @@ export default function EditarRequisicion() {
 
       toast.success("Requisición enviada");
 
-      setEstatusId(8);
+      setEstatusId(Number(data?.statuses_id || resumeTo));
       navigate("/unidad/mi-requisiciones");
     } catch (e) {
       console.error(e);
@@ -311,17 +436,18 @@ export default function EditarRequisicion() {
 
   return (
     <>
-      <PageHeader
-        title="Editar Requisición"
-        subtitle="Modifica los detalles de la solicitud existente"
-      />
-
       {/* ✅ Modal Confirmación Enviar */}
       <ConfirmModal
         open={confirmSendOpen}
         loading={sending}
-        title="Enviar a Coordinación"
-        description="¿Deseas enviar esta requisición a Coordinación? Al confirmar, ya no podrás editar el borrador."
+        title={resumeTo === 12 ? "Reenviar a Compras" : resumeTo === 9 ? "Reenviar a Secretaría" : "Enviar a Coordinación"}
+        description={
+          resumeTo === 12
+            ? `¿Deseas reenviar la requisición #${id} a Compras con los ajustes solicitados?`
+            : resumeTo === 9
+            ? `¿Deseas reenviar la requisición #${id} a Secretaría con los ajustes solicitados?`
+            : `¿Deseas enviar la requisición #${id} a Coordinación? Al confirmar, ya no podrás editar el borrador.`
+        }
         confirmText="Sí, enviar"
         cancelText="Revisar"
         onCancel={() => setConfirmSendOpen(false)}
@@ -345,10 +471,22 @@ export default function EditarRequisicion() {
             </div>
 
             <div className="space-y-6">
+              {adjustmentMessage && (
+                <div className="text-xs bg-amber-50 border border-amber-200 rounded-md p-3">
+                  <p className="font-bold text-amber-800 uppercase tracking-wide">
+                    Ajuste solicitado por {adjustmentSource}
+                  </p>
+                  <p className="mt-1 text-amber-800">{adjustmentMessage}</p>
+                  <p className="mt-1 text-amber-700">
+                    Estás editando la misma requisición #{id}, no necesitas capturarla de nuevo.
+                  </p>
+                </div>
+              )}
+
               <div>
                 <Label>Categoría</Label>
                 <select className={inputStyle} disabled>
-                  <option>Materiales y Suministros</option>
+                  <option>{categoryName || "Sin categoría"}</option>
                 </select>
               </div>
 
@@ -393,7 +531,7 @@ export default function EditarRequisicion() {
           </div>
 
           {/* ===== PARTIDAS ===== */}
-          <div className="w-full lg:w-[400px] bg-[#F9FAFB] flex flex-col border-l border-gray-200">
+          <div className="w-full lg:w-[400px] bg-[#F9FAFB] flex flex-col border-l border-gray-200 lg:h-[calc(100vh-140px)] overflow-hidden">
 
             <div className="p-6 border-b border-gray-200">
               <h3 className="text-xs font-bold text-gray-500 uppercase">
@@ -405,10 +543,10 @@ export default function EditarRequisicion() {
             </div>
 
             {/* SCROLL SOLO AQUÍ */}
-            <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(100vh-340px)]">
+            <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
               <AnimatePresence>
                 {partidas.map((p, index) => (
-                  <motion.div
+                  <Motion.div
                     key={p.unique_key}
                     layout
                     initial={{ opacity: 0, y: 10 }}
@@ -481,7 +619,7 @@ export default function EditarRequisicion() {
                         )}
                       </select>
                     </div>
-                  </motion.div>
+                  </Motion.div>
                 ))}
               </AnimatePresence>
 
@@ -496,6 +634,97 @@ export default function EditarRequisicion() {
 
             {/* ✅ Manteniendo tu diseño: footer con botón grande */}
             <div className="p-6 border-t border-gray-200 bg-white space-y-3">
+              <div className="border border-gray-200 rounded-md p-3 bg-gray-50">
+                <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-2">
+                  Adjuntos de la requisición
+                </p>
+                <p className="text-[11px] text-gray-500 mb-2">
+                  Puedes adjuntar imágenes o PDF como referencia.
+                </p>
+
+                <div className="space-y-2 max-h-32 overflow-y-auto">
+                  {attachments.map((a) => (
+                    <button
+                      type="button"
+                      key={a.id}
+                      onClick={() => downloadAttachment(a)}
+                      className="w-full text-left bg-white border border-gray-200 rounded px-2 py-1 hover:bg-gray-50"
+                    >
+                      <p className="text-xs font-semibold text-gray-700 truncate">{a.original_name}</p>
+                      <p className="text-[11px] text-gray-500">{fmtSize(a.size_bytes)}</p>
+                    </button>
+                  ))}
+                  {!attachments.length && (
+                    <p className="text-[11px] text-gray-400">Sin adjuntos cargados.</p>
+                  )}
+                </div>
+
+                {isBorrador && (
+                  <div className="mt-3 border-t border-gray-200 pt-3">
+                    <input
+                      id="adjuntos-editar-requisicion"
+                      type="file"
+                      accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
+                      multiple
+                      onChange={onPickAttachments}
+                      className="hidden"
+                    />
+                    <label
+                      htmlFor="adjuntos-editar-requisicion"
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setDragActive(true);
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        setDragActive(false);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragActive(false);
+                        processPickedAttachments(e.dataTransfer.files);
+                      }}
+                      className={`block w-full rounded-lg border-2 border-dashed p-3 text-center cursor-pointer transition-all ${
+                        dragActive
+                          ? "border-secundario bg-red-50"
+                          : "border-gray-300 bg-white hover:bg-gray-50"
+                      }`}
+                    >
+                      <p className="text-xs font-semibold text-gray-700">
+                        Haz clic para seleccionar archivos
+                      </p>
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        o arrástralos aquí (imagen o PDF)
+                      </p>
+                    </label>
+                    {pendingAttachments.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {pendingAttachments.map((f, idx) => (
+                          <div key={`${f.name}-${idx}`} className="flex items-center justify-between text-xs bg-white border border-gray-200 rounded px-2 py-1">
+                            <span className="truncate text-gray-700">{f.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => removePendingAttachment(idx)}
+                              className="text-gray-400 hover:text-red-600 px-2"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={uploadAttachments}
+                      disabled={!pendingAttachments.length || uploadingAttachments}
+                      className="mt-2 w-full py-2 text-xs font-bold rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {uploadingAttachments ? "Subiendo..." : "Subir adjuntos"}
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <button
                 onClick={() => guardarCambios()}
                 disabled={!isBorrador || saving || sending}
@@ -511,9 +740,21 @@ export default function EditarRequisicion() {
                   disabled={saving || sending}
                   className="w-full py-3 font-bold rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
                   style={{ color: PRIMARY }}
-                  title="Enviar a Coordinación"
+                  title={
+                    resumeTo === 12
+                      ? "Reenviar a Compras"
+                      : resumeTo === 9
+                      ? "Reenviar a Secretaría"
+                      : "Enviar a Coordinación"
+                  }
                 >
-                  {sending ? "Enviando..." : "Guardar y Enviar a Coordinación →"}
+                  {sending
+                    ? "Enviando..."
+                    : resumeTo === 12
+                    ? "Guardar y Reenviar a Compras →"
+                    : resumeTo === 9
+                    ? "Guardar y Reenviar a Secretaría →"
+                    : "Guardar y Enviar a Coordinación →"}
                 </button>
               )}
             </div>

@@ -9,7 +9,6 @@ export default function CotizacionClosedNotice({ requisition }) {
         "el solicitante";
 
     const statusId = Number(requisition?.statuses_id);
-    const closedAt = Boolean(requisition?.quotation_closed_at);
     const isReview = statusId === 14;
 
     return (

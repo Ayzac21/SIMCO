@@ -4,6 +4,7 @@ import { ArrowLeft, Info, Save } from "lucide-react";
 import { toast } from "sonner";
 import { getAuthHeaders } from "../../api/auth";
 import { API_BASE_URL } from "../../api/config";
+import useEscapeKey from "../../hooks/useEscapeKey";
 
 const API = API_BASE_URL;
 
@@ -18,6 +19,10 @@ function ConfirmModal({
   onConfirm,
   onCancel,
 }) {
+  useEscapeKey(open, () => {
+    if (!loading) onCancel?.();
+  }, loading);
+
   if (!open) return null;
 
   return (
