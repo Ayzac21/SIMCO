@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Pencil, Save, Plus, Search, X } from "lucide-react";
+import { Pencil, Save, Plus, Search, X, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../../api/config";
 import { canManageUnits } from "./unitsAccess";
@@ -32,7 +32,9 @@ export default function ComprasUnidades() {
   const [name, setName] = useState("");
   const [editing, setEditing] = useState(null);
   const [page, setPage] = useState(1);
-  const pageSize = 12;
+  const [pageSize, setPageSize] = useState(10);
+  const formCardRef = React.useRef(null);
+  const nameInputRef = React.useRef(null);
 
   const loadUnits = async () => {
     try {
@@ -56,7 +58,7 @@ export default function ComprasUnidades() {
 
   React.useEffect(() => {
     setPage(1);
-  }, [q]);
+  }, [q, pageSize]);
 
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -68,6 +70,14 @@ export default function ComprasUnidades() {
   const currentPage = Math.min(page, totalPages);
   const startIndex = (currentPage - 1) * pageSize;
   const pageItems = filtered.slice(startIndex, startIndex + pageSize);
+  const pageNumbers = useMemo(() => {
+    if (totalPages <= 5) return Array.from({ length: totalPages }, (_, i) => i + 1);
+    if (currentPage <= 3) return [1, 2, 3, 4, 5];
+    if (currentPage >= totalPages - 2) {
+      return [totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+    }
+    return [currentPage - 2, currentPage - 1, currentPage, currentPage + 1, currentPage + 2];
+  }, [currentPage, totalPages]);
 
   const resetForm = () => {
     setEditing(null);
@@ -77,6 +87,11 @@ export default function ComprasUnidades() {
   const startEdit = (unit) => {
     setEditing(unit);
     setName(unit.name || "");
+    setTimeout(() => {
+      formCardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      nameInputRef.current?.focus();
+      nameInputRef.current?.select();
+    }, 40);
   };
 
   const submit = async (e) => {
@@ -150,13 +165,19 @@ export default function ComprasUnidades() {
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+      <div ref={formCardRef} className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
         <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-12 gap-3">
           <div className="md:col-span-8">
             <label className="block text-xs font-bold text-gray-600 mb-1">
               {editing ? "Editar unidad" : "Nueva unidad"}
             </label>
+            {editing && (
+              <div className="mb-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-800">
+                Editando unidad #{editing.id}: <span className="font-bold">{editing.name}</span>
+              </div>
+            )}
             <input
+              ref={nameInputRef}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Ejemplo: Caja, Litro, Metro, Paquete"
@@ -188,16 +209,29 @@ export default function ComprasUnidades() {
       </div>
 
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
+        <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center gap-3">
           <div className="relative w-full max-w-sm">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Buscar unidad..."
-              className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-xs outline-none"
+              className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-secundario/20"
             />
           </div>
+          <label className="ml-auto flex items-center gap-2 text-xs text-gray-500">
+            Mostrar
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value) || 10)}
+              className="px-2 py-1.5 border border-gray-300 rounded-md bg-white text-xs"
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={30}>30</option>
+            </select>
+            filas
+          </label>
           <span className="ml-auto text-xs text-gray-400">
             {loading ? "Cargando..." : `${filtered.length} unidad(es)`}
           </span>
@@ -208,52 +242,95 @@ export default function ComprasUnidades() {
         ) : filtered.length === 0 ? (
           <div className="p-8 text-center text-sm text-gray-500">Sin unidades registradas.</div>
         ) : (
-          <div className="divide-y divide-gray-100">
-            {pageItems.map((u) => (
-              <div key={u.id} className="px-5 py-3 flex items-center gap-3">
-                <div className="text-xs text-gray-400 w-12">#{u.id}</div>
-                <div className="text-sm font-semibold text-gray-800">{u.name}</div>
-                <div className="ml-auto">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-4 py-2 text-[11px] font-bold text-gray-500 uppercase tracking-wide text-left w-24">
+                    ID
+                  </th>
+                  <th className="px-4 py-2 text-[11px] font-bold text-gray-500 uppercase tracking-wide text-left">
+                    Unidad
+                  </th>
+                  <th className="px-4 py-2 text-[11px] font-bold text-gray-500 uppercase tracking-wide text-right w-28">
+                    Acción
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageItems.map((u) => (
+                  <tr
+                    key={u.id}
+                    className={`border-b border-gray-100 hover:bg-gray-50/60 ${
+                      Number(editing?.id) === Number(u.id) ? "bg-amber-50/80" : ""
+                    }`}
+                  >
+                    <td className="px-4 py-2.5 text-xs text-gray-500 font-medium">#{u.id}</td>
+                    <td className="px-4 py-2.5 text-sm font-semibold text-gray-800">{u.name}</td>
+                    <td className="px-4 py-2.5 text-right">
                   <button
                     type="button"
                     onClick={() => startEdit(u)}
                     disabled={!isOwner}
-                    className="px-3 py-1.5 text-xs rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
+                    className={`px-2.5 py-1.5 text-xs rounded-md border disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1 ${
+                      Number(editing?.id) === Number(u.id)
+                        ? "border-amber-300 bg-amber-100 text-amber-800"
+                        : "border-gray-300 hover:bg-gray-50"
+                    }`}
                   >
                     <Pencil size={12} />
-                    Editar
+                    {Number(editing?.id) === Number(u.id) ? "Editando" : "Editar"}
                   </button>
-                </div>
-              </div>
-            ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
-      </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex items-center justify-between gap-3">
-        <p className="text-xs text-gray-500">
-          Mostrando {filtered.length === 0 ? 0 : startIndex + 1}-{Math.min(startIndex + pageItems.length, filtered.length)} de {filtered.length}
-        </p>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={currentPage <= 1}
-            className="px-3 py-1.5 text-xs rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Anterior
-          </button>
-          <span className="text-xs text-gray-600 min-w-16 text-center">
-            {currentPage} / {totalPages}
-          </span>
-          <button
-            type="button"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={currentPage >= totalPages}
-            className="px-3 py-1.5 text-xs rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Siguiente
-          </button>
+        <div className="px-4 py-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-gray-500">
+            Mostrando {filtered.length === 0 ? 0 : startIndex + 1}-{Math.min(startIndex + pageItems.length, filtered.length)} de {filtered.length}
+          </p>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+              className="px-2 py-1.5 text-xs rounded-md border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
+              title="Página anterior"
+            >
+              <ChevronsLeft size={12} />
+              Ant
+            </button>
+
+            {pageNumbers.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setPage(n)}
+                className={`min-w-8 px-2 py-1.5 text-xs rounded-md border ${
+                  n === currentPage
+                    ? "border-secundario bg-secundario text-white"
+                    : "border-gray-300 bg-white hover:bg-gray-50"
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+              className="px-2 py-1.5 text-xs rounded-md border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
+              title="Página siguiente"
+            >
+              Sig
+              <ChevronsRight size={12} />
+            </button>
+          </div>
         </div>
       </div>
         </>

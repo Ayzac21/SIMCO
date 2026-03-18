@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Search, Clock, AlertTriangle, ShoppingCart, FileText, BarChart3, Lightbulb, Briefcase, User } from "lucide-react";
+import { Search, Clock, AlertTriangle, ShoppingCart, FileText, BarChart3, Lightbulb, Briefcase, User, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import RequisitionModal from "../requisiciones/RequisitionModal";
 import { API_BASE_URL } from "../../../api/config";
@@ -33,6 +33,8 @@ export default function ComprasDashboard() {
     const [assigningReq, setAssigningReq] = useState(null);
     const [assignOperatorId, setAssignOperatorId] = useState("");
     const [savingAssign, setSavingAssign] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
+    const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
     useEscapeKey(Boolean(assigningReq), () => {
         if (savingAssign) return;
         setAssigningReq(null);
@@ -50,9 +52,10 @@ export default function ComprasDashboard() {
     const isAdmin = role === "compras_admin";
     const isOperator = role === "compras_operador";
 
-    const fetchRequisitions = async () => {
+    const fetchRequisitions = async ({ silent = false } = {}) => {
         try {
-        setLoading(true);
+        if (silent) setRefreshing(true);
+        else setLoading(true);
         const params = new URLSearchParams({
             page: String(currentPage),
             limit: String(itemsPerPage),
@@ -76,11 +79,13 @@ export default function ComprasDashboard() {
             total: Number(data?.counts?.total || 0),
             high: Number(data?.counts?.high || 0),
         });
+        setLastUpdatedAt(new Date());
         } catch (error) {
         console.error(error);
         toast.error("Error al conectar con el servidor");
         } finally {
         setLoading(false);
+        setRefreshing(false);
         }
     };
 
@@ -137,7 +142,7 @@ export default function ComprasDashboard() {
 
     const badge = (st) => {
         if (Number(st) === 12) return { text: "POR COTIZAR", cls: "bg-orange-50 text-orange-600 border-orange-100" };
-        if (Number(st) === 14) return { text: "EN REVISIÓN", cls: "bg-[#8B1D35]/10 text-[#8B1D35] border-[#8B1D35]/10" };
+        if (Number(st) === 14) return { text: "EN REVISIÓN INTERNA", cls: "bg-[#8B1D35]/10 text-[#8B1D35] border-[#8B1D35]/10" };
         if (Number(st) === 13) return { text: "EN PROCESO", cls: "bg-blue-50 text-blue-600 border-blue-100" };
         return { text: "OTRO", cls: "bg-gray-100 text-gray-600 border-gray-200" };
     };
@@ -159,7 +164,7 @@ export default function ComprasDashboard() {
             toast.success("Requisición asignada");
             setAssigningReq(null);
             setAssignOperatorId("");
-            await fetchRequisitions();
+            await fetchRequisitions({ silent: true });
         } catch {
             toast.error("Error al asignar");
         } finally {
@@ -316,6 +321,24 @@ export default function ComprasDashboard() {
                 className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg outline-none bg-white"
             />
             </div>
+            <button
+                onClick={() => fetchRequisitions({ silent: true })}
+                disabled={loading || refreshing}
+                className={`px-3 py-2 rounded-lg text-xs font-bold border flex items-center gap-2 ${
+                    loading || refreshing
+                        ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                        : "bg-white text-[#8B1D35] border-[#8B1D35]/30 hover:bg-[#8B1D35]/10"
+                }`}
+            >
+                <RotateCw size={14} className={refreshing ? "animate-spin" : ""} />
+                {refreshing ? "Actualizando..." : "Actualizar"}
+            </button>
+        </div>
+        <div className="mb-4 text-[11px] text-gray-500 font-medium">
+            Última actualización:{" "}
+            {lastUpdatedAt
+                ? lastUpdatedAt.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+                : "—"}
         </div>
 
         {/* LAYOUT */}
@@ -481,7 +504,7 @@ export default function ComprasDashboard() {
             req={selectedReq}
             onClose={() => setSelectedReq(null)}
             onAssigned={async () => {
-                await fetchRequisitions();
+                await fetchRequisitions({ silent: true });
             }}
             onAction={async (type, payload) => {
                 if (type !== "rechazar" && type !== "ajustar") return;
@@ -502,13 +525,21 @@ export default function ComprasDashboard() {
                 if (!res.ok) throw new Error();
 
                 toast.success(type === "ajustar" ? "Edición solicitada" : "Rechazada", { id: toastId });
-                await fetchRequisitions();
+                await fetchRequisitions({ silent: true });
                 setSelectedReq(null);
                 } catch {
                 toast.error(type === "ajustar" ? "Error al solicitar edición" : "Error al rechazar", { id: toastId });
                 }
             }}
             />
+        )}
+        {refreshing && !loading && (
+            <div className="fixed inset-0 z-30 pointer-events-none flex items-center justify-center">
+                <div className="px-4 py-2 rounded-full bg-white/90 border border-[#8B1D35]/20 shadow text-[#8B1D35] text-xs font-bold flex items-center gap-2">
+                    <RotateCw size={14} className="animate-spin" />
+                    Actualizando datos...
+                </div>
+            </div>
         )}
         </div>
     );

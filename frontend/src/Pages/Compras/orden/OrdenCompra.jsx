@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, FileText, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, FileText, CheckCircle2, Briefcase, Building2, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import ConfirmModal from "../../../components/ConfirmModal";
 import { API_BASE_URL } from "../../../api/config";
@@ -86,9 +86,6 @@ export default function OrdenCompra() {
         metaData.forEach((m) => {
           map[m.provider_id] = {
             folio: m.folio || "",
-            oc_incluir_iva: Number(m.oc_incluir_iva) === 1,
-            oc_iva_porcentaje:
-              m.oc_iva_porcentaje != null ? String(m.oc_iva_porcentaje) : "",
           };
         });
         setMetaByProvider(map);
@@ -111,7 +108,14 @@ export default function OrdenCompra() {
       const unit = Number(it.selected_unit_price);
       const qty = Number(it.quantity || 0);
       const subtotal = Number.isFinite(unit) ? unit * qty : 0;
-      return { ...it, subtotal };
+      const vatPct = Number(it.selected_vat_percentage);
+      const isrPct = Number(it.selected_isr_percentage);
+      const safeVatPct = Number.isFinite(vatPct) && vatPct > 0 ? vatPct : 0;
+      const safeIsrPct = Number.isFinite(isrPct) && isrPct > 0 ? isrPct : 0;
+      const vatAmount = (subtotal * safeVatPct) / 100;
+      const isrAmount = (subtotal * safeIsrPct) / 100;
+      const total = subtotal + vatAmount - isrAmount;
+      return { ...it, subtotal, vatPct: safeVatPct, isrPct: safeIsrPct, vatAmount, isrAmount, total };
     });
   }, [items]);
 
@@ -131,13 +135,13 @@ export default function OrdenCompra() {
     rows.forEach((r) => {
       const key = r.provider_name || "Sin proveedor";
       const prev = map.get(key) || 0;
-      map.set(key, prev + (Number(r.subtotal) || 0));
+      map.set(key, prev + (Number(r.total) || 0));
     });
     return Array.from(map.entries()).map(([name, total]) => ({ name, total }));
   }, [rows]);
 
   const totalGeneral = useMemo(() => {
-    return rows.reduce((acc, r) => acc + (Number(r.subtotal) || 0), 0);
+    return rows.reduce((acc, r) => acc + (Number(r.total) || 0), 0);
   }, [rows]);
 
   const handleMarkCompleted = async () => {
@@ -232,8 +236,6 @@ export default function OrdenCompra() {
       const payload = {
         provider_id: providerId,
         folio: current.folio || null,
-        oc_incluir_iva: current.oc_incluir_iva ? 1 : 0,
-        oc_iva_porcentaje: current.oc_incluir_iva ? Number(current.oc_iva_porcentaje || 0) : null,
       };
       const resp = await fetch(`${API_URL}/orden/${id}/meta`, {
         method: "PUT",
@@ -304,19 +306,27 @@ export default function OrdenCompra() {
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => navigate(`/compras/cotizar/${id}`)}
+            className="px-3 py-1.5 rounded-md text-[11px] font-semibold flex items-center gap-1.5 border bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+            title="Ver cuadro comparativo"
+          >
+            <FileText size={12} />
+            VER COMPARATIVO
+          </button>
           {providersList.length <= 1 ? (
             <button
               onClick={() => handleDownloadPdf(providersList[0]?.id)}
               disabled={downloading}
-              className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm border ${
+              className={`px-3 py-1.5 rounded-md text-[11px] font-semibold flex items-center gap-1.5 border ${
                 downloading
                   ? "bg-gray-200 text-gray-500 cursor-not-allowed"
                   : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
               }`}
               title="Descargar orden"
             >
-              <FileText size={14} />
+              <FileText size={12} />
               {downloading ? "GENERANDO..." : orderType === "servicio" ? "ORDEN DE SERVICIO" : "ORDEN DE COMPRA"}
             </button>
           ) : (
@@ -328,7 +338,7 @@ export default function OrdenCompra() {
                     key={p.id}
                     onClick={() => handleDownloadPdf(p.id)}
                     disabled={downloading}
-                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 shadow-sm border ${
+                    className={`px-3 py-1.5 rounded-md text-[11px] font-semibold flex items-center gap-1.5 border ${
                       downloading
                         ? "bg-gray-200 text-gray-500 cursor-not-allowed"
                         : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
@@ -344,10 +354,10 @@ export default function OrdenCompra() {
           <button
             onClick={() => setConfirmOpen(true)}
             disabled={!summary.is_complete || isReader}
-            className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm ${
+            className={`px-3 py-1.5 rounded-md text-[11px] font-semibold flex items-center gap-1.5 border ${
               summary.is_complete && !isReader
-                ? "bg-[#8B1D35] hover:bg-[#72182b] text-white"
-                : "bg-gray-200 text-gray-500 cursor-not-allowed"
+                ? "bg-[#8B1D35] hover:bg-[#72182b] text-white border-[#8B1D35]"
+                : "bg-gray-200 text-gray-500 cursor-not-allowed border-gray-200"
             }`}
             title={
               isReader
@@ -357,7 +367,7 @@ export default function OrdenCompra() {
                 : "Faltan partidas por seleccionar"
             }
           >
-            <CheckCircle2 size={14} />
+            <CheckCircle2 size={12} />
             Marcar comprada
           </button>
         </div>
@@ -376,22 +386,53 @@ export default function OrdenCompra() {
             <FileText size={16} className="text-[#8B1D35]" />
             Detalle de la requisición
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-700">
-            <div>
-              <div className="text-[10px] font-bold text-gray-400 uppercase">Solicitante</div>
-              <div className="font-semibold text-gray-900">{requisition?.solicitante || "—"}</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-4">
+              <div className="flex items-center gap-2 text-[11px] font-bold text-gray-500 uppercase tracking-wide">
+                <span className="w-6 h-6 rounded-lg bg-white border border-gray-200 text-gray-500 flex items-center justify-center">
+                  <Building2 size={13} />
+                </span>
+                Unidad
+              </div>
+              <div className="mt-2 text-sm font-semibold text-gray-900">
+                {requisition?.nombre_unidad || requisition?.ure_solicitante || "—"}
+              </div>
             </div>
-            <div>
-              <div className="text-[10px] font-bold text-gray-400 uppercase">Proyecto / Asunto</div>
-              <div className="font-semibold text-gray-900">{requisition?.request_name || "—"}</div>
+
+            <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-4">
+              <div className="flex items-center gap-2 text-[11px] font-bold text-gray-500 uppercase tracking-wide">
+                <span className="w-6 h-6 rounded-lg bg-white border border-gray-200 text-gray-500 flex items-center justify-center">
+                  <MapPin size={13} />
+                </span>
+                Coordinación
+              </div>
+              <div className="mt-2 text-sm font-semibold text-gray-900 leading-snug">
+                {requisition?.coordinacion || "General"}
+              </div>
             </div>
-            <div>
-              <div className="text-[10px] font-bold text-gray-400 uppercase">Justificación</div>
-              <div className="text-gray-700">{requisition?.justification || requisition?.observation || "—"}</div>
+
+            <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-4 md:col-span-2">
+              <div className="flex items-center gap-2 text-[11px] font-bold text-gray-500 uppercase tracking-wide">
+                <span className="w-6 h-6 rounded-lg bg-white border border-gray-200 text-gray-500 flex items-center justify-center">
+                  <Briefcase size={13} />
+                </span>
+                Proyecto / Asunto
+              </div>
+              <div className="mt-2 text-sm font-semibold text-gray-900 leading-snug">
+                {requisition?.request_name || "—"}
+              </div>
             </div>
-            <div>
-              <div className="text-[10px] font-bold text-gray-400 uppercase">Notas</div>
-              <div className="text-gray-700">{requisition?.notes || "—"}</div>
+
+            <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-4 md:col-span-2">
+              <div className="flex items-center gap-2 text-[11px] font-bold text-gray-500 uppercase tracking-wide">
+                <span className="w-6 h-6 rounded-lg bg-white border border-gray-200 text-gray-500 flex items-center justify-center">
+                  <FileText size={13} />
+                </span>
+                Justificación
+              </div>
+              <div className="mt-2 text-sm text-gray-700 leading-relaxed">
+                {requisition?.justification || requisition?.observation || "—"}
+              </div>
             </div>
           </div>
         </div>
@@ -399,7 +440,7 @@ export default function OrdenCompra() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
           <div className="text-xs font-bold text-gray-500 uppercase">Total general</div>
           <div className="text-2xl font-bold text-gray-900 mt-1">{money(totalGeneral)}</div>
-          <div className="mt-3 text-[11px] text-gray-500">Subtotal sin IVA</div>
+          <div className="mt-3 text-[11px] text-gray-500">Total con IVA/ISR de selección</div>
 
           <div className="mt-4 border-t border-gray-100 pt-3">
             <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">Totales por proveedor</div>
@@ -451,8 +492,6 @@ export default function OrdenCompra() {
               {providersList.map((p) => {
                 const meta = metaByProvider[p.id] || {
                   folio: "",
-                  oc_incluir_iva: false,
-                  oc_iva_porcentaje: "",
                 };
                 return (
                   <div
@@ -477,39 +516,6 @@ export default function OrdenCompra() {
                           placeholder="Número de orden"
                           disabled={isReader}
                         />
-                      </div>
-                      <label className="flex items-center gap-2 text-xs font-semibold text-gray-700">
-                        <input
-                          type="checkbox"
-                          checked={meta.oc_incluir_iva}
-                          onChange={(e) =>
-                            setMetaByProvider((prev) => ({
-                              ...prev,
-                              [p.id]: { ...meta, oc_incluir_iva: e.target.checked },
-                            }))
-                          }
-                          className="accent-[#8B1D35]"
-                          disabled={isReader}
-                        />
-                        Incluir IVA
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.01"
-                          value={meta.oc_iva_porcentaje}
-                          onChange={(e) =>
-                            setMetaByProvider((prev) => ({
-                              ...prev,
-                              [p.id]: { ...meta, oc_iva_porcentaje: e.target.value },
-                            }))
-                          }
-                          className="w-24 px-3 py-2 border rounded-lg text-sm bg-white border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
-                          disabled={!meta.oc_incluir_iva || isReader}
-                        />
-                        <span className="text-xs text-gray-500">%</span>
                       </div>
                       <button
                         onClick={() => handleSaveMeta(p.id)}
@@ -545,13 +551,15 @@ export default function OrdenCompra() {
                 <th className="px-4 py-2 w-28 text-right">Unidad</th>
                 <th className="px-4 py-2">Proveedor</th>
                 <th className="px-4 py-2 w-28 text-right">P. Unitario</th>
-                <th className="px-4 py-2 w-28 text-right">Subtotal</th>
+                <th className="px-4 py-2 w-28 text-right">Sub Total</th>
+                <th className="px-4 py-2 w-36 text-right">Impuestos</th>
+                <th className="px-4 py-2 w-28 text-right">Total</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-xs">
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="p-6 text-center text-gray-400">
+                  <td colSpan="8" className="p-6 text-center text-gray-400">
                     No hay partidas registradas
                   </td>
                 </tr>
@@ -580,10 +588,33 @@ export default function OrdenCompra() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right text-gray-700">
-                      {money(item.selected_unit_price)}
+                      <div className="font-medium">{money(item.selected_unit_price)}</div>
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold text-gray-800">
+                      {money(item.subtotal)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-[11px] text-gray-700">
+                      {item.vatPct > 0 || item.isrPct > 0 ? (
+                        <div className="space-y-1">
+                          {item.vatPct > 0 && (
+                            <div>
+                              <span className="font-semibold text-sky-700">IVA {item.vatPct}%:</span>{" "}
+                              <span>{money(item.vatAmount)}</span>
+                            </div>
+                          )}
+                          {item.isrPct > 0 && (
+                            <div>
+                              <span className="font-semibold text-slate-700">ISR {item.isrPct}%:</span>{" "}
+                              <span>-{money(item.isrAmount)}</span>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right font-semibold text-gray-900">
-                      {money(item.subtotal)}
+                      {money(item.total)}
                     </td>
                   </tr>
                 ))

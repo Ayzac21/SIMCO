@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
     ArrowLeft,
     CheckCircle2,
+    Download,
     Search,
     Save,
     X,
@@ -14,6 +15,8 @@ import { API_BASE_URL } from "../../../api/config";
 import useEscapeKey from "../../../hooks/useEscapeKey";
 
 const API_URL = `${API_BASE_URL}/compras`;
+const ITEM_CHUNK_SIZE = 30;
+const ITEM_SCROLL_THRESHOLD_PX = 280;
 
 const getAuthHeaders = () => {
     const userStr = localStorage.getItem("usuario");
@@ -88,10 +91,14 @@ export default function GestionCotizacion() {
     const navigate = useNavigate();
     const userStr = localStorage.getItem("usuario");
     const user = userStr ? JSON.parse(userStr) : null;
+    const isAdmin = user?.role === "compras_admin";
+    const isOperator = user?.role === "compras_operador";
+    const canSendToReview = isAdmin || isOperator;
     const isReader = user?.role === "compras_lector";
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [downloadingExcel, setDownloadingExcel] = useState(false);
     const [applyingProviders, setApplyingProviders] = useState(false);
     const [closing, setClosing] = useState(false);
     const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
@@ -123,6 +130,9 @@ export default function GestionCotizacion() {
     const [vatPercentages, setVatPercentages] = useState({});
     const [isrPercentages, setIsrPercentages] = useState({});
     const [editingPriceKey, setEditingPriceKey] = useState(null);
+    const [selectedByItem, setSelectedByItem] = useState({});
+    const [visibleItemCount, setVisibleItemCount] = useState(ITEM_CHUNK_SIZE);
+    const tableScrollRef = useRef(null);
 
     const statusLabel = (s) => {
         if (!s) return "";
@@ -190,6 +200,13 @@ export default function GestionCotizacion() {
         setPrices(pricesMap);
         setVatPercentages(vatMap);
         setIsrPercentages(isrMap);
+        const selectedMap = {};
+        (data.selections || []).forEach((s) => {
+            const lineItemId = Number(s?.line_item_id || 0);
+            const providerId = Number(s?.provider_id || 0);
+            if (lineItemId && providerId) selectedMap[lineItemId] = providerId;
+        });
+        setSelectedByItem(selectedMap);
 
         setShowOnlyResponded(false);
 
@@ -257,21 +274,25 @@ export default function GestionCotizacion() {
         setIsrPercentages((prev) => ({ ...prev, [key]: String(clamped) }));
     };
 
-    const calculateProviderTotal = (providerId) => {
-        let total = 0;
+    const calculateProviderBreakdown = (providerId) => {
+        let subtotal = 0;
+        let iva = 0;
+        let isr = 0;
         items.forEach((item) => {
         const key = `${item.id}_${providerId}`;
         const price = parseFloat(prices[key]) || 0;
-        const base = price * item.quantity;
+        const base = price * Number(item.quantity || 0);
         const vatPct = Number(vatPercentages[key]);
         const hasVat = Number.isFinite(vatPct) && vatPct > 0;
         const isrPct = Number(isrPercentages[key]);
         const hasIsr = Number.isFinite(isrPct) && isrPct > 0;
         const vatAmount = hasVat ? (base * vatPct) / 100 : 0;
         const isrAmount = hasIsr ? (base * isrPct) / 100 : 0;
-        total += base + vatAmount - isrAmount;
+        subtotal += base;
+        iva += vatAmount;
+        isr += isrAmount;
         });
-        return total;
+        return { subtotal, iva, total: subtotal + iva - isr };
     };
 
     const providerHasAnyPrice = (providerId) => {
@@ -321,12 +342,55 @@ export default function GestionCotizacion() {
         items,
     ]);
 
+    const providerBreakdownMap = useMemo(() => {
+        const map = {};
+        visibleProviders.forEach((prov) => {
+        map[prov.id] = calculateProviderBreakdown(prov.id);
+        });
+        return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [visibleProviders, items, prices, vatPercentages, isrPercentages]);
+
+    const renderedItems = useMemo(
+        () => items.slice(0, visibleItemCount),
+        [items, visibleItemCount]
+    );
+
+    useEffect(() => {
+        setVisibleItemCount(ITEM_CHUNK_SIZE);
+        if (tableScrollRef.current) tableScrollRef.current.scrollTop = 0;
+    }, [id, items.length]);
+
+    const handleTableScroll = (e) => {
+        const el = e.currentTarget;
+        const nearBottom =
+            el.scrollHeight - (el.scrollTop + el.clientHeight) <= ITEM_SCROLL_THRESHOLD_PX;
+        if (!nearBottom) return;
+        if (visibleItemCount >= items.length) return;
+        setVisibleItemCount((prev) => Math.min(prev + ITEM_CHUNK_SIZE, items.length));
+    };
+
+    const selectedCountByProvider = useMemo(() => {
+        const map = {};
+        Object.values(selectedByItem).forEach((providerId) => {
+            const pid = Number(providerId || 0);
+            if (!pid) return;
+            map[pid] = (map[pid] || 0) + 1;
+        });
+        return map;
+    }, [selectedByItem]);
+
     const providerCountForFlow = useMemo(() => {
         if (selectedProviderIds.size > 0) return selectedProviderIds.size;
         return invitedProviders.length;
     }, [selectedProviderIds, invitedProviders]);
 
     const hasMinimumProviders = providerCountForFlow >= 3;
+    const capturedProvidersCount = useMemo(
+        () => invitedProviders.filter((p) => p.status === "responded").length,
+        [invitedProviders]
+    );
+    const hasMinimumCaptures = capturedProvidersCount >= 3;
 
     const openModal = () => {
         if (isReader) {
@@ -399,12 +463,15 @@ export default function GestionCotizacion() {
         }
         if (saving) return;
 
-        if (selectedProviderIds.size === 0) {
-        toast.warning("Selecciona proveedores para comparar");
+        const selected =
+        selectedProviderIds.size > 0
+            ? new Set(Array.from(selectedProviderIds).map((x) => Number(x)))
+            : new Set((invitedProviders || []).map((p) => Number(p.id)).filter(Boolean));
+
+        if (selected.size === 0) {
+        toast.warning("No hay proveedores disponibles para comparar");
         return;
         }
-
-        const selected = new Set(Array.from(selectedProviderIds).map((x) => Number(x)));
         const payload = [];
         const keys = new Set([
             ...Object.keys(prices),
@@ -455,18 +522,16 @@ export default function GestionCotizacion() {
         });
         });
 
-        if (payload.length === 0) {
-        toast.warning("No hay datos para guardar");
-        return;
-        }
-
         try {
         setSaving(true);
 
         const response = await fetch(`${API_URL}/cotizacion/${id}/prices`, {
             method: "POST",
             headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-            body: JSON.stringify({ prices: payload }),
+            body: JSON.stringify({
+                prices: payload,
+                selected_provider_ids: Array.from(selected),
+            }),
         });
 
         const data = await response.json().catch(() => ({}));
@@ -490,6 +555,10 @@ export default function GestionCotizacion() {
         }
         if (!hasMinimumProviders) {
         toast.warning("Debes tener al menos 3 proveedores para cerrar recepción");
+        return;
+        }
+        if (!hasMinimumCaptures) {
+        toast.warning("Debes tener al menos 3 cotizaciones capturadas para cerrar recepción");
         return;
         }
         if (closing) return;
@@ -525,13 +594,21 @@ export default function GestionCotizacion() {
 
     const confirmSendToReview = async () => {
         if (isReader) return;
+        if (!canSendToReview) {
+        toast.warning("No tienes permiso para enviar a revisión interna");
+        return;
+        }
         if (!hasMinimumProviders) {
         toast.warning("Debes tener al menos 3 proveedores para enviar a revisión");
         return;
         }
+        if (!hasMinimumCaptures) {
+        toast.warning("Debes tener al menos 3 cotizaciones capturadas para enviar a revisión");
+        return;
+        }
         if (sendingReview) return;
         setConfirmSendOpen(false);
-        const toastId = toast.loading("Enviando a revisión...");
+        const toastId = toast.loading("Enviando a revisión interna...");
         try {
         setSendingReview(true);
         const response = await fetch(`${API_URL}/cotizacion/${id}/send-review`, {
@@ -539,9 +616,9 @@ export default function GestionCotizacion() {
             headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data?.message || "Error al enviar a revisión");
+        if (!response.ok) throw new Error(data?.message || "Error al enviar a revisión interna");
 
-        toast.success(data?.message || "Enviado a revisión", { id: toastId });
+        toast.success(data?.message || "Enviado a revisión interna", { id: toastId });
         setTimeout(() => {
             navigate("/compras/dashboard");
         }, 600);
@@ -578,6 +655,35 @@ export default function GestionCotizacion() {
         }
     };
 
+    const handleDownloadExcel = async () => {
+        if (downloadingExcel) return;
+        try {
+        setDownloadingExcel(true);
+        const response = await fetch(`${API_URL}/cotizacion/${id}/excel`, {
+            headers: getAuthHeaders(),
+        });
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data?.message || "No se pudo descargar el Excel");
+        }
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `cuadro_comparativo_req_${id}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        toast.success("Excel descargado");
+        } catch (e) {
+        console.error(e);
+        toast.error(e?.message || "No se pudo descargar el Excel");
+        } finally {
+        setDownloadingExcel(false);
+        }
+    };
+
     if (loading) {
         return <div className="p-10 text-center text-sm text-gray-500">Cargando gestión...</div>;
     }
@@ -590,7 +696,7 @@ export default function GestionCotizacion() {
             open={confirmCloseOpen}
             title="Cerrar recepción de cotización"
             headerText="Confirmar cierre"
-            description="Se marcarán como 'Sin respuesta' los proveedores que sigan en 'Invitado'. Después podrás enviar a revisión."
+            description={`Se marcarán como 'Sin respuesta' los proveedores que sigan en 'Invitado'. Requisito: mínimo 3 proveedores y 3 cotizaciones capturadas. Actualmente: ${providerCountForFlow} proveedores y ${capturedProvidersCount} capturas.`}
             confirmText="Sí, cerrar recepción"
             cancelText="Cancelar"
             onConfirm={confirmCloseInvites}
@@ -598,9 +704,9 @@ export default function GestionCotizacion() {
         />
         <ConfirmModal
             open={confirmSendOpen}
-            title="Enviar a revisión"
+            title="Enviar a revisión interna"
             headerText="Confirmar envío"
-            description="La requisición pasará a 'En revisión' para que el solicitante seleccione proveedores. Compras ya no podrá editar."
+            description="La requisición pasará a revisión interna de Compras para que Compras Admin haga la selección final por partida."
             confirmText="Sí, enviar"
             cancelText="Cancelar"
             onConfirm={confirmSendToReview}
@@ -617,11 +723,11 @@ export default function GestionCotizacion() {
             </button>
 
             <div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-bold text-gray-800">Cotización #{id}</h1>
                 {isClosed && (
-                    <span className="text-[10px] font-bold tracking-wide px-2 py-1 rounded-full bg-gray-200 text-gray-700 uppercase">
-                    Recepción finalizada
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-amber-50 text-amber-700 border-amber-200">
+                    {Number(requisition?.statuses_id) === 14 ? "En revisión interna" : "Recepción cerrada"}
                     </span>
                 )}
                 </div>
@@ -635,15 +741,22 @@ export default function GestionCotizacion() {
             </div>
             </div>
 
-            <div className="flex items-center gap-3 w-full md:w-auto">
-                <div className={`text-xs font-semibold px-2 py-1 rounded-lg border ${
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                <div className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border ${
                     hasMinimumProviders
                         ? "bg-green-50 text-green-700 border-green-200"
                         : "bg-yellow-50 text-yellow-700 border-yellow-200"
                 }`}>
                 Proveedores: {providerCountForFlow} / mínimo 3
                 </div>
-                <div className="flex items-center gap-2 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
+                <div className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border ${
+                    hasMinimumCaptures
+                        ? "bg-green-50 text-green-700 border-green-200"
+                        : "bg-yellow-50 text-yellow-700 border-yellow-200"
+                }`}>
+                Capturas: {capturedProvidersCount} / mínimo 3
+                </div>
+                <div className="flex items-center gap-2 text-xs bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                     type="checkbox"
@@ -654,7 +767,7 @@ export default function GestionCotizacion() {
                 </label>
                 </div>
 
-                <div className="relative flex-1 md:w-64">
+                <div className="relative w-full md:w-64 md:ml-1">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                     type="text"
@@ -668,7 +781,7 @@ export default function GestionCotizacion() {
                 <button
                 onClick={handleSaveChanges}
                 disabled={saving || isClosed || isReader || visibleProviders.length === 0}
-                className={`bg-[#8B1D35] hover:bg-[#72182b] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm transition-colors ${
+                className={`bg-[#8B1D35] hover:bg-[#72182b] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm transition-colors whitespace-nowrap ${
                     saving || isClosed || isReader || visibleProviders.length === 0 ? "opacity-60 cursor-not-allowed hover:bg-[#8B1D35]" : ""
                 }`}
                 title={isReader ? "Solo lectura" : isClosed ? "Recepción finalizada: no editable" : "Guardar cambios"}
@@ -692,12 +805,24 @@ export default function GestionCotizacion() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                <button
+                    onClick={handleDownloadExcel}
+                    disabled={downloadingExcel}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 flex items-center gap-1.5 ${
+                    downloadingExcel ? "opacity-60 cursor-not-allowed" : ""
+                    }`}
+                    title="Descargar cuadro comparativo en Excel"
+                >
+                    <Download size={13} />
+                    {downloadingExcel ? "DESCARGANDO..." : "DESCARGAR EXCEL"}
+                </button>
+
                 {!isClosed && !isReader && (
                     <button
                     onClick={handleCloseInvites}
-                    disabled={closing || !hasMinimumProviders}
+                    disabled={closing || !hasMinimumProviders || !hasMinimumCaptures}
                     className={`text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 ${
-                        closing || !hasMinimumProviders ? "opacity-60 cursor-not-allowed" : ""
+                        closing || !hasMinimumProviders || !hasMinimumCaptures ? "opacity-60 cursor-not-allowed" : ""
                     }`}
                     >
                     {closing ? "CERRANDO..." : "CERRAR RECEPCIÓN"}
@@ -716,15 +841,15 @@ export default function GestionCotizacion() {
                     </button>
                 )}
 
-                {Boolean(requisition?.quotation_closed_at) && Number(requisition?.statuses_id) === 12 && !isReader && (
+                {Boolean(requisition?.quotation_closed_at) && Number(requisition?.statuses_id) === 12 && !isReader && canSendToReview && (
                     <button
                     onClick={() => setConfirmSendOpen(true)}
-                    disabled={sendingReview || !hasMinimumProviders}
+                    disabled={sendingReview || !hasMinimumProviders || !hasMinimumCaptures}
                     className={`text-xs font-bold px-3 py-1.5 rounded-lg bg-[#8B1D35] text-white shadow-sm hover:bg-[#72182b] ${
-                        sendingReview || !hasMinimumProviders ? "opacity-60 cursor-not-allowed" : ""
+                        sendingReview || !hasMinimumProviders || !hasMinimumCaptures ? "opacity-60 cursor-not-allowed" : ""
                     }`}
                     >
-                    {sendingReview ? "ENVIANDO..." : "ENVIAR A REVISIÓN"}
+                    {sendingReview ? "ENVIANDO..." : "ENVIAR A REVISIÓN INTERNA"}
                     </button>
                 )}
 
@@ -740,12 +865,25 @@ export default function GestionCotizacion() {
                 </div>
             </div>
 
-            <div className="overflow-auto max-h-[calc(100vh-240px)]">
+            <div
+                ref={tableScrollRef}
+                onScroll={handleTableScroll}
+                className="overflow-auto max-h-[calc(100vh-240px)]"
+            >
                 <table className="w-full text-sm text-left border-collapse">
                 <thead className="text-xs text-gray-500 uppercase bg-gray-50 sticky top-0 z-20 shadow-sm">
                     <tr>
-                    <th className="sticky left-0 z-30 bg-gray-50 px-4 py-3 min-w-[260px] border-r border-gray-300 text-gray-700 font-bold">
-                        Artículo ({items.length})
+                    <th className="sticky left-0 z-30 bg-gray-50 px-2 py-3 min-w-[56px] border-r border-gray-300 text-gray-700 font-bold text-center">
+                        Partida
+                    </th>
+                    <th className="sticky left-[56px] z-30 bg-gray-50 px-2 py-3 min-w-[72px] border-r border-gray-300 text-gray-700 font-bold text-center">
+                        Cantidad
+                    </th>
+                    <th className="sticky left-[128px] z-30 bg-gray-50 px-2 py-3 min-w-[78px] border-r border-gray-300 text-gray-700 font-bold text-center">
+                        Unidad
+                    </th>
+                    <th className="sticky left-[206px] z-30 bg-gray-50 px-4 py-3 min-w-[360px] border-r border-gray-300 text-gray-700 font-bold">
+                        Descripción ({items.length})
                     </th>
 
                     {visibleProviders.length === 0 && (
@@ -765,29 +903,48 @@ export default function GestionCotizacion() {
                             {statusLabel(prov.status)}
                             </div>
                         )}
+                        {selectedCountByProvider[prov.id] > 0 && (
+                            <div className="text-[10px] mt-1 font-bold text-emerald-700">
+                            Seleccionado en {selectedCountByProvider[prov.id]} partida(s)
+                            </div>
+                        )}
                         </th>
                     ))}
                     </tr>
                 </thead>
 
                 <tbody className="divide-y divide-gray-100">
-                    {items.map((item) => (
+                    {renderedItems.map((item, idx) => (
                     <tr key={item.id} className="hover:bg-gray-50 transition-colors group">
-                        <td className="sticky left-0 z-20 bg-white group-hover:bg-gray-50 px-4 py-3 border-r border-gray-200">
-                        <div className="font-bold text-gray-700 text-xs truncate">{item.description}</div>
-                        <div className="text-[10px] text-gray-400">
-                            Cant: {item.quantity} {item.unidad_medida ? `(${item.unidad_medida})` : ""}
-                        </div>
+                        <td className="sticky left-0 z-20 bg-white group-hover:bg-gray-50 px-2 py-3 border-r border-gray-200 text-center">
+                        <div className="font-bold text-gray-700 text-xs">{idx + 1}</div>
+                        </td>
+                        <td className="sticky left-[56px] z-20 bg-white group-hover:bg-gray-50 px-2 py-3 border-r border-gray-200 text-center">
+                        <div className="font-semibold text-gray-700 text-xs">{item.quantity}</div>
+                        </td>
+                        <td className="sticky left-[128px] z-20 bg-white group-hover:bg-gray-50 px-2 py-3 border-r border-gray-200 text-center">
+                        <div className="font-semibold text-gray-700 text-xs">{item.unidad_medida || "—"}</div>
+                        </td>
+                        <td className="sticky left-[206px] z-20 bg-white group-hover:bg-gray-50 px-4 py-3 border-r border-gray-200">
+                        <div className="font-bold text-gray-700 text-xs">{item.description}</div>
                         </td>
 
                         {visibleProviders.map((prov) => {
                         const k = `${item.id}_${prov.id}`;
+                        const isSelectedFinal = Number(selectedByItem[item.id] || 0) === Number(prov.id);
                         const vatValue = vatPercentages[k] ?? "";
                         const hasVat = vatValue !== "";
                         const isrValue = isrPercentages[k] ?? "";
                         const hasIsr = isrValue !== "";
                         return (
-                            <td key={prov.id} className="border-r border-gray-100 bg-white group-hover:bg-gray-50 relative align-top">
+                            <td
+                            key={prov.id}
+                            className={`border-r border-gray-100 relative align-top ${
+                                isSelectedFinal
+                                    ? "bg-emerald-50 group-hover:bg-emerald-50"
+                                    : "bg-white group-hover:bg-gray-50"
+                            }`}
+                            >
                             <div className="relative">
                                 <div className="absolute left-2 top-3 text-gray-300 text-[10px] pointer-events-none">$</div>
                                 <input
@@ -808,6 +965,12 @@ export default function GestionCotizacion() {
                                 onChange={(e) => handlePriceChange(item.id, prov.id, e.target.value)}
                                 />
                             </div>
+
+                            {isSelectedFinal && (
+                                <div className="px-2 pt-1 text-[10px] font-bold text-emerald-700">
+                                Seleccionado por Compras Admin
+                                </div>
+                            )}
 
                             <div className="px-2 pb-2 pt-1 flex items-center gap-2 flex-wrap">
                                 <button
@@ -872,13 +1035,77 @@ export default function GestionCotizacion() {
                     </tr>
                     ))}
 
-                    <tr className="bg-gray-100 font-bold text-xs border-t border-gray-300 sticky bottom-0 z-20">
-                    <td className="sticky left-0 z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
+                    {renderedItems.length < items.length && (
+                    <tr>
+                        <td
+                            colSpan={4 + Math.max(visibleProviders.length, 1)}
+                            className="px-4 py-3 text-center text-xs text-gray-500 bg-gray-50 border-t border-gray-200"
+                        >
+                            Mostrando {renderedItems.length} de {items.length} partidas. Desplázate para cargar más.
+                        </td>
+                    </tr>
+                    )}
+
+                    <tr className="bg-gray-100 font-bold text-xs border-t border-gray-300">
+                    <td className="sticky left-0 z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[56px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[128px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[206px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
+                        Sub Total:
+                    </td>
+
+                    {visibleProviders.map((prov) => {
+                        const subtotal = Number(providerBreakdownMap[prov.id]?.subtotal || 0);
+                        return (
+                        <td
+                            key={prov.id}
+                            className={`px-2 py-3 text-right pr-2 border-r border-gray-200 ${
+                            subtotal > 0 ? "text-gray-700" : "text-gray-400"
+                            }`}
+                        >
+                            {subtotal > 0
+                            ? `$${subtotal.toLocaleString("es-MX", { minimumFractionDigits: 2 })}`
+                            : "-"}
+                        </td>
+                        );
+                    })}
+                    </tr>
+
+                    <tr className="bg-gray-100 font-bold text-xs border-t border-gray-300">
+                    <td className="sticky left-0 z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[56px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[128px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[206px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
+                        I.V.A:
+                    </td>
+
+                    {visibleProviders.map((prov) => {
+                        const iva = Number(providerBreakdownMap[prov.id]?.iva || 0);
+                        return (
+                        <td
+                            key={prov.id}
+                            className={`px-2 py-3 text-right pr-2 border-r border-gray-200 ${
+                            iva > 0 ? "text-gray-700" : "text-gray-400"
+                            }`}
+                        >
+                            {iva > 0
+                            ? `$${iva.toLocaleString("es-MX", { minimumFractionDigits: 2 })}`
+                            : "-"}
+                        </td>
+                        );
+                    })}
+                    </tr>
+
+                    <tr className="bg-gray-100 font-bold text-xs border-t border-gray-300">
+                    <td className="sticky left-0 z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[56px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[128px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[206px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
                         Total Cotización:
                     </td>
 
                     {visibleProviders.map((prov) => {
-                        const total = calculateProviderTotal(prov.id);
+                        const total = Number(providerBreakdownMap[prov.id]?.total || 0);
                         return (
                         <td
                             key={prov.id}

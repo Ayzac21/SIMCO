@@ -28,6 +28,72 @@ const Label = ({ children, required }) => (
 const API = API_BASE_URL;
 const PRIMARY = "#8B1D35";
 
+const statusMeta = (statusId) => {
+  const st = Number(statusId);
+  if (st === 14) {
+    return {
+      label: "En revisión interna de Compras",
+      detail: "Compras Admin está realizando la selección final de proveedores.",
+      actionLabel: "Ver mis requisiciones",
+      actionPath: "/unidad/mi-requisiciones",
+    };
+  }
+  if (st === 8) {
+    return {
+      label: "En Coordinación",
+      detail: "Ya fue enviada a Coordinación. Está pendiente de validación.",
+      actionLabel: "Ver mis requisiciones",
+      actionPath: "/unidad/mi-requisiciones",
+    };
+  }
+  if (st === 9) {
+    return {
+      label: "En Secretaría",
+      detail: "Ya pasó a Secretaría para revisión administrativa.",
+      actionLabel: "Ver mis requisiciones",
+      actionPath: "/unidad/mi-requisiciones",
+    };
+  }
+  if (st === 12) {
+    return {
+      label: "En cotización",
+      detail: "Compras está cotizando proveedores para esta requisición.",
+      actionLabel: "Ver mis requisiciones",
+      actionPath: "/unidad/mi-requisiciones",
+    };
+  }
+  if (st === 13) {
+    return {
+      label: "En proceso de compra",
+      detail: "La compra ya está en proceso y este borrador quedó cerrado.",
+      actionLabel: "Ver mis requisiciones",
+      actionPath: "/unidad/mi-requisiciones",
+    };
+  }
+  if (st === 11) {
+    return {
+      label: "Finalizada",
+      detail: "La requisición ya se completó. No requiere edición.",
+      actionLabel: "Ver mis requisiciones",
+      actionPath: "/unidad/mi-requisiciones",
+    };
+  }
+  if (st === 10) {
+    return {
+      label: "Rechazada",
+      detail: "Fue rechazada. Revisa el motivo en el detalle y crea/ajusta una nueva.",
+      actionLabel: "Ver mis requisiciones",
+      actionPath: "/unidad/mi-requisiciones",
+    };
+  }
+  return {
+    label: "Fuera de borrador",
+    detail: "Esta requisición ya cambió de etapa y no se puede editar desde aquí.",
+    actionLabel: "Ver mis requisiciones",
+    actionPath: "/unidad/mi-requisiciones",
+  };
+};
+
 /** ✅ Modal confirmación (inline, con tu estilo) */
 function ConfirmModal({
   open,
@@ -117,6 +183,7 @@ export default function EditarRequisicion() {
   const [confirmSendOpen, setConfirmSendOpen] = useState(false);
 
   const isBorrador = Number(estatusId) === 7;
+  const currentStatusMeta = statusMeta(estatusId, id);
   const maxAttachments = 5;
 
   const fmtSize = (bytes) => {
@@ -523,8 +590,18 @@ export default function EditarRequisicion() {
               </div>
 
               {!isBorrador && (
-                <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-md p-3">
-                  Esta requisición ya no está en borrador, por eso no se puede editar.
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-xs font-bold text-amber-800">
+                    Esta requisición ya no está en borrador ({currentStatusMeta.label}).
+                  </p>
+                  <p className="text-xs text-amber-700 mt-1">{currentStatusMeta.detail}</p>
+                  <button
+                    type="button"
+                    onClick={() => navigate(currentStatusMeta.actionPath)}
+                    className="mt-2 text-[11px] font-bold text-amber-900 underline hover:opacity-80"
+                  >
+                    {currentStatusMeta.actionLabel}
+                  </button>
                 </div>
               )}
             </div>

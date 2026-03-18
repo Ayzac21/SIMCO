@@ -15,3 +15,7 @@ build/
 # --- Directorios específicos de IDE ---
 .vscode/
 .idea/
+
+# --- SQL snapshots locales (no subir, pero conservar en local) ---
+backend/sql/900_local_schema_*.sql
+backend/sql/901_local_full_*.sql

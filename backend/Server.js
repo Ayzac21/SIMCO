@@ -1,6 +1,7 @@
 // server.js
 import express from "express";
 import cors from "cors";
+import dotenv from "dotenv";
 
 import authRoutes from "./routes/auth.js";
 import requisicionRoutes from "./routes/requisiciones.js";
@@ -13,7 +14,15 @@ import asistenteRoutes from "./routes/asistente.js";
 import catalogsRoutes from "./routes/catalogs.js";
 import usersRoutes from "./routes/users.js";
 import notificationsRoutes from "./routes/notifications.js";
+import timelineRoutes from "./routes/timeline.js";
 import { authenticateJWT } from "./middleware/auth.js";
+
+dotenv.config();
+
+if (!process.env.JWT_SECRET) {
+  console.error("Falta JWT_SECRET en variables de entorno. El servidor no puede iniciar.");
+  process.exit(1);
+}
 
 const app = express();
 
@@ -48,6 +57,7 @@ app.use("/api/compras", comprasRoutes);
 app.use("/api/asistente", asistenteRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/notifications", notificationsRoutes);
+app.use("/api", timelineRoutes);
 
 app.listen(4000, () => {
   console.log("Servidor listo en http://localhost:4000");

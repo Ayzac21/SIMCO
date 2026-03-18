@@ -4,6 +4,7 @@ import {
     createNotificationsForUsers,
     getUsersByRole,
 } from "../services/notifications.js";
+import { logRequisitionStatusChange } from "../services/statusHistory.js";
 
 const parseUserId = (value) => {
     const n = Number(value);
@@ -173,6 +174,14 @@ export const updateEstatusRequisicion = async (req, res) => {
             return res.status(404).json({ message: "Requisición no encontrada" });
         }
 
+        await logRequisitionStatusChange({
+            requisitionId: id,
+            fromStatusId: currentStatus,
+            toStatusId: targetStatus,
+            changedBy: getAuthUserId(req),
+            note: comentarios || null,
+        });
+
         const actorId = getAuthUserId(req);
         const ownerId = parseUserId(reqScope.users_id);
         if (targetStatus === 7 && ownerId) {
@@ -291,6 +300,17 @@ export const createRequisicionCoordinador = async (req, res) => {
             );
         }
 
+        await logRequisitionStatusChange(
+            {
+                requisitionId,
+                fromStatusId: null,
+                toStatusId: 7,
+                changedBy: users_id,
+                note: "Creación de requisición en borrador por coordinación",
+            },
+            conn
+        );
+
         await conn.commit();
         return res.json({
             ok: true,
@@ -331,7 +351,7 @@ export const enviarBorradorCoordinador = async (req, res) => {
         const [result] = await pool.query(
             `
             UPDATE requisition
-            SET statuses_id = ?, notes = NULL
+            SET statuses_id = ?, notes = NULL, sent_on = COALESCE(sent_on, NOW())
             WHERE id = ? AND statuses_id = 7
             `,
             [resumeTo, id]
@@ -340,6 +360,14 @@ export const enviarBorradorCoordinador = async (req, res) => {
         if (!result.affectedRows) {
             return res.status(400).json({ ok: false, message: "No se puede enviar" });
         }
+
+        await logRequisitionStatusChange({
+            requisitionId: id,
+            fromStatusId: 7,
+            toStatusId: resumeTo,
+            changedBy: getAuthUserId(req),
+            note: "Envío de borrador por coordinación",
+        });
 
         return res.json({
             ok: true,

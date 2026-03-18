@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { 
     Search, Filter, ChevronLeft, ChevronRight, 
     FileText, User, Calendar, Briefcase, 
-    CheckCircle, XCircle, Clock, Truck, Building2 
+    CheckCircle, XCircle, Clock, Truck, Building2, RefreshCw
 } from "lucide-react";
 import { toast } from 'sonner';
 import SecModal from "./dashboard/SecModal"; // Usamos tu mismo modal
@@ -13,11 +13,11 @@ import useEscapeKey from "../../hooks/useEscapeKey";
 
 function AppLoader({ label = "Cargando..." }) {
     return (
-        <div className="flex-col gap-4 w-full flex items-center justify-center py-8">
-            <div className="w-12 h-12 border-4 border-transparent text-secundario text-4xl animate-spin flex items-center justify-center border-t-secundario rounded-full">
-                <div className="w-8 h-8 border-4 border-transparent text-principal text-2xl animate-spin flex items-center justify-center border-t-principal rounded-full" />
+        <div className="flex-col gap-4 w-full flex items-center justify-center py-10">
+            <div className="w-20 h-20 border-4 border-transparent text-secundario text-4xl animate-spin flex items-center justify-center border-t-secundario rounded-full">
+                <div className="w-16 h-16 border-4 border-transparent text-principal text-2xl animate-spin flex items-center justify-center border-t-principal rounded-full" />
             </div>
-            <div className="text-xs text-gray-500 mt-1">{label}</div>
+            <div className="text-xs text-gray-500 mt-2">{label}</div>
         </div>
     );
 }
@@ -28,6 +28,7 @@ export default function SecRecibidas() {
     // --- ESTADOS ---
     const [allReqs, setAllReqs] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [total, setTotal] = useState(0);
     const [searchTerm, setSearchTerm] = useState("");
     const [statusFilter, setStatusFilter] = useState("todos"); // todos, pendientes, aprobadas, rechazadas
@@ -48,9 +49,10 @@ export default function SecRecibidas() {
     // --- CARGAR DATOS ---
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-    const fetchData = async () => {
+    const fetchData = async ({ showRefresh = false } = {}) => {
         if (!userId) return;
-        setLoading(true);
+        if (showRefresh) setRefreshing(true);
+        else setLoading(true);
         const t0 = Date.now();
         try {
             const params = new URLSearchParams({
@@ -72,8 +74,10 @@ export default function SecRecibidas() {
             toast.error("Error al cargar requisiciones");
         } finally {
             const elapsed = Date.now() - t0;
-            if (elapsed < 600) await sleep(600 - elapsed);
-            setLoading(false);
+            const minMs = showRefresh ? 1200 : 600;
+            if (elapsed < minMs) await sleep(minMs - elapsed);
+            if (showRefresh) setRefreshing(false);
+            else setLoading(false);
         }
     };
 
@@ -180,13 +184,21 @@ export default function SecRecibidas() {
         switch(statusId) {
             case 9: return <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit"><Clock size={10} /> En Revisión</span>;
             case 12: return <span className="bg-yellow-50 text-yellow-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit"><Truck size={10} /> En Compras</span>;
+            case 14: return <span className="bg-slate-100 text-slate-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit"><Clock size={10} /> En Revisión Compras</span>;
+            case 13: return <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit"><Truck size={10} /> Proceso de Compra</span>;
+            case 11: return <span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit"><CheckCircle size={10} /> Finalizada</span>;
             case 10: return <span className="bg-red-50 text-red-600 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit"><XCircle size={10} /> Rechazada</span>;
             default: return null;
         }
     };
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-500 pb-10">
+        <div className="relative space-y-6 animate-in fade-in duration-500 pb-10">
+            {refreshing && (
+                <div className="absolute inset-0 z-40 bg-white/70 backdrop-blur-[1px] flex items-center justify-center rounded-xl">
+                    <AppLoader label="Actualizando..." />
+                </div>
+            )}
             
             {/* 1. TÍTULO Y BUSCADOR */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -207,10 +219,16 @@ export default function SecRecibidas() {
                     />
                 </div>
                 <button
-                    onClick={() => fetchData()}
-                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[#8B1D35] text-white hover:bg-[#72182b] transition-all"
+                    onClick={() => fetchData({ showRefresh: true })}
+                    disabled={refreshing || loading}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all inline-flex items-center gap-2 ${
+                        refreshing || loading
+                            ? "bg-[#8B1D35]/70 cursor-not-allowed"
+                            : "bg-[#8B1D35] hover:bg-[#72182b]"
+                    }`}
                 >
-                    Recargar
+                    <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+                    {refreshing ? "Actualizando..." : "Recargar"}
                 </button>
             </div>
 
@@ -219,7 +237,7 @@ export default function SecRecibidas() {
                 {[
                     { id: 'todos', label: 'Todas' },
                     { id: 'pendientes', label: 'Por Validar' },
-                    { id: 'aprobadas', label: 'En Compras' },
+                    { id: 'aprobadas', label: 'Autorizadas / En Proceso' },
                     { id: 'rechazadas', label: 'Rechazadas' }
                 ].map((tab) => (
                     <button
@@ -284,7 +302,14 @@ export default function SecRecibidas() {
                                             {new Date(req.created_at).toLocaleDateString()}
                                         </td>
                                         <td className="px-6 py-4 flex justify-center">
-                                            {renderStatusBadge(req.statuses_id)}
+                                            <div className="flex flex-col items-center gap-1">
+                                                {renderStatusBadge(req.statuses_id)}
+                                                {Number(req.statuses_id) === 10 && (
+                                                    <span className="text-[10px] text-red-700 font-semibold">
+                                                        Por: {req.rejected_by_name || "N/D"}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             <button className="text-gray-300 group-hover:text-[#8B1D35] transition-colors">

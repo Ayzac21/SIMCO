@@ -50,6 +50,10 @@ export default function ComprasLayout() {
             title: "Proceso de Compra",
             subtitle: "Selección del solicitante y preparación de la orden",
         },
+        "/compras/revision": {
+            title: "Revisión Interna",
+            subtitle: "Selección final de proveedores por Compras Admin",
+        },
         }),
         []
     );

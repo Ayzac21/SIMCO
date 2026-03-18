@@ -68,7 +68,15 @@ export default function RequisicionesUre() {
                     setCategorias(cats);
                     if (cats.length > 0) setCategoria(String(cats[0].id));
                 }
-                if (unitRes.ok) setUnidades(await unitRes.json());
+                if (unitRes.ok) {
+                    const units = await unitRes.json();
+                    const sortedUnits = Array.isArray(units)
+                        ? [...units].sort((a, b) =>
+                            String(a?.name || "").localeCompare(String(b?.name || ""), "es", { sensitivity: "base" })
+                        )
+                        : [];
+                    setUnidades(sortedUnits);
+                }
             } catch (err) {
                 console.error(err);
                 showAlert("Error de conexión", "error");
@@ -199,7 +207,10 @@ export default function RequisicionesUre() {
                     const upData = await up.json().catch(() => ({}));
                     if (!up.ok) throw new Error(upData?.message || "No se pudieron subir adjuntos");
                 }
-                showAlert(`Enviada: ${data.folio}`, "success");
+                showAlert(
+                    `Borrador guardado (${data.folio}). Puedes revisarlo y enviarlo después desde tus requisiciones.`,
+                    "success"
+                );
                 setArticulos([]); setNombreReq(""); setObservacion(""); setJustificacion("");
                 setAttachments([]);
                 setStep(1); 
@@ -507,7 +518,7 @@ export default function RequisicionesUre() {
                                 : "bg-gray-200 text-gray-400 cursor-not-allowed"
                             }`}
                         >
-                            Confirmar y Enviar
+                            Guardar borrador
                         </button>
                     </div>
                 </div>

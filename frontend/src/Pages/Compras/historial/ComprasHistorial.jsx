@@ -73,7 +73,7 @@ export default function ComprasHistorial() {
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
   const badge = (st) => {
-    if (Number(st) === 11) return { text: "COMPRADO", cls: "bg-secundario/10 text-secundario border-secundario/20" };
+    if (Number(st) === 11) return { text: "COMPRADO", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
     if (Number(st) === 10) return { text: "RECHAZADO", cls: "bg-red-50 text-red-600 border-red-200" };
     return { text: "OTRO", cls: "bg-gray-100 text-gray-600 border-gray-200" };
   };
@@ -103,7 +103,7 @@ export default function ComprasHistorial() {
           <button
             onClick={() => { setStatusFilter("11"); setPage(1); }}
             className={`px-3 py-2 rounded-lg text-xs font-bold border ${
-              statusFilter === "11" ? "bg-secundario text-white border-secundario" : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+              statusFilter === "11" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
             }`}
           >
             Compradas

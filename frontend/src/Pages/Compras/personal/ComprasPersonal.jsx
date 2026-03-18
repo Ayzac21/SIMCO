@@ -6,7 +6,6 @@ import { API_BASE_URL } from "../../../api/config";
 
 const API_CATALOG = `${API_BASE_URL}/catalogs/ures`;
 const API_USERS = `${API_BASE_URL}/users`;
-const DEFAULT_PASSWORD = "C0mpr@s2026";
 
 const getAuthHeaders = () => {
   const userStr = localStorage.getItem("usuario");
@@ -48,7 +47,7 @@ export default function ComprasPersonal() {
     role: "head_office",
     ure: "",
     email: "",
-    password: DEFAULT_PASSWORD,
+    password: "",
   });
 
   const selectedUre = useMemo(
@@ -181,7 +180,7 @@ export default function ComprasPersonal() {
     try {
       setSaving(true);
       const isEdit = Boolean(editing?.id);
-      const passwordValue = isEdit ? (form.password || "").trim() : form.password || DEFAULT_PASSWORD;
+      const passwordValue = (form.password || "").trim();
       const payload = {
         name: form.name.trim(),
         user_name: form.user_name.trim(),
@@ -221,7 +220,7 @@ export default function ComprasPersonal() {
         role: "head_office",
         ure: "",
         email: "",
-        password: DEFAULT_PASSWORD,
+        password: "",
       });
       setEditing(null);
       await loadUsers();
@@ -266,7 +265,7 @@ export default function ComprasPersonal() {
       role: "head_office",
       ure: "",
       email: "",
-      password: DEFAULT_PASSWORD,
+      password: "",
     });
   };
 
@@ -315,16 +314,25 @@ export default function ComprasPersonal() {
       toast.warning("Solo compras admin puede resetear contraseñas");
       return;
     }
+    const prompted = window.prompt(
+      "Nueva contraseña para reset (deja vacío para usar DEFAULT_USER_PASSWORD del backend):",
+      ""
+    );
+    if (prompted === null) return;
+
+    const nextPassword = prompted.trim();
     const toastId = toast.loading("Procesando...");
     try {
       const res = await fetch(`${API_USERS}/${u.id}/reset-password`, {
         method: "PUT",
-        headers: getAuthHeaders(),
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: nextPassword ? JSON.stringify({ password: nextPassword }) : undefined,
       });
-      if (!res.ok) throw new Error();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Error al resetear");
       toast.success("Contraseña reseteada", { id: toastId });
-    } catch {
-      toast.error("Error al resetear", { id: toastId });
+    } catch (e) {
+      toast.error(e?.message || "Error al resetear", { id: toastId });
     }
   };
 
@@ -342,7 +350,7 @@ export default function ComprasPersonal() {
         headerText="Confirmar acción"
         description={
           confirmAction.type === "reset"
-            ? `Se asignará la contraseña genérica a ${confirmAction.user?.name || ""}.`
+            ? `Se reseteará la contraseña de ${confirmAction.user?.name || ""} y podrás capturarla al confirmar.`
             : confirmAction.type === "deactivate"
             ? `Se desactivará a ${confirmAction.user?.name || ""}.`
             : `Se activará a ${confirmAction.user?.name || ""}.`
@@ -526,7 +534,7 @@ export default function ComprasPersonal() {
             onChange={(e) => setField("password", e.target.value)}
           />
           <p className="text-[11px] text-gray-400 mt-1">
-            {editing ? "Dejar vacío para no cambiar." : "Contraseña genérica sugerida."}
+            {editing ? "Dejar vacío para no cambiar." : "Si queda vacío, el backend exige DEFAULT_USER_PASSWORD."}
           </p>
         </div>
 

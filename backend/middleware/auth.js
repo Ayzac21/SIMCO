@@ -1,8 +1,12 @@
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev_secret_change_me";
+const getJwtSecret = () => process.env.JWT_SECRET;
 
 export const authenticateJWT = (req, res, next) => {
+  const jwtSecret = getJwtSecret();
+  if (!jwtSecret) {
+    return res.status(500).json({ message: "Configuración inválida del servidor" });
+  }
   const auth = String(req.header("authorization") || "");
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   if (!token) {
@@ -10,7 +14,7 @@ export const authenticateJWT = (req, res, next) => {
   }
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(token, jwtSecret);
     req.user = { id: payload.id, role: payload.role };
     return next();
   } catch {
@@ -27,4 +31,3 @@ export const requireRoles = (...roles) => {
     return next();
   };
 };
-

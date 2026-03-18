@@ -1,12 +1,15 @@
 import { Router } from "express";
+import multer from "multer";
 import {
     getComprasDashboard,
     getRequisitionItems,
     getCotizacionData,
+    downloadCotizacionExcel,
     saveCotizacionPrices,
     inviteProvidersToCotizacion,
     getAllProviders,
     getProvidersAdmin,
+    exportProvidersBasicExcel,
     createProvider,
     updateProvider,
     updateProviderStatus,
@@ -24,9 +27,17 @@ import {
     getComprasOperators,
     assignRequisitionOperator,
     getCompraSeleccion,
+    getComprasReviewData,
+    getComprasRequisitionTimeline,
+    submitComprasReviewSelection,
+    importProvidersFromExcel,
 } from "../controllers/comprasController.js";
 
 const router = Router();
+const uploadExcel = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 },
+});
 
 router.use((req, res, next) => {
     const role = req.user?.role || "";
@@ -52,15 +63,19 @@ router.get("/historial", getComprasHistorial);
 router.get("/historial/report", getComprasHistorialReport);
 router.get("/requisiciones/:id/items", getRequisitionItems);
 router.get("/requisiciones/:id/seleccion", getCompraSeleccion);
+router.get("/requisiciones/:id/timeline", getComprasRequisitionTimeline);
 router.put("/requisiciones/:id/estatus", blockReader, updateEstatusCompras);
 router.put("/requisiciones/:id/assign", blockReader, assignRequisitionOperator);
 
 router.get("/cotizacion/:id/data", getCotizacionData);
+router.get("/cotizacion/:id/excel", downloadCotizacionExcel);
 router.post("/cotizacion/:id/prices", blockReader, saveCotizacionPrices);
 router.post("/cotizacion/:id/invite", blockReader, inviteProvidersToCotizacion);
 router.post("/cotizacion/:id/close", blockReader, closeCotizacionInvites);
 router.post("/cotizacion/:id/send-review", blockReader, sendCotizacionToReview);
 router.post("/cotizacion/:id/reopen", blockReader, reopenCotizacionReception);
+router.get("/revision/:id/data", getComprasReviewData);
+router.post("/revision/:id/select", blockReader, submitComprasReviewSelection);
 router.get("/orden/:id/pdf", getOrdenCompraPdf);
 router.get("/orden/:id/providers", getOrdenCompraProviders);
 router.get("/orden/:id/meta", getOrdenCompraMeta);
@@ -69,6 +84,8 @@ router.put("/orden/:id/type", blockReader, updateOrdenCompraType);
 
 router.get("/providers", getAllProviders);
 router.get("/providers/admin", getProvidersAdmin);
+router.get("/providers/export/basic", exportProvidersBasicExcel);
+router.post("/providers/import", blockReader, uploadExcel.single("file"), importProvidersFromExcel);
 router.post("/providers", blockReader, createProvider);
 router.put("/providers/:id", blockReader, updateProvider);
 router.patch("/providers/:id/status", blockReader, updateProviderStatus);

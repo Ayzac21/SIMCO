@@ -5,6 +5,7 @@ import {
     getCoordinatorUsersForRequisition,
     getUsersByRolePrefix,
 } from "../services/notifications.js";
+import { ensureStatusHistoryTable, logRequisitionStatusChange } from "../services/statusHistory.js";
 
 const parseUserId = (value) => {
     const n = Number(value);
@@ -30,6 +31,7 @@ const ensureSameSecretaria = (req, res, requestedId) => {
 export const getRequisicionesSecretaria = async (req, res) => {
     try {
         if (!ensureSameSecretaria(req, res, req.params.id)) return;
+        await ensureStatusHistoryTable();
 
         const page = Math.max(1, Number(req.query.page || 1));
         const limit = Math.min(100, Math.max(1, Number(req.query.limit || 10)));
@@ -38,12 +40,14 @@ export const getRequisicionesSecretaria = async (req, res) => {
         const q = String(req.query.q || "").trim();
         const status = String(req.query.status || "todos");
 
-        const whereParts = ["r.statuses_id IN (9, 10, 12)"];
+        const whereParts = [
+            "(r.statuses_id IN (9, 11, 12, 13, 14) OR (r.statuses_id = 10 AND COALESCE(ru.role, '') = 'secretaria'))",
+        ];
         const params = [];
 
         if (status === "pendientes") whereParts.push("r.statuses_id = 9");
-        if (status === "aprobadas") whereParts.push("r.statuses_id = 12");
-        if (status === "rechazadas") whereParts.push("r.statuses_id = 10");
+        if (status === "aprobadas") whereParts.push("r.statuses_id IN (12, 13, 14, 11)");
+        if (status === "rechazadas") whereParts.push("r.statuses_id = 10 AND COALESCE(ru.role, '') = 'secretaria'");
 
         if (q) {
             whereParts.push(`
@@ -87,6 +91,17 @@ export const getRequisicionesSecretaria = async (req, res) => {
                     ORDER BY LENGTH(TRIM(c3.ure)) DESC
                     LIMIT 1
                 )
+            LEFT JOIN (
+                SELECT h.requisition_id, h.changed_by, h.change_note, h.changed_at
+                FROM requisition_status_history h
+                INNER JOIN (
+                    SELECT requisition_id, MAX(id) AS max_id
+                    FROM requisition_status_history
+                    WHERE to_status_id = 10
+                    GROUP BY requisition_id
+                ) last_rej ON last_rej.max_id = h.id
+            ) rh ON rh.requisition_id = r.id
+            LEFT JOIN users ru ON ru.id = rh.changed_by
             ${whereClause}
         `;
 
@@ -102,7 +117,10 @@ export const getRequisicionesSecretaria = async (req, res) => {
                 s.name as nombre_estatus,
                 r.observation as observaciones,
                 r.justification as justificacion,
-                r.notes as notas,
+                COALESCE(NULLIF(TRIM(rh.change_note), ''), r.notes) as notas,
+                ru.name as rejected_by_name,
+                ru.role as rejected_by_role,
+                rh.changed_at as rejected_at,
 
                 u.name as solicitante,
                 u.ure as ure_solicitante,
@@ -133,6 +151,17 @@ export const getRequisicionesSecretaria = async (req, res) => {
                     ORDER BY LENGTH(TRIM(c3.ure)) DESC
                     LIMIT 1
                 )
+            LEFT JOIN (
+                SELECT h.requisition_id, h.changed_by, h.change_note, h.changed_at
+                FROM requisition_status_history h
+                INNER JOIN (
+                    SELECT requisition_id, MAX(id) AS max_id
+                    FROM requisition_status_history
+                    WHERE to_status_id = 10
+                    GROUP BY requisition_id
+                ) last_rej ON last_rej.max_id = h.id
+            ) rh ON rh.requisition_id = r.id
+            LEFT JOIN users ru ON ru.id = rh.changed_by
 
             ${whereClause}
             ORDER BY r.created_at DESC
@@ -191,6 +220,14 @@ export const updateEstatusSecretaria = async (req, res) => {
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: "Requisición no encontrada" });
         }
+
+        await logRequisitionStatusChange({
+            requisitionId: id,
+            fromStatusId: currentStatus,
+            toStatusId: targetStatus,
+            changedBy: getAuthUserId(req),
+            note: comentarios || null,
+        });
 
         const actorId = getAuthUserId(req);
         const ownerId = parseUserId(current.users_id);

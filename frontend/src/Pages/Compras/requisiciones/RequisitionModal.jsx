@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"; // <--- 1. IMPORTAR ESTO
 import { X, User, FileText, CheckCircle, XCircle, ShoppingBag, Building2, MapPin, Download } from "lucide-react";
 import { toast } from 'sonner';
 import ConfirmModal from "../../../components/ConfirmModal";
+import RequisitionTimelineModal from "../../../components/RequisitionTimelineModal";
 import { API_BASE_URL } from "../../../api/config";
 import useEscapeKey from "../../../hooks/useEscapeKey";
 
@@ -38,6 +39,7 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
     const [downloading, setDownloading] = useState(false);
     const [providers, setProviders] = useState([]);
     const [loadingProviders, setLoadingProviders] = useState(false);
+    const [timelineOpen, setTimelineOpen] = useState(false);
 
     useEscapeKey(Boolean(req), () => {
         if (assignOpen) {
@@ -46,6 +48,10 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
         }
         if (!processingAction && !loadingItems) onClose?.();
     }, savingAssign || processingAction);
+
+    useEffect(() => {
+        setTimelineOpen(false);
+    }, [req?.id]);
 
     // Cargar items cuando se abre el modal
     useEffect(() => {
@@ -238,6 +244,11 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                 onConfirm={doReject}
                 onCancel={() => setConfirmOpen(false)}
             />
+            <RequisitionTimelineModal
+                open={timelineOpen}
+                requisitionId={req?.id}
+                onClose={() => setTimelineOpen(false)}
+            />
             <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                 
                 {/* Header Modal */}
@@ -256,6 +267,12 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                     <div className="flex items-center gap-2">
                         {Number(req.statuses_id) === 11 && (
                             <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setTimelineOpen(true)}
+                                    className="px-3 py-2 text-[11px] font-bold rounded-lg border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                                >
+                                    VER PROGRESO
+                                </button>
                                 {providers.length <= 1 ? (
                                     <button
                                         onClick={() => downloadOrdenPdf(providers[0]?.id)}
@@ -438,13 +455,26 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                                     <ShoppingBag size={14}/> VER SELECCIÓN
                                 </button>
                             ) : Number(req.statuses_id) === 14 ? (
-                                <button
-                                    disabled
-                                    className="px-4 py-2 rounded-lg bg-gray-200 text-gray-500 font-bold text-xs flex items-center gap-2 cursor-not-allowed"
-                                    title="En revisión: Compras no puede editar"
-                                >
-                                    <ShoppingBag size={14}/> EN REVISIÓN
-                                </button>
+                                isAdmin ? (
+                                    <button
+                                        onClick={() => {
+                                            onClose();
+                                            navigate(`/compras/revision/${req.id}`);
+                                        }}
+                                        className="px-4 py-2 rounded-lg bg-[#8B1D35] text-white font-bold text-xs hover:bg-[#72182b] flex items-center gap-2 shadow-md"
+                                        title="Abrir cuadro comparativo para selección final"
+                                    >
+                                        <ShoppingBag size={14}/> REVISAR COMPARATIVO
+                                    </button>
+                                ) : (
+                                    <button
+                                        disabled
+                                        className="px-4 py-2 rounded-lg bg-gray-200 text-gray-500 font-bold text-xs flex items-center gap-2 cursor-not-allowed"
+                                        title="En revisión interna por Compras Admin"
+                                    >
+                                        <ShoppingBag size={14}/> EN REVISIÓN INTERNA
+                                    </button>
+                                )
                             ) : (
                                 <button 
                                     onClick={() => {

@@ -1,4 +1,5 @@
 import { pool } from "../db/connection.js";
+import { logRequisitionStatusChange } from "../services/statusHistory.js";
 
 const parseUserId = (value) => {
     const n = Number(value);
@@ -206,6 +207,16 @@ export const submitRevisionSelection = async (req, res) => {
         await conn.query(
         `UPDATE requisition SET statuses_id = 13 WHERE id = ?`,
         [id]
+        );
+        await logRequisitionStatusChange(
+            {
+                requisitionId: id,
+                fromStatusId: 14,
+                toStatusId: 13,
+                changedBy: getAuthUserId(req),
+                note: "Selección de cotización por solicitante",
+            },
+            conn
         );
 
         await conn.commit();

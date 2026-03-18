@@ -57,8 +57,10 @@ const renderStatusBadge = (statusId, statusName) => {
             styles = "bg-gray-100 text-gray-700 border-gray-200";
         break;
             case 13:
+            styles = "bg-indigo-50 text-indigo-700 border-indigo-200";
+        break;
             case 11:
-            styles = "bg-secundario/10 text-secundario border-secundario/20";
+            styles = "bg-emerald-50 text-emerald-700 border-emerald-200";
         break;
             case 10:
             styles = "bg-red-50 text-red-700 border-red-200";
@@ -114,11 +116,11 @@ const actionHintByStatus = (statusId) => {
     if (st === 8) return "Acción requerida: revisar y decidir en Coordinación.";
     if (st === 7) return "Pendiente de corrección por la URE.";
     if (st === 9) return "En revisión de Secretaría.";
-    if (st === 12) return "Compras está cotizando proveedores.";
-    if (st === 14) return "Solicitante revisa cotizaciones por partida.";
-    if (st === 13) return "Compra en proceso.";
-    if (st === 11) return "Proceso finalizado.";
-    if (st === 10) return "Requisición rechazada.";
+    if (st === 12) return "En cotización con proveedores (Compras).";
+    if (st === 14) return "En revisión interna de Compras.";
+    if (st === 13) return "En proceso de compra.";
+    if (st === 11) return "Compra finalizada.";
+    if (st === 10) return "Requisición rechazada en revisión.";
     return "Sin acción pendiente.";
 };
 
@@ -354,6 +356,42 @@ export default function Recibidas() {
         setConfirmOpen(true);
     };
 
+    const handleDownloadSignaturePdf = async (reqId) => {
+        const popup = window.open("", "_blank");
+        if (!popup) {
+            toast.error("Tu navegador bloqueó la nueva ventana del PDF");
+            return;
+        }
+        popup.document.write("Cargando PDF...");
+
+        try {
+            const res = await fetch(`${API}/requisiciones/${reqId}/pdf-firma`, {
+                headers: getAuthHeaders(),
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data?.message || "No se pudo generar el PDF");
+            }
+            const blob = await res.blob();
+            const disposition = String(res.headers.get("content-disposition") || "");
+            const match = disposition.match(/filename\*?=(?:UTF-8''|")?([^\";]+)/i);
+            const rawFilename = (match?.[1] || `requisicion-${reqId}-firma.pdf`).replace(/"/g, "");
+            let filename = rawFilename;
+            try {
+                filename = decodeURIComponent(rawFilename);
+            } catch {
+                filename = rawFilename;
+            }
+            const url = window.URL.createObjectURL(blob);
+            popup.document.title = filename;
+            popup.location.href = url;
+            setTimeout(() => window.URL.revokeObjectURL(url), 15000);
+        } catch (e) {
+            popup.close();
+            toast.error(e?.message || "No se pudo abrir el PDF");
+        }
+    };
+
     const handleConfirm = async () => {
         if (!confirmConfig?.req) return;
         const req = confirmConfig.req;
@@ -419,6 +457,7 @@ export default function Recibidas() {
                 onRequestChanges={handleRequestChanges}
                 onEditDraft={handleEditDraft}
                 onSendDraft={handleSendDraft}
+                onDownloadSignaturePdf={handleDownloadSignaturePdf}
             />
             <ConfirmModal
                 open={confirmOpen}

@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Search, ArrowUpDown, X, FileText, Info, User, AlertTriangle } from "lucide-react";
+import { Search, ArrowUpDown, X, FileText, Info, User, AlertTriangle, RefreshCw, Download } from "lucide-react";
 import { toast } from "sonner";
 import { getAuthHeaders } from "../../api/auth";
 import { API_BASE_URL } from "../../api/config";
 import useEscapeKey from "../../hooks/useEscapeKey";
+import RequisitionTimelineModal from "../../components/RequisitionTimelineModal";
 
 const API = API_BASE_URL;
 
@@ -20,6 +21,17 @@ const STATUS_LABELS = {
   11: "Finalizada",
   10: "Rechazada",
 };
+
+function AppLoader({ label = "Cargando..." }) {
+  return (
+    <div className="flex-col gap-4 w-full flex items-center justify-center py-10">
+      <div className="w-20 h-20 border-4 border-transparent text-secundario text-4xl animate-spin flex items-center justify-center border-t-secundario rounded-full">
+        <div className="w-16 h-16 border-4 border-transparent text-principal text-2xl animate-spin flex items-center justify-center border-t-principal rounded-full" />
+      </div>
+      <div className="text-xs text-gray-500 mt-2">{label}</div>
+    </div>
+  );
+}
 
 function getUserId() {
   try {
@@ -47,9 +59,13 @@ function statusGuidance(statusId) {
   if (st === 10) return "La solicitud fue rechazada. Revisa el motivo para corregirla.";
   if (st === 12) return "Compras está cotizando con proveedores.";
   if (st === 13) return "La compra está en proceso. Solo queda esperar cierre.";
-  if (st === 14) return "Ya puedes elegir proveedor por partida.";
+  if (st === 14) return "Compras está en revisión interna del comparativo.";
   if (st === 11) return "La compra ya finalizó. Esta solicitud está cerrada.";
   return "Revisa el detalle de la solicitud.";
+}
+
+function canDownloadSignaturePdf(statusId) {
+  return [12, 13, 14].includes(Number(statusId));
 }
 
 function actionConfigByStatus(statusId, id) {
@@ -64,10 +80,10 @@ function actionConfigByStatus(statusId, id) {
   }
   if (st === 14) {
     return {
-      enabled: true,
-      label: "Ir a revisión",
-      hint: "Selecciona proveedor por cada partida.",
-      to: `/unidad/revision/${id}`,
+      enabled: false,
+      label: "Revisión interna de Compras",
+      hint: "Compras Admin realiza la selección final.",
+      to: null,
     };
   }
   if (st === 10) {
@@ -236,6 +252,7 @@ export default function ListaRequisiciones() {
 
   const [requisiciones, setRequisiciones] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -248,12 +265,16 @@ export default function ListaRequisiciones() {
   const [selected, setSelected] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detail, setDetail] = useState(null);
+  const [timelineOpen, setTimelineOpen] = useState(false);
 
   const [rejectedPreview, setRejectedPreview] = useState({}); // { [id]: { notes, rejected_by_name } }
 
-  const fetchRequisiciones = async () => {
+  const fetchRequisiciones = async ({ showRefresh = false } = {}) => {
+    const MIN_MS = 1200;
+    const t0 = Date.now();
     try {
-      setLoading(true);
+      if (showRefresh) setRefreshing(true);
+      else setLoading(true);
       const userId = getUserId();
       if (!userId) throw new Error("No se encontró el usuario");
 
@@ -304,12 +325,17 @@ export default function ListaRequisiciones() {
       console.error(err);
       toast.error("No se pudo cargar");
     } finally {
-      setLoading(false);
+      const elapsed = Date.now() - t0;
+      if (showRefresh && elapsed < MIN_MS) {
+        await new Promise((r) => setTimeout(r, MIN_MS - elapsed));
+      }
+      if (showRefresh) setRefreshing(false);
+      else setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchRequisiciones();
+    fetchRequisiciones({ showRefresh: false });
   }, []);
 
   const filtered = useMemo(() => {
@@ -350,6 +376,7 @@ export default function ListaRequisiciones() {
   const page = filtered.slice(inicio, fin);
 
   const closeModal = () => {
+    setTimelineOpen(false);
     setOpen(false);
     setSelected(null);
     setDetail(null);
@@ -401,11 +428,39 @@ export default function ListaRequisiciones() {
     navigate(action.to);
   };
 
+  const downloadSignaturePdf = async (reqId) => {
+    try {
+      const res = await fetch(`${API}/requisiciones/${reqId}/pdf-firma`, {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.message || "No se pudo generar el PDF");
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      toast.error(e?.message || "No se pudo descargar el PDF");
+    }
+  };
+
   return (
-    <div className="bg-white p-5 md:p-6 rounded-xl shadow-lg border border-gray-200">
+    <div className="relative bg-white p-5 md:p-6 rounded-xl shadow-lg border border-gray-200">
+      {refreshing && (
+        <div className="absolute inset-0 z-40 bg-white/70 backdrop-blur-[1px] flex items-center justify-center rounded-xl">
+          <AppLoader label="Actualizando..." />
+        </div>
+      )}
       {/* ===== MODAL ===== */}
       {open && selected && (
         <div className="fixed inset-0 z-50">
+          <RequisitionTimelineModal
+            open={timelineOpen}
+            requisitionId={selected?.id}
+            onClose={() => setTimelineOpen(false)}
+          />
           <div className="absolute inset-0 bg-black/40" onClick={closeModal} />
           <div className="absolute inset-0 flex items-center justify-center p-4">
             <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
@@ -552,6 +607,29 @@ export default function ListaRequisiciones() {
               </div>
 
               <div className="px-5 pb-5 flex items-center justify-between gap-3">
+                {(Number(selected.statuses_id) === 11 || canDownloadSignaturePdf(selected.statuses_id)) ? (
+                  <div className="flex items-center gap-2">
+                    {Number(selected.statuses_id) === 11 && (
+                      <button
+                        onClick={() => setTimelineOpen(true)}
+                        className="px-4 py-2 rounded-xl text-xs font-extrabold bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                      >
+                        VER PROGRESO
+                      </button>
+                    )}
+                    {canDownloadSignaturePdf(selected.statuses_id) && (
+                      <button
+                        onClick={() => downloadSignaturePdf(selected.id)}
+                        className="px-4 py-2 rounded-xl text-xs font-extrabold bg-white border border-secundario/30 text-secundario hover:bg-secundario/10 inline-flex items-center gap-1"
+                      >
+                        <Download size={14} />
+                        PDF para firmas
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div />
+                )}
                 <button
                   onClick={closeModal}
                   className="px-4 py-2 rounded-xl text-xs font-extrabold bg-gray-100 hover:bg-gray-200 text-gray-800"
@@ -593,10 +671,14 @@ export default function ListaRequisiciones() {
         </div>
 
         <button
-          onClick={fetchRequisiciones}
-          className="px-4 py-2 bg-secundario text-white rounded-lg hover:opacity-90 text-sm font-semibold"
+          onClick={() => fetchRequisiciones({ showRefresh: true })}
+          disabled={refreshing || loading}
+          className={`px-4 py-2 bg-secundario text-white rounded-lg hover:opacity-90 text-sm font-semibold inline-flex items-center gap-2 ${
+            refreshing || loading ? "opacity-70 cursor-not-allowed" : ""
+          }`}
         >
-          Actualizar
+          <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
+          {refreshing ? "Actualizando..." : "Actualizar"}
         </button>
       </div>
 

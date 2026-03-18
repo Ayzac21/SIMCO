@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Bell, CheckCheck, RotateCw } from "lucide-react";
+import { Bell, CheckCheck, RotateCw, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { getAuthHeaders } from "../api/auth";
 import { API_BASE_URL } from "../api/config";
@@ -48,10 +48,14 @@ export default function NotificationBell() {
   const rootRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [rows, setRows] = useState([]);
   const [unread, setUnread] = useState(0);
   const hasAttention = unread > 0 && !open;
+  const actionBtnBase =
+    "h-7 px-2.5 text-[11px] font-semibold inline-flex items-center gap-1.5 rounded border border-gray-200 bg-white transition disabled:opacity-50 disabled:cursor-not-allowed";
 
   const loadNotifications = async ({ silent = false } = {}) => {
     try {
@@ -123,6 +127,36 @@ export default function NotificationBell() {
     if (target) navigate(target);
   };
 
+  const handleManualRefresh = async () => {
+    if (refreshing) return;
+    try {
+      setRefreshing(true);
+      await Promise.all([
+        loadNotifications({ silent: true }),
+        new Promise((resolve) => setTimeout(resolve, 1200)),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const clearAll = async () => {
+    if (clearing) return;
+    try {
+      setClearing(true);
+      await fetch(`${API_NOTIFICATIONS}/clear`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      setRows([]);
+      setUnread(0);
+    } catch {
+      // noop
+    } finally {
+      setClearing(false);
+    }
+  };
+
   return (
     <div className="relative" ref={rootRef}>
       <style>{`
@@ -163,30 +197,45 @@ export default function NotificationBell() {
 
       {open && (
         <div className="absolute right-0 mt-2 w-[380px] max-w-[92vw] bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
-          <div className="px-3 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50">
-            <div>
+          <div className="px-3 py-3 border-b border-gray-100 bg-gray-50 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <p className="text-xs font-bold text-gray-700">Notificaciones</p>
               <p className="text-[11px] text-gray-500">
                 {unread > 0 ? `${unread} pendiente(s)` : "Sin pendientes"}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
               <button
                 type="button"
-                onClick={() => loadNotifications()}
-                className="text-[11px] font-semibold text-gray-600 hover:text-gray-800 inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-200 bg-white"
+                onClick={handleManualRefresh}
+                disabled={refreshing}
+                className={`${actionBtnBase} ${
+                  refreshing
+                    ? "text-secundario bg-secundario/10 border-secundario/30 cursor-wait"
+                    : "text-gray-600 hover:text-gray-800"
+                }`}
               >
-                <RotateCw size={12} />
-                Actualizar
+                <RotateCw size={13} className={refreshing ? "animate-spin" : ""} />
+                {refreshing ? "Actualizando..." : "Actualizar"}
               </button>
               <button
                 type="button"
                 onClick={markAllRead}
                 disabled={markingAll || unread === 0}
-                className="text-[11px] font-semibold text-gray-600 hover:text-gray-800 inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-200 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+                className={`${actionBtnBase} text-gray-600 hover:text-gray-800`}
               >
-                <CheckCheck size={14} />
+                <CheckCheck size={13} />
                 {markingAll ? "Marcando..." : "Marcar todo"}
+              </button>
+              <button
+                type="button"
+                onClick={clearAll}
+                disabled={clearing || rows.length === 0}
+                className={`${actionBtnBase} text-gray-600 hover:text-red-700`}
+                title="Limpiar notificaciones"
+              >
+                <Trash2 size={13} />
+                {clearing ? "Limpiando..." : "Limpiar"}
               </button>
             </div>
           </div>
@@ -202,18 +251,24 @@ export default function NotificationBell() {
                   key={n.id}
                   type="button"
                   onClick={() => onItemClick(n)}
-                  className={`w-full text-left px-3 py-3 border-b border-gray-100 hover:bg-gray-50 transition ${
-                    Number(n.is_read) ? "bg-white" : "bg-blue-50/50"
+                  className={`w-full text-left px-3 py-3 border-b border-gray-100 transition ${
+                    Number(n.is_read)
+                      ? "bg-white hover:bg-rose-50/30"
+                      : "bg-gradient-to-r from-rose-50 via-red-50 to-white hover:from-rose-100 hover:to-red-50"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      {!Number(n.is_read) && <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0 mt-0.5" />}
+                      {!Number(n.is_read) ? (
+                        <span className="w-2.5 h-2.5 rounded-full bg-secundario shrink-0 mt-0.5 shadow-sm shadow-secundario/30" />
+                      ) : (
+                        <span className="w-2.5 h-2.5 rounded-full bg-gray-300 shrink-0 mt-0.5" />
+                      )}
                       <p className="text-xs font-bold text-gray-800 truncate">{n.title}</p>
                     </div>
-                    <span className="text-[10px] text-gray-400 shrink-0">{formatWhen(n.created_at)}</span>
+                    <span className="text-[10px] text-gray-500 shrink-0">{formatWhen(n.created_at)}</span>
                   </div>
-                  <p className="text-[11px] text-gray-600 mt-1 leading-snug pl-4">{n.message}</p>
+                  <p className="text-[11px] text-gray-700 mt-1 leading-snug pl-4">{n.message}</p>
                 </button>
               ))
             )}

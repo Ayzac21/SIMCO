@@ -31,4 +31,12 @@ En tu `.env` agrega un secreto seguro:
 JWT_SECRET=tu_secreto_largo
 ```
 
-Sin esto, el servidor usará un valor débil por defecto (solo útil para desarrollo).
+`JWT_SECRET` es obligatorio. Si falta, el backend no inicia.
+
+Opcionalmente puedes definir una contraseña por defecto para altas/resets administrativos:
+
+```
+DEFAULT_USER_PASSWORD=una_clave_temporal_segura
+```
+
+Si no defines `DEFAULT_USER_PASSWORD`, deberás enviar `password` explícitamente en los endpoints de alta/reset de usuarios.

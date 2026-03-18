@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import ConfirmModal from "../../../components/ConfirmModal";
-import { ChevronDown, FileText, Pencil, ShieldCheck, Power, CheckCircle } from "lucide-react";
+import { ChevronDown, FileText, Pencil, ShieldCheck, Power, CheckCircle, Upload } from "lucide-react";
 import { API_BASE_URL } from "../../../api/config";
 import useEscapeKey from "../../../hooks/useEscapeKey";
 
@@ -34,6 +34,7 @@ export default function ComprasProveedores() {
   const [providers, setProviders] = useState([]);
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [editing, setEditing] = useState(null);
   const [editingOriginalRfc, setEditingOriginalRfc] = useState("");
   const [detailProvider, setDetailProvider] = useState(null);
@@ -48,8 +49,10 @@ export default function ComprasProveedores() {
 
   const formRef = useRef(null);
   const nameInputRef = useRef(null);
+  const importInputRef = useRef(null);
 
   const isReader = user?.role === "compras_lector";
+  const isExportOnlyMode = false;
 
   const [form, setForm] = useState({
     name: "",
@@ -63,6 +66,14 @@ export default function ComprasProveedores() {
   });
 
   const setField = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+  const uploadHeaders = useMemo(
+    () => ({
+      "x-user-id": String(user?.id || ""),
+      "x-user-role": String(user?.role || ""),
+      Authorization: token ? `Bearer ${token}` : "",
+    }),
+    [token, user?.id, user?.role]
+  );
 
   useEffect(() => {
     const load = async () => {
@@ -99,6 +110,51 @@ export default function ComprasProveedores() {
       setLoadingProviders(false);
     }
   }, [headers, q, statusFilter]);
+
+  const handleImportExcel = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (isReader) {
+      toast.warning("Solo lectura");
+      event.target.value = "";
+      return;
+    }
+
+    if (!/\.(xlsx|xls|csv)$/i.test(file.name)) {
+      toast.error("Archivo inválido. Usa .xlsx, .xls o .csv");
+      event.target.value = "";
+      return;
+    }
+
+    const toastId = toast.loading("Importando proveedores...");
+    try {
+      setImporting(true);
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch(`${API_PROVIDERS}/import`, {
+        method: "POST",
+        headers: uploadHeaders,
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "No se pudo importar");
+
+      toast.success(data?.message || "Importación completada", { id: toastId });
+      if (Array.isArray(data?.errors) && data.errors.length > 0) {
+        toast.warning(`Se omitieron ${data.errors.length} fila(s).`, { duration: 5000 });
+        console.table(data.errors.slice(0, 30));
+      }
+      await loadProviders();
+    } catch (e) {
+      console.error(e);
+      toast.error(e?.message || "Error al importar proveedores", { id: toastId });
+    } finally {
+      setImporting(false);
+      event.target.value = "";
+    }
+  };
 
   useEffect(() => {
     const t = setTimeout(() => loadProviders(), 250);
@@ -354,7 +410,7 @@ export default function ComprasProveedores() {
 
   return (
     <div className="space-y-8">
-      {!isReader && (
+      {!isReader && !isExportOnlyMode && (
       <section className="bg-white rounded-xl shadow-md border border-gray-200 p-6" ref={formRef}>
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -517,9 +573,32 @@ export default function ComprasProveedores() {
         <div className="flex flex-col md:flex-row md:items-end gap-4 md:justify-between">
           <div>
             <h3 className="text-lg font-bold text-gray-800">Proveedores</h3>
-            <p className="text-xs text-gray-500">Administración y consulta.</p>
+            <p className="text-xs text-gray-500">Consulta y exportación de datos básicos.</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
+            {!isReader && !isExportOnlyMode && (
+              <>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={handleImportExcel}
+                />
+                <button
+                  type="button"
+                  onClick={() => importInputRef.current?.click()}
+                  disabled={importing}
+                  className={`inline-flex items-center justify-center gap-2 p-2 border rounded-md text-sm ${
+                    importing ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-50"
+                  }`}
+                  title="Importar archivo Excel con columnas Nombre, Razón social y RFC"
+                >
+                  <Upload size={14} />
+                  {importing ? "Importando..." : "Importar Excel"}
+                </button>
+              </>
+            )}
             <input
               type="text"
               className="p-2 border rounded-md text-sm"
@@ -558,7 +637,7 @@ export default function ComprasProveedores() {
             <div className="col-span-3">Proveedor</div>
             <div className="col-span-2">Email</div>
             <div className="col-span-1">Estatus</div>
-            {!isReader && <div className="col-span-2 text-right">Acciones</div>}
+            {!isReader && !isExportOnlyMode && <div className="col-span-2 text-right">Acciones</div>}
           </div>
 
         </div>
@@ -609,7 +688,7 @@ export default function ComprasProveedores() {
                     {STATUS_OPTIONS.find((s) => s.id === Number(p.statuses_id))?.label || p.statuses_id}
                   </span>
                 </div>
-                {!isReader && (
+                {!isReader && !isExportOnlyMode && (
                 <div className="col-span-2 text-right">
                   <div className="relative inline-flex justify-end" data-actions-menu>
                     <button

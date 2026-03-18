@@ -1,9 +1,14 @@
 import React from "react";
 import { X, User, FileText, CheckCircle, XCircle, Briefcase, Building2 } from "lucide-react";
 import useEscapeKey from "../../../hooks/useEscapeKey";
+import RequisitionTimelineModal from "../../../components/RequisitionTimelineModal";
 
 export default function SecModal({ req, items, loadingItems, onClose, onAction }) {
+    const [timelineOpen, setTimelineOpen] = React.useState(false);
     useEscapeKey(Boolean(req), () => onClose?.(), loadingItems);
+    React.useEffect(() => {
+        setTimelineOpen(false);
+    }, [req?.id]);
 
     if (!req) return null;
 
@@ -15,9 +20,20 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
     const justificacion = req.justificacion || "Sin información";
     const observaciones = req.observaciones || "Sin información";
     const motivoRechazo = req.notas || "Sin información";
+    const rechazadoPor = req.rejected_by_name || "No disponible";
+    const statusId = Number(req.statuses_id || 0);
+    const inSecretaria = [9, 10, 12, 13, 14, 11].includes(statusId);
+    const inCompras = [12, 13, 14, 11].includes(statusId);
+    const isComprasActive = [12, 13, 14].includes(statusId);
+    const isFinalized = statusId === 11;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <RequisitionTimelineModal
+                open={timelineOpen}
+                requisitionId={req?.id}
+                onClose={() => setTimelineOpen(false)}
+            />
             <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                 
                 {/* ENCABEZADO */}
@@ -28,7 +44,11 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${
                                 req.statuses_id === 9 ? 'bg-blue-50 text-blue-600 border-blue-100' :
                                 req.statuses_id === 12 ? 'bg-yellow-50 text-yellow-600 border-yellow-100' :
-                                'bg-red-50 text-red-600 border-red-100'
+                                req.statuses_id === 14 ? 'bg-slate-100 text-slate-700 border-slate-200' :
+                                req.statuses_id === 13 ? 'bg-indigo-50 text-indigo-700 border-indigo-100' :
+                                req.statuses_id === 11 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                                req.statuses_id === 10 ? 'bg-red-50 text-red-600 border-red-100' :
+                                'bg-gray-100 text-gray-600 border-gray-200'
                             }`}>
                                 {req.nombre_estatus}
                             </span>
@@ -37,9 +57,19 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
                             📅 {new Date(req.created_at).toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute:'2-digit' })}
                         </p>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors text-gray-500">
-                        <X size={20} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {Number(req.statuses_id) === 11 && (
+                            <button
+                                onClick={() => setTimelineOpen(true)}
+                                className="px-3 py-2 text-[11px] font-bold rounded-lg border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                            >
+                                VER PROGRESO
+                            </button>
+                        )}
+                        <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors text-gray-500">
+                            <X size={20} />
+                        </button>
+                    </div>
                 </div>
 
                 {/* CONTENIDO SCROLLEABLE */}
@@ -61,37 +91,40 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
                         {/* 2. SECRETARÍA (Aquí está el cambio de la "X") */}
                         <div className="flex flex-col items-center gap-2">
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-colors ${
-                                req.statuses_id === 10 ? 'bg-red-600 text-white border-red-600' : // ROJO SI RECHAZADO
-                                req.statuses_id >= 9 ? 'bg-[#8B1D35] text-white border-[#8B1D35]' : 
+                                statusId === 10 ? 'bg-red-600 text-white border-red-600' :
+                                inSecretaria ? 'bg-[#8B1D35] text-white border-[#8B1D35]' :
                                 'bg-white border-gray-300 text-gray-300'
                             }`}>
-                                {/* ICONO: Si es rechazado (10) mostramos X, si no User */}
-                                {req.statuses_id === 10 ? <X size={16} /> : <User size={14} />}
+                                {statusId === 10 ? <X size={16} /> : <User size={14} />}
                             </div>
                             <span className={`text-[10px] font-bold uppercase tracking-wider ${
-                                req.statuses_id === 10 ? 'text-red-600' : 
-                                req.statuses_id >= 9 ? 'text-[#8B1D35]' : 'text-gray-300'
+                                statusId === 10 ? 'text-red-600' :
+                                inSecretaria ? 'text-[#8B1D35]' : 'text-gray-300'
                             }`}>
-                                {req.statuses_id === 10 ? 'Rechazada' : 'Secretaría'}
+                                {statusId === 10 ? 'Rechazada' : 'Secretaría'}
                             </span>
                         </div>
 
                         {/* 3. COMPRAS */}
                         <div className="flex flex-col items-center gap-2">
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${
-                                req.statuses_id === 12 ? 'bg-[#8B1D35] text-white border-[#8B1D35]' : 'bg-white border-gray-300 text-gray-300'
+                                inCompras ? 'bg-[#8B1D35] text-white border-[#8B1D35]' : 'bg-white border-gray-300 text-gray-300'
                             }`}>
                                 <Briefcase size={14} />
                             </div>
-                            <span className={`text-[10px] font-bold uppercase tracking-wider ${req.statuses_id === 12 ? 'text-[#8B1D35]' : 'text-gray-300'}`}>Compras</span>
+                            <span className={`text-[10px] font-bold uppercase tracking-wider ${inCompras ? 'text-[#8B1D35]' : 'text-gray-300'}`}>Compras</span>
                         </div>
 
                         {/* 4. FINALIZADO */}
                         <div className="flex flex-col items-center gap-2">
-                            <div className="w-8 h-8 rounded-full bg-white border-2 border-gray-300 text-gray-300 flex items-center justify-center">
+                            <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center ${
+                                isFinalized ? "bg-emerald-600 text-white border-emerald-600" : "bg-white border-gray-300 text-gray-300"
+                            }`}>
                                 <CheckCircle size={14} />
                             </div>
-                            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Finalizado</span>
+                            <span className={`text-[10px] font-bold uppercase tracking-wider ${isFinalized ? "text-emerald-700" : "text-gray-300"}`}>
+                                Finalizado
+                            </span>
                         </div>
                     </div>
 
@@ -157,6 +190,9 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
                                         </span>
                                         <p className="text-xs mt-2 italic leading-relaxed text-red-700 font-medium">
                                             "{motivoRechazo}"
+                                        </p>
+                                        <p className="text-[11px] mt-1 text-red-800 font-semibold">
+                                            Rechazada por: {rechazadoPor}
                                         </p>
                                     </div>
                                 )}

@@ -1,13 +1,26 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { FileText, Clock3, CheckCircle2, XCircle, ArrowRight, X, User, Info } from "lucide-react";
+import { FileText, Clock3, CheckCircle2, XCircle, ArrowRight, X, User, Info, RefreshCw, Download } from "lucide-react";
 import { getAuthHeaders } from "../../api/auth";
 import { API_BASE_URL } from "../../api/config";
 import useEscapeKey from "../../hooks/useEscapeKey";
+import RequisitionTimelineModal from "../../components/RequisitionTimelineModal";
 
 const API = API_BASE_URL;
 const PRIMARY = "#8B1D35";
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function AppLoader({ label = "Cargando..." }) {
+  return (
+    <div className="flex-col gap-4 w-full flex items-center justify-center py-10">
+      <div className="w-20 h-20 border-4 border-transparent text-secundario text-4xl animate-spin flex items-center justify-center border-t-secundario rounded-full">
+        <div className="w-16 h-16 border-4 border-transparent text-principal text-2xl animate-spin flex items-center justify-center border-t-principal rounded-full" />
+      </div>
+      <div className="text-xs text-gray-500 mt-2">{label}</div>
+    </div>
+  );
+}
 
 function getUserId() {
   try {
@@ -75,7 +88,7 @@ function badgeByStatus(statusId, statusName) {
 function nextStepText(statusId) {
   const st = Number(statusId);
   if (st === 7) return "Te falta enviar esta solicitud.";
-  if (st === 14) return "Toca elegir un proveedor.";
+  if (st === 14) return "Compras está en revisión interna del comparativo.";
   if (st === 10) return "Fue rechazada. Revisa las notas.";
   if (st === 13) return "Compras ya está haciendo el pedido.";
   if (st === 11) return "Listo: ya fue comprada.";
@@ -83,6 +96,10 @@ function nextStepText(statusId) {
   if (st === 9) return "Está en Secretaría.";
   if (st === 12) return "Compras está cotizando.";
   return "Revisa el detalle.";
+}
+
+function canDownloadSignaturePdf(statusId) {
+  return [12, 13, 14].includes(Number(statusId));
 }
 
 function actionConfigByStatus(statusId, id) {
@@ -97,10 +114,10 @@ function actionConfigByStatus(statusId, id) {
   }
   if (st === 14) {
     return {
-      enabled: true,
-      label: "Ir a revisión",
-      hint: "Selecciona proveedor por partida.",
-      to: `/unidad/revision/${id}`,
+      enabled: false,
+      label: "Revisión interna de Compras",
+      hint: "La selección de proveedor la realiza Compras Admin.",
+      to: null,
     };
   }
   if (st === 11) {
@@ -152,6 +169,7 @@ export default function UreDashboard() {
   const usersId = useMemo(() => getUserId(), []);
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [summary, setSummary] = useState({
     pendientes: 0,
@@ -160,22 +178,26 @@ export default function UreDashboard() {
     total: 0,
   });
 
-  const [needsAction, setNeedsAction] = useState({ borradores: 0, en_revision: 0 });
+  const [needsAction, setNeedsAction] = useState({ borradores: 0 });
   const [latest, setLatest] = useState([]);
 
   const [open, setOpen] = useState(false);
   const [selectedRow, setSelectedRow] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detail, setDetail] = useState(null);
+  const [timelineOpen, setTimelineOpen] = useState(false);
 
-  const loadDashboard = async () => {
+  const loadDashboard = async ({ showRefresh = false } = {}) => {
     if (!usersId) {
       setLoading(false);
       toast.error("Sesión no válida. Vuelve a iniciar sesión.");
       return;
     }
+    const MIN_MS = 1200;
+    const t0 = Date.now();
     try {
-      setLoading(true);
+      if (showRefresh) setRefreshing(true);
+      else setLoading(true);
 
       const [statsRes, listRes] = await Promise.all([
         fetch(`${API}/requisiciones/dashboard/${usersId}/stats`, { headers: getAuthHeaders() }),
@@ -192,7 +214,6 @@ export default function UreDashboard() {
       const reqs = Array.isArray(listData) ? listData : [];
 
       const borradores = reqs.filter((r) => Number(r.statuses_id) === 7).length;
-      const en_revision = reqs.filter((r) => Number(r.statuses_id) === 14).length;
 
       setSummary({
         pendientes: Number(statsData.pendientes || 0),
@@ -201,23 +222,29 @@ export default function UreDashboard() {
         total: Number(statsData.total || 0),
       });
 
-      setNeedsAction({ borradores, en_revision });
+      setNeedsAction({ borradores });
 
       setLatest(reqs.slice(0, 5));
     } catch (e) {
       console.error(e);
       toast.error("Error cargando dashboard");
     } finally {
-      setLoading(false);
+      const elapsed = Date.now() - t0;
+      if (showRefresh && elapsed < MIN_MS) {
+        await sleep(MIN_MS - elapsed);
+      }
+      if (showRefresh) setRefreshing(false);
+      else setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadDashboard();
+    loadDashboard({ showRefresh: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const closeModal = () => {
+    setTimelineOpen(false);
     setOpen(false);
     setSelectedRow(null);
     setDetail(null);
@@ -255,6 +282,24 @@ export default function UreDashboard() {
     navigate(action.to);
   };
 
+  const downloadSignaturePdf = async (reqId) => {
+    try {
+      const res = await fetch(`${API}/requisiciones/${reqId}/pdf-firma`, {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.message || "No se pudo generar el PDF");
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      toast.error(e?.message || "No se pudo descargar el PDF");
+    }
+  };
+
   const StatCard = ({ label, value, icon, iconBg, helper }) => (
     <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between">
       <div>
@@ -267,9 +312,19 @@ export default function UreDashboard() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="relative space-y-6">
+      {refreshing && (
+        <div className="absolute inset-0 z-40 bg-white/70 backdrop-blur-[1px] flex items-center justify-center rounded-xl">
+          <AppLoader label="Actualizando..." />
+        </div>
+      )}
       {open && selectedRow && (
         <div className="fixed inset-0 z-50">
+          <RequisitionTimelineModal
+            open={timelineOpen}
+            requisitionId={selectedRow?.id}
+            onClose={() => setTimelineOpen(false)}
+          />
           <div className="absolute inset-0 bg-black/40" onClick={closeModal} />
 
           <div className="absolute inset-0 flex items-center justify-center p-4">
@@ -405,6 +460,29 @@ export default function UreDashboard() {
               </div>
 
               <div className="px-5 pb-5 flex items-center justify-between gap-3">
+                {(Number(selectedRow.statuses_id) === 11 || canDownloadSignaturePdf(selectedRow.statuses_id)) ? (
+                  <div className="flex items-center gap-2">
+                    {Number(selectedRow.statuses_id) === 11 && (
+                      <button
+                        onClick={() => setTimelineOpen(true)}
+                        className="px-4 py-2 rounded-xl text-xs font-extrabold bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                      >
+                        VER PROGRESO
+                      </button>
+                    )}
+                    {canDownloadSignaturePdf(selectedRow.statuses_id) && (
+                      <button
+                        onClick={() => downloadSignaturePdf(selectedRow.id)}
+                        className="px-4 py-2 rounded-xl text-xs font-extrabold bg-white border border-secundario/30 text-secundario hover:bg-secundario/10 inline-flex items-center gap-1"
+                      >
+                        <Download size={14} />
+                        PDF para firmas
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div />
+                )}
                 <button onClick={closeModal} className="px-4 py-2 rounded-xl text-xs font-extrabold bg-gray-100 hover:bg-gray-200 text-gray-900">
                   Cerrar
                 </button>
@@ -441,8 +519,16 @@ export default function UreDashboard() {
           <p className="text-gray-700 mt-1">Aquí puedes ver tus solicitudes y continuar donde te quedaste.</p>
         </div>
 
-        <button onClick={loadDashboard} className="px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-sm" style={{ backgroundColor: PRIMARY }}>
-          Actualizar
+        <button
+          onClick={() => loadDashboard({ showRefresh: true })}
+          disabled={refreshing || loading}
+          className={`px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-sm inline-flex items-center gap-2 ${
+            refreshing || loading ? "opacity-70 cursor-not-allowed" : ""
+          }`}
+          style={{ backgroundColor: PRIMARY }}
+        >
+          <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+          {refreshing ? "Actualizando..." : "Actualizar"}
         </button>
       </div>
 
@@ -459,10 +545,10 @@ export default function UreDashboard() {
           <div className="mt-3 text-2xl font-extrabold text-gray-900">{loading ? "—" : needsAction.borradores}</div>
         </button>
 
-        <button onClick={() => navigate("/unidad/revision")} className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 text-left hover:bg-gray-50 transition">
-          <div className="text-sm font-extrabold text-gray-900">En revisión</div>
-          <div className="text-xs text-gray-500 mt-1">Elige un proveedor por partida.</div>
-          <div className="mt-3 text-2xl font-extrabold text-gray-900">{loading ? "—" : needsAction.en_revision}</div>
+        <button onClick={() => navigate("/unidad/requisiciones/nueva")} className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 text-left hover:bg-gray-50 transition">
+          <div className="text-sm font-extrabold text-gray-900">Nueva requisición</div>
+          <div className="text-xs text-gray-500 mt-1">Crea una solicitud nueva y guárdala en borrador cuando quieras.</div>
+          <div className="mt-3 text-sm font-extrabold text-secundario">Ir a crear →</div>
         </button>
       </div>
 

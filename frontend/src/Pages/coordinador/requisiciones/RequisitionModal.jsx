@@ -4,6 +4,7 @@ import {
     CheckCircle,
     XCircle,
     FileText,
+    Download,
     User,
     AlertTriangle,
     MessageSquare,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import useEscapeKey from "../../../hooks/useEscapeKey";
+import RequisitionTimelineModal from "../../../components/RequisitionTimelineModal";
 
 // ✅ Loader doble (tu diseño)
 const DoubleSpinner = ({ label = "Cargando..." }) => (
@@ -32,9 +34,11 @@ export default function RequisitionModal({
   onRequestChanges,
   onEditDraft,
   onSendDraft,
+  onDownloadSignaturePdf,
 }) {
   const [actionMode, setActionMode] = useState(null); // reject | adjust | null
   const [reason, setReason] = useState("");
+  const [timelineOpen, setTimelineOpen] = useState(false);
 
   useEscapeKey(Boolean(req), () => {
     if (!loadingItems) onClose?.();
@@ -44,10 +48,14 @@ export default function RequisitionModal({
   useEffect(() => {
     setActionMode(null);
     setReason("");
+    setTimelineOpen(false);
   }, [req?.id]);
 
   if (!req) return null;
   const statusId = Number(req.statuses_id);
+  const statusName = String(req.nombre_estatus || req.estatus || "").toLowerCase();
+  const isPurchasedStatus = statusId === 11 || statusName.includes("comprad");
+  const canDownloadSignaturePdf = [12, 13, 14].includes(statusId) && !isPurchasedStatus;
   const isAdjustMode = actionMode === "adjust";
 
   const notesText = String(req.notes || "");
@@ -85,6 +93,11 @@ export default function RequisitionModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity">
+      <RequisitionTimelineModal
+        open={timelineOpen}
+        requisitionId={req?.id}
+        onClose={() => setTimelineOpen(false)}
+      />
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
         {/* Header */}
         <div className="p-5 border-b border-gray-100 flex justify-between items-start bg-gray-50">
@@ -102,17 +115,37 @@ export default function RequisitionModal({
           </div>
 
           {/* ✅ opcional: evitar cerrar mientras carga */}
-          <button
-            onClick={loadingItems ? undefined : onClose}
-            className={`p-2 rounded-full transition ${
-              loadingItems
-                ? "text-gray-300 cursor-not-allowed"
-                : "hover:bg-gray-200 text-gray-500"
-            }`}
-            title={loadingItems ? "Cargando..." : "Cerrar"}
-          >
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-2">
+            {canDownloadSignaturePdf && (
+              <button
+                onClick={() => onDownloadSignaturePdf?.(req.id)}
+                className="px-3 py-2 text-[11px] font-bold rounded-lg border bg-white text-secundario border-secundario/30 hover:bg-secundario/10 inline-flex items-center gap-1"
+                disabled={loadingItems}
+              >
+                <Download size={14} />
+                PDF para firmas
+              </button>
+            )}
+            {statusId === 11 && (
+              <button
+                onClick={() => setTimelineOpen(true)}
+                className="px-3 py-2 text-[11px] font-bold rounded-lg border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+              >
+                VER PROGRESO
+              </button>
+            )}
+            <button
+              onClick={loadingItems ? undefined : onClose}
+              className={`p-2 rounded-full transition ${
+                loadingItems
+                  ? "text-gray-300 cursor-not-allowed"
+                  : "hover:bg-gray-200 text-gray-500"
+              }`}
+              title={loadingItems ? "Cargando..." : "Cerrar"}
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Body */}
@@ -319,6 +352,8 @@ export default function RequisitionModal({
                     ? "bg-orange-100 text-orange-800"
                     : statusId === 13
                     ? "bg-indigo-100 text-indigo-800"
+                    : statusId === 11
+                    ? "bg-emerald-100 text-emerald-800"
                     : statusId === 14
                     ? "bg-slate-200 text-slate-800"
                     : "bg-slate-100 text-slate-700"
@@ -339,6 +374,10 @@ export default function RequisitionModal({
               ) : statusId === 13 ? (
                 <>
                   <Info size={20} /> Esta solicitud está en PROCESO DE COMPRA
+                </>
+              ) : statusId === 11 ? (
+                <>
+                  <CheckCircle size={20} /> Esta solicitud ya fue COMPRADA y FINALIZADA
                 </>
               ) : statusId === 14 ? (
                 <>

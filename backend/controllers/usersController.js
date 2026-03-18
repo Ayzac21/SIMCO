@@ -1,7 +1,7 @@
 import { pool } from "../db/connection.js";
 import bcrypt from "bcryptjs";
 
-const DEFAULT_PASSWORD = "C0mpr@s2026";
+const DEFAULT_PASSWORD = process.env.DEFAULT_USER_PASSWORD || "";
 
 export const listUsers = async (req, res) => {
   try {
@@ -65,6 +65,11 @@ export const createUser = async (req, res) => {
     }
 
     const finalPassword = password || DEFAULT_PASSWORD;
+    if (!finalPassword) {
+      return res.status(400).json({
+        message: "Debes proporcionar password o configurar DEFAULT_USER_PASSWORD"
+      });
+    }
     const hashedPassword = await bcrypt.hash(finalPassword, 10);
 
     const [result] = await pool.query(
@@ -165,13 +170,22 @@ export const deleteUser = async (req, res) => {
 export const resetUserPassword = async (req, res) => {
   try {
     const { id } = req.params;
+    const { password } = req.body || {};
+    const nextPassword = password || DEFAULT_PASSWORD;
+
+    if (!nextPassword) {
+      return res.status(400).json({
+        message: "Debes proporcionar password o configurar DEFAULT_USER_PASSWORD"
+      });
+    }
+
     const [result] = await pool.query(
       `
       UPDATE users
       SET password = ?
       WHERE id = ?
       `,
-      [await bcrypt.hash(DEFAULT_PASSWORD, 10), id]
+      [await bcrypt.hash(nextPassword, 10), id]
     );
 
     if (!result.affectedRows) {

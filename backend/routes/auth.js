@@ -55,9 +55,16 @@ router.post("/login", async (req, res) => {
             });
         }
 
+        if (!process.env.JWT_SECRET) {
+            return res.status(500).json({
+                ok: false,
+                message: "Configuración inválida del servidor"
+            });
+        }
+
         const token = jwt.sign(
             { id: user.id, role: user.role },
-            process.env.JWT_SECRET || "dev_secret_change_me",
+            process.env.JWT_SECRET,
             { expiresIn: "12h" }
         );
 

@@ -4,11 +4,47 @@ import { PDFDocument as PDFLibDocument } from "pdf-lib";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
-import { createNotification } from "../services/notifications.js";
+import {
+  createNotification,
+  createNotificationsForUsers,
+  getCoordinatorUsersForRequisition,
+  getUsersByRole,
+} from "../services/notifications.js";
+import {
+  getRequisitionStatusTimeline,
+  logRequisitionStatusChange,
+} from "../services/statusHistory.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const templatesDir = path.resolve(__dirname, "..", "templates");
+const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
+
+const normalizeHeader = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
+const normalizeTaxPercent = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > 100) return null;
+  return n;
+};
+
+const parseSelectionTaxesFromNotes = (notes) => {
+  if (!notes) return { vatPct: null, isrPct: null };
+  try {
+    const parsed = typeof notes === "string" ? JSON.parse(notes) : notes;
+    return {
+      vatPct: normalizeTaxPercent(parsed?.vat_percentage),
+      isrPct: normalizeTaxPercent(parsed?.isr_percentage),
+    };
+  } catch {
+    return { vatPct: null, isrPct: null };
+  }
+};
 
 const ensureAssignedOrAdmin = async (req, res, requisitionId) => {
   const role = req.user?.role || "";
@@ -35,6 +71,34 @@ const ensureAssignedOrAdmin = async (req, res, requisitionId) => {
     return false;
   }
   return true;
+};
+
+const getComprasAdminIds = async (connOrPool = pool) => {
+  const [rows] = await connOrPool.query(
+    `
+    SELECT id
+    FROM users
+    WHERE role = 'compras_admin' AND COALESCE(statuses_id, 1) = 1
+    `
+  );
+  return rows.map((r) => Number(r.id)).filter((id) => Number.isInteger(id) && id > 0);
+};
+
+let selectionTaxColumnsAvailableCache = null;
+const hasSelectionTaxColumns = async (connOrPool = pool) => {
+  if (selectionTaxColumnsAvailableCache !== null) return selectionTaxColumnsAvailableCache;
+  try {
+    const [vatCols] = await connOrPool.query(
+      `SHOW COLUMNS FROM quotation_selections LIKE 'selected_vat_percentage'`
+    );
+    const [isrCols] = await connOrPool.query(
+      `SHOW COLUMNS FROM quotation_selections LIKE 'selected_isr_percentage'`
+    );
+    selectionTaxColumnsAvailableCache = vatCols.length > 0 && isrCols.length > 0;
+  } catch {
+    selectionTaxColumnsAvailableCache = false;
+  }
+  return selectionTaxColumnsAvailableCache;
 };
 
 /* =============================
@@ -226,21 +290,45 @@ export const assignRequisitionOperator = async (req, res) => {
     }
 
     const { id } = req.params;
-    const { assigned_operator_id } = req.body;
+    const requisitionId = Number(id);
+    if (!Number.isInteger(requisitionId) || requisitionId <= 0) {
+      return res.status(400).json({ message: "ID de requisición inválido" });
+    }
+
+    const { assigned_operator_id } = req.body || {};
 
     if (typeof assigned_operator_id === "undefined") {
       return res.status(400).json({ message: "Falta assigned_operator_id" });
     }
 
-    if (assigned_operator_id !== null) {
+    const nextAssignedId =
+      assigned_operator_id === null || assigned_operator_id === ""
+        ? null
+        : Number(assigned_operator_id);
+
+    if (nextAssignedId !== null && (!Number.isInteger(nextAssignedId) || nextAssignedId <= 0)) {
+      return res.status(400).json({ message: "assigned_operator_id inválido" });
+    }
+
+    if (nextAssignedId !== null) {
       const [opRows] = await pool.query(
         `SELECT 1 FROM users WHERE id = ? AND role = 'compras_operador' AND statuses_id = 1 LIMIT 1`,
-        [assigned_operator_id]
+        [nextAssignedId]
       );
       if (opRows.length === 0) {
         return res.status(400).json({ message: "Operador inválido" });
       }
     }
+
+    const [reqRows] = await pool.query(
+      `SELECT id, request_name, assigned_operator_id FROM requisition WHERE id = ? LIMIT 1`,
+      [requisitionId]
+    );
+    if (!reqRows.length) {
+      return res.status(404).json({ message: "Requisición no encontrada" });
+    }
+
+    const currentAssignedId = Number(reqRows[0].assigned_operator_id || 0) || null;
 
     const [result] = await pool.query(
       `
@@ -248,12 +336,41 @@ export const assignRequisitionOperator = async (req, res) => {
       SET assigned_operator_id = ?
       WHERE id = ?
       `,
-      [assigned_operator_id, id]
+      [nextAssignedId, requisitionId]
     );
 
     if (!result.affectedRows) {
       return res.status(404).json({ message: "Requisición no encontrada" });
     }
+
+    const actorId = Number(req.user?.id || 0) || null;
+    const requestName = String(reqRows[0].request_name || "").trim();
+    const reqLabel = requestName ? `#${requisitionId} - ${requestName}` : `#${requisitionId}`;
+
+    if (nextAssignedId && nextAssignedId !== currentAssignedId) {
+      await createNotification({
+        recipientUserId: nextAssignedId,
+        actorUserId: actorId,
+        title: "Nueva requisición asignada",
+        message: `Se te asignó la requisición ${reqLabel}.`,
+        entityType: "requisition",
+        entityId: requisitionId,
+        actionPath: "/compras/dashboard",
+      });
+    }
+
+    if (currentAssignedId && currentAssignedId !== nextAssignedId) {
+      await createNotification({
+        recipientUserId: currentAssignedId,
+        actorUserId: actorId,
+        title: "Requisición reasignada",
+        message: `La requisición ${reqLabel} fue reasignada a otro operador.`,
+        entityType: "requisition",
+        entityId: requisitionId,
+        actionPath: "/compras/dashboard",
+      });
+    }
+
     res.json({ ok: true });
   } catch (error) {
     console.error("Error assignRequisitionOperator:", error);
@@ -269,23 +386,33 @@ export const updateEstatusCompras = async (req, res) => {
   try {
     const { id } = req.params;
     const { status_id, comentarios } = req.body;
+    const targetStatusId = Number(status_id);
 
-    if (!status_id) {
+    if (!targetStatusId) {
       return res.status(400).json({ message: "Falta status_id" });
     }
 
-    if ((Number(status_id) === 10 || Number(status_id) === 7) && req.user?.role !== "compras_admin") {
+    if ((targetStatusId === 10 || targetStatusId === 7) && req.user?.role !== "compras_admin") {
       return res.status(403).json({ message: "Solo admin puede ejecutar esta acción" });
     }
 
-    if ((Number(status_id) === 10 || Number(status_id) === 7) && !String(comentarios || "").trim()) {
+    if ((targetStatusId === 10 || targetStatusId === 7) && !String(comentarios || "").trim()) {
       return res.status(400).json({ message: "Debes incluir comentarios para esta acción" });
     }
 
     const ok = await ensureAssignedOrAdmin(req, res, id);
     if (!ok) return;
 
-    if (Number(status_id) === 11) {
+    const [[currentRow]] = await pool.query(
+      `SELECT statuses_id, users_id FROM requisition WHERE id = ? LIMIT 1`,
+      [id]
+    );
+    if (!currentRow) {
+      return res.status(404).json({ message: "Requisición no encontrada" });
+    }
+    const currentStatusId = Number(currentRow.statuses_id || 0);
+
+    if (targetStatusId === 11) {
       const [rows] = await pool.query(
         `
         SELECT
@@ -326,11 +453,71 @@ export const updateEstatusCompras = async (req, res) => {
       SET statuses_id = ?, notes = ?
       WHERE id = ?
       `,
-      [status_id, comentarios || null, id]
+      [targetStatusId, comentarios || null, id]
     );
 
     if (!result.affectedRows) {
       return res.status(404).json({ message: "Requisición no encontrada" });
+    }
+
+    await logRequisitionStatusChange({
+      requisitionId: id,
+      fromStatusId: currentStatusId,
+      toStatusId: targetStatusId,
+      changedBy: Number(req.user?.id || 0) || null,
+      note: comentarios || null,
+    });
+
+    const ownerId = Number(currentRow.users_id || 0);
+    const actorId = Number(req.user?.id || 0) || null;
+    if (ownerId > 0 && targetStatusId === 11) {
+      await createNotification({
+        recipientUserId: ownerId,
+        actorUserId: actorId,
+        title: "Requisición finalizada",
+        message: `La requisición #${id} fue marcada como finalizada por Compras.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+      });
+    } else if (ownerId > 0 && targetStatusId === 10) {
+      await createNotification({
+        recipientUserId: ownerId,
+        actorUserId: actorId,
+        title: "Requisición rechazada en Compras",
+        message: `La requisición #${id} fue rechazada por Compras. Revisa el motivo en el detalle.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+      });
+    }
+
+    if (targetStatusId === 11 || targetStatusId === 10) {
+      const coordinatorIds = await getCoordinatorUsersForRequisition(id);
+      await createNotificationsForUsers(coordinatorIds, {
+        actorUserId: actorId,
+        title: targetStatusId === 11 ? "Requisición finalizada en Compras" : "Requisición rechazada en Compras",
+        message:
+          targetStatusId === 11
+            ? `La requisición #${id} fue finalizada por Compras.`
+            : `La requisición #${id} fue rechazada por Compras.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/coordinador/requisiciones?openReq=${id}`,
+      });
+
+      const secretariaIds = await getUsersByRole("secretaria");
+      await createNotificationsForUsers(secretariaIds, {
+        actorUserId: actorId,
+        title: targetStatusId === 11 ? "Compra finalizada" : "Compra rechazada",
+        message:
+          targetStatusId === 11
+            ? `La requisición #${id} fue finalizada por Compras.`
+            : `La requisición #${id} fue rechazada por Compras.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/secretaria/recibidas?openReq=${id}`,
+      });
     }
 
     res.json({ message: "Estatus actualizado correctamente" });
@@ -767,6 +954,7 @@ export const getCompraSeleccion = async (req, res) => {
     const { id } = req.params;
     const ok = await ensureAssignedOrAdmin(req, res, id);
     if (!ok) return;
+    const withSelectionTaxCols = await hasSelectionTaxColumns();
 
     const queryReq = `
       SELECT 
@@ -827,12 +1015,40 @@ export const getCompraSeleccion = async (req, res) => {
         qs.provider_id,
         p.name AS provider_name,
         qs.selected_unit_price,
-        qs.selected_description
+        qs.selected_description,
+        COALESCE(
+          ${withSelectionTaxCols ? "qs.selected_vat_percentage" : "NULL"},
+          CAST(
+            JSON_UNQUOTE(
+              JSON_EXTRACT(
+                IF(JSON_VALID(qp.notes), qp.notes, NULL),
+                '$.vat_percentage'
+              )
+            ) AS DECIMAL(6,2)
+          ),
+          0
+        ) AS selected_vat_percentage,
+        COALESCE(
+          ${withSelectionTaxCols ? "qs.selected_isr_percentage" : "NULL"},
+          CAST(
+            JSON_UNQUOTE(
+              JSON_EXTRACT(
+                IF(JSON_VALID(qp.notes), qp.notes, NULL),
+                '$.isr_percentage'
+              )
+            ) AS DECIMAL(6,2)
+          ),
+          0
+        ) AS selected_isr_percentage
       FROM line_items li
       LEFT JOIN units u ON li.units_id = u.id
       LEFT JOIN quotation_selections qs
         ON qs.requisition_id = li.requisition_id
         AND qs.line_item_id = li.id
+      LEFT JOIN quotation_prices qp
+        ON qp.requisition_id = li.requisition_id
+        AND qp.line_item_id = li.id
+        AND qp.provider_id = qs.provider_id
       LEFT JOIN provider p ON p.id = qs.provider_id
       WHERE li.requisition_id = ?
       ORDER BY li.id ASC
@@ -893,6 +1109,7 @@ export const getOrdenCompraPdf = async (req, res) => {
     const providerIdParam = Number(req.query.provider_id || 0);
     const ok = await ensureAssignedOrAdmin(req, res, id);
     if (!ok) return;
+    const withSelectionTaxCols = await hasSelectionTaxColumns();
 
     const queryReq = `
       SELECT 
@@ -953,12 +1170,40 @@ export const getOrdenCompraPdf = async (req, res) => {
         qs.provider_id,
         p.name AS provider_name,
         qs.selected_unit_price,
-        qs.selected_description
+        qs.selected_description,
+        COALESCE(
+          ${withSelectionTaxCols ? "qs.selected_vat_percentage" : "NULL"},
+          CAST(
+            JSON_UNQUOTE(
+              JSON_EXTRACT(
+                IF(JSON_VALID(qp.notes), qp.notes, NULL),
+                '$.vat_percentage'
+              )
+            ) AS DECIMAL(6,2)
+          ),
+          0
+        ) AS selected_vat_percentage,
+        COALESCE(
+          ${withSelectionTaxCols ? "qs.selected_isr_percentage" : "NULL"},
+          CAST(
+            JSON_UNQUOTE(
+              JSON_EXTRACT(
+                IF(JSON_VALID(qp.notes), qp.notes, NULL),
+                '$.isr_percentage'
+              )
+            ) AS DECIMAL(6,2)
+          ),
+          0
+        ) AS selected_isr_percentage
       FROM line_items li
       LEFT JOIN units u ON li.units_id = u.id
       LEFT JOIN quotation_selections qs
         ON qs.requisition_id = li.requisition_id
         AND qs.line_item_id = li.id
+      LEFT JOIN quotation_prices qp
+        ON qp.requisition_id = li.requisition_id
+        AND qp.line_item_id = li.id
+        AND qp.provider_id = qs.provider_id
       LEFT JOIN provider p ON p.id = qs.provider_id
       WHERE li.requisition_id = ?
       ORDER BY li.id ASC
@@ -1062,10 +1307,15 @@ export const getOrdenCompraPdf = async (req, res) => {
       return `${dd}/${mm}/${yyyy}`;
     };
 
+    const moneyFormatter = new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
     const formatMoney = (n) => {
       const num = Number(n);
       if (!Number.isFinite(num)) return "";
-      return num.toFixed(2);
+      return moneyFormatter.format(num);
     };
 
     const setText = (form, name, value) => {
@@ -1073,6 +1323,17 @@ export const getOrdenCompraPdf = async (req, res) => {
         const field = form.getTextField(name);
         field.setText(value == null ? "" : String(value));
       } catch {}
+    };
+
+    const setTextAny = (form, names, value) => {
+      for (const name of names) {
+        try {
+          const field = form.getTextField(name);
+          field.setText(value == null ? "" : String(value));
+          return true;
+        } catch {}
+      }
+      return false;
     };
 
     const setCheck = (form, name, checked) => {
@@ -1108,39 +1369,73 @@ export const getOrdenCompraPdf = async (req, res) => {
       "PORCENTAJE DE ANTICIPO": "",
     };
 
-    for (const it of itemsByProvider) {
-      const srcDoc = await PDFLibDocument.load(templateBytes);
-      const form = srcDoc.getForm();
+    const srcDoc = await PDFLibDocument.load(templateBytes);
+    const form = srcDoc.getForm();
 
-      Object.entries(common).forEach(([k, v]) => setText(form, k, v));
-      setCheck(form, "PAGO DE CONTADO", true);
-      setCheck(form, "PAGO EN PARCIALIDADES", false);
-      setCheck(form, "a) ANTICIPO", false);
-      setCheck(form, "b CUMPLIMIENTO", false);
+    Object.entries(common).forEach(([k, v]) => setText(form, k, v));
+    setCheck(form, "PAGO DE CONTADO", true);
+    setCheck(form, "PAGO EN PARCIALIDADES", false);
+    setCheck(form, "a) ANTICIPO", false);
+    setCheck(form, "b CUMPLIMIENTO", false);
 
+    const itemValues = itemsByProvider.map((it) => {
       const qty = Number(it.quantity || 0);
       const unit = Number(it.selected_unit_price || 0);
-      const total = qty * unit;
-      const incluirIva = Number(incluirIvaMeta) === 1;
-      const ivaPct = Number(ivaPctMeta || 0);
-      const iva = incluirIva ? (total * ivaPct) / 100 : 0;
-      const totalConIva = total + iva;
+      const base = qty * unit;
+      const vatPct = normalizeTaxPercent(it.selected_vat_percentage) ?? 0;
+      const isrPct = normalizeTaxPercent(it.selected_isr_percentage) ?? 0;
+      const vatAmount = (base * vatPct) / 100;
+      const isrAmount = (base * isrPct) / 100;
+      const total = base + vatAmount - isrAmount;
+      return {
+        qty,
+        unit,
+        base,
+        total,
+        vatPct,
+        isrPct,
+        vatAmount,
+        isrAmount,
+        desc: it.selected_description || it.description || "",
+        unidad: it.unidad_medida || "",
+      };
+    });
 
-      setText(form, "CANTIDADRow1", qty ? String(qty) : "");
-      setText(form, "DESCRIPCIÓN DE LOS SERVICIOSRow1", it.selected_description || it.description || "");
-      setText(form, "PRECIO UNITARIORow1", unit ? formatMoney(unit) : "");
-      setText(form, "IMPORTE TOTALRow1", total ? formatMoney(total) : "");
-      setText(form, "IMPORTE TOTALSUBTOTAL IVA TOTAL", total ? formatMoney(total) : "");
-      setText(form, "IMPORTE TOTALSUBTOTAL IVA TOTAL_2", iva ? formatMoney(iva) : "0.00");
-      setText(form, "IMPORTE TOTALSUBTOTAL IVA TOTAL_3", totalConIva ? formatMoney(totalConIva) : "");
-      setText(form, "IMPORTE CON LETRA", "");
+    const subtotalBase = itemValues.reduce((acc, it) => acc + it.base, 0);
+    const ivaFromItems = itemValues.reduce((acc, it) => acc + it.vatAmount, 0);
+    const isrFromItems = itemValues.reduce((acc, it) => acc + it.isrAmount, 0);
+    const hasPerItemTaxes = itemValues.some((it) => it.vatPct > 0 || it.isrPct > 0);
+    const includeIva = Number(incluirIvaMeta) === 1;
+    const ivaPct = Number(ivaPctMeta || 0);
+    const ivaFallback = includeIva ? (subtotalBase * ivaPct) / 100 : 0;
+    const iva = hasPerItemTaxes ? ivaFromItems : ivaFallback;
+    const totalConIva = hasPerItemTaxes
+      ? subtotalBase + ivaFromItems - isrFromItems
+      : subtotalBase + ivaFallback;
 
-      form.flatten();
+    const single = itemValues.length === 1 ? itemValues[0] : null;
+    const mergedDescription = itemValues
+      .map((it, idx) => `${idx + 1}. ${it.desc}`)
+      .join("\n");
+    const isrNote = isrFromItems > 0 ? `\nRetención ISR: ${formatMoney(isrFromItems)}` : "";
+    const obsBase = requisition.observation || requisition.notes || "";
 
-      const pageIndices = srcDoc.getPageIndices();
-      const copied = await outputDoc.copyPages(srcDoc, pageIndices);
-      copied.forEach((p) => outputDoc.addPage(p));
-    }
+    setText(form, "CANTIDADRow1", single ? (single.qty ? String(single.qty) : "") : "VARIAS");
+    setTextAny(form, ["DESCRIPCIÓN DE LOS SERVICIOSRow1", "DESCRIPCIÓN DE LOS BIENESRow1"], single ? single.desc : mergedDescription);
+    setTextAny(form, ["UNIDAD DE MEDIDARow1"], single ? single.unidad : "");
+    setText(form, "PRECIO UNITARIORow1", single ? (single.unit ? formatMoney(single.unit) : "") : "N/A");
+    setText(form, "IMPORTE TOTALRow1", subtotalBase ? formatMoney(subtotalBase) : "");
+    setText(form, "IMPORTE TOTALSUBTOTAL IVA TOTAL", subtotalBase ? formatMoney(subtotalBase) : "");
+    setText(form, "IMPORTE TOTALSUBTOTAL IVA TOTAL_2", iva ? formatMoney(iva) : "0.00");
+    setText(form, "IMPORTE TOTALSUBTOTAL IVA TOTAL_3", totalConIva ? formatMoney(totalConIva) : "");
+    setText(form, "IMPORTE CON LETRA", "");
+    setText(form, "OBSERVACIONES", `${obsBase}${isrNote}`.trim());
+
+    form.flatten();
+
+    const pageIndices = srcDoc.getPageIndices();
+    const copied = await outputDoc.copyPages(srcDoc, pageIndices);
+    copied.forEach((p) => outputDoc.addPage(p));
 
     const pdfBytes = await outputDoc.save();
     res.setHeader("Content-Type", "application/pdf");
@@ -1339,10 +1634,374 @@ export const getCotizacionData = async (req, res) => {
     `;
     const [savedPrices] = await pool.query(queryPrices, [id]);
 
-    res.json({ requisition, items, providers, invitedProviders, savedPrices });
+    const [selections] = await pool.query(
+      `
+      SELECT line_item_id, provider_id
+      FROM quotation_selections
+      WHERE requisition_id = ?
+      `,
+      [id]
+    );
+
+    res.json({ requisition, items, providers, invitedProviders, savedPrices, selections });
   } catch (error) {
     console.error("Error cargando datos de cotización:", error);
     res.status(500).json({ message: "Error interno del servidor" });
+  }
+};
+
+export const downloadCotizacionExcel = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ok = await ensureAssignedOrAdmin(req, res, id);
+    if (!ok) return;
+
+    let ExcelJS;
+    try {
+      const excelModule = await import("exceljs");
+      ExcelJS = excelModule.default || excelModule;
+    } catch {
+      return res.status(500).json({
+        message: "Falta dependencia para exportar Excel. Ejecuta npm install en backend.",
+      });
+    }
+
+    const [reqRows] = await pool.query(
+      `
+      SELECT
+        r.id,
+        r.request_name,
+        r.created_at,
+        c.name AS category_name
+      FROM requisition r
+      LEFT JOIN categories c ON c.id = r.categories_id
+      WHERE r.id = ?
+      LIMIT 1
+      `,
+      [id]
+    );
+    if (!reqRows.length) {
+      return res.status(404).json({ message: "Requisición no encontrada" });
+    }
+    const requisition = reqRows[0];
+
+    const [items] = await pool.query(
+      `
+      SELECT
+        li.id,
+        li.quantity,
+        li.description,
+        u.name AS unidad_medida
+      FROM line_items li
+      LEFT JOIN units u ON u.id = li.units_id
+      WHERE li.requisition_id = ?
+      ORDER BY li.id ASC
+      `,
+      [id]
+    );
+
+    const [invitedProviders] = await pool.query(
+      `
+      SELECT
+        p.id,
+        p.name,
+        qr.status
+      FROM quotation_requests qr
+      INNER JOIN provider p ON p.id = qr.provider_id
+      WHERE qr.requisition_id = ?
+      ORDER BY p.name ASC
+      `,
+      [id]
+    );
+
+    const [savedPrices] = await pool.query(
+      `
+      SELECT
+        line_item_id,
+        provider_id,
+        unit_price,
+        notes
+      FROM quotation_prices
+      WHERE requisition_id = ?
+      `,
+      [id]
+    );
+    const [selections] = await pool.query(
+      `
+      SELECT line_item_id, provider_id
+      FROM quotation_selections
+      WHERE requisition_id = ?
+      `,
+      [id]
+    );
+
+    const numericPrice = (value) => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const round2 = (value) => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+
+    const priceMap = new Map();
+    savedPrices.forEach((p) => {
+      const key = `${Number(p.line_item_id)}_${Number(p.provider_id)}`;
+      const { vatPct, isrPct } = parseSelectionTaxesFromNotes(p.notes);
+      priceMap.set(key, {
+        unitPrice: numericPrice(p.unit_price),
+        vatPct: Number.isFinite(Number(vatPct)) ? Number(vatPct) : 0,
+        isrPct: Number.isFinite(Number(isrPct)) ? Number(isrPct) : 0,
+      });
+    });
+
+    const providers = invitedProviders.filter((provider) =>
+      items.some((item) => {
+        const key = `${Number(item.id)}_${Number(provider.id)}`;
+        const row = priceMap.get(key);
+        return row && row.unitPrice > 0;
+      })
+    );
+
+    if (!providers.length) {
+      return res.status(400).json({ message: "No hay proveedores con cotización capturada" });
+    }
+
+    const safeDate = (d) => {
+      if (!d) return "";
+      const date = new Date(d);
+      if (Number.isNaN(date.getTime())) return "";
+      const day = String(date.getDate()).padStart(2, "0");
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const year = String(date.getFullYear()).slice(-2);
+      return `${day}/${month}/${year}`;
+    };
+    const wrapText = (text, maxLen = 44) => {
+      const raw = String(text || "").trim();
+      if (!raw) return "";
+      const words = raw.split(/\s+/);
+      const lines = [];
+      let current = "";
+      words.forEach((word) => {
+        const next = current ? `${current} ${word}` : word;
+        if (next.length > maxLen) {
+          if (current) lines.push(current);
+          current = word;
+        } else {
+          current = next;
+        }
+      });
+      if (current) lines.push(current);
+      return lines.join("\n");
+    };
+
+    const totalsByProvider = {};
+    const assignedTotalsByProvider = {};
+    const assignedCountByProvider = {};
+    providers.forEach((p) => {
+      totalsByProvider[p.id] = { subtotal: 0, iva: 0, isr: 0, total: 0 };
+      assignedTotalsByProvider[p.id] = { subtotal: 0, iva: 0, isr: 0, total: 0 };
+      assignedCountByProvider[p.id] = 0;
+    });
+
+    const selectedProviderByItem = {};
+    selections.forEach((s) => {
+      const itemId = Number(s.line_item_id || 0);
+      const providerId = Number(s.provider_id || 0);
+      if (itemId && providerId) selectedProviderByItem[itemId] = providerId;
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const ws = workbook.addWorksheet("CuadroComparativo");
+    const now = new Date();
+    const series = `${id}-${now.getFullYear()}`;
+
+    ws.getCell("D1").value = "UNIVERSIDAD DE GUADALAJARA";
+    ws.getCell("D2").value = "CENTRO UNIVERSITARIO DE LOS ALTOS";
+    ws.getCell("H4").value = "CUADRO COMPARATIVO";
+    ws.getCell("I4").value = series;
+    ws.getCell("E6").value = "FECHA CUADRO:";
+    ws.getCell("F6").value = safeDate(now);
+    ws.getCell("H6").value = "DEPENDENCIA:";
+    ws.getCell("I6").value = requisition.request_name || requisition.category_name || "";
+
+    ws.getRow(8).values = ["Partida", "Cantidad", "Unidad", "DESCRIPCION DEL BIEN O SERVICIO"];
+    providers.forEach((p, idx) => {
+      const unitCol = 5 + idx * 2;
+      const totalCol = unitCol + 1;
+      ws.getCell(8, unitCol).value = String(p.name || "Proveedor").toUpperCase();
+      ws.getCell(9, unitCol).value = "PRECIO UNITARIO";
+      ws.getCell(9, totalCol).value = "TOTAL (SIN IVA)";
+    });
+
+    const currencyFmt = '"$"#,##0.00';
+    const tableHeaderFill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFF2F2F2" },
+    };
+    const selectedFill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFDCFCE7" },
+    };
+    const selectedFont = { bold: true, color: { argb: "FF166534" } };
+    const borderThin = {
+      top: { style: "thin", color: { argb: "FFBDBDBD" } },
+      left: { style: "thin", color: { argb: "FFBDBDBD" } },
+      bottom: { style: "thin", color: { argb: "FFBDBDBD" } },
+      right: { style: "thin", color: { argb: "FFBDBDBD" } },
+    };
+
+    let rowIndex = 10;
+    items.forEach((item, idx) => {
+      ws.getCell(rowIndex, 1).value = idx + 1;
+      ws.getCell(rowIndex, 2).value = Number(item.quantity || 0);
+      ws.getCell(rowIndex, 3).value = item.unidad_medida || "";
+      const wrappedDescription = wrapText(item.description || "");
+      ws.getCell(rowIndex, 4).value = wrappedDescription;
+      const descLines = Math.max(1, wrappedDescription.split("\n").length);
+      ws.getRow(rowIndex).height = Math.min(90, Math.max(18, descLines * 14));
+      ws.getCell(rowIndex, 4).alignment = { vertical: "top", wrapText: true };
+
+      providers.forEach((p, pIdx) => {
+        const key = `${Number(item.id)}_${Number(p.id)}`;
+        const data = priceMap.get(key);
+        const unitPrice = data?.unitPrice || 0;
+        const quantity = Number(item.quantity || 0);
+        const subtotal = round2(unitPrice * quantity);
+        const ivaAmount = round2(subtotal * ((data?.vatPct || 0) / 100));
+        const isrAmount = round2(subtotal * ((data?.isrPct || 0) / 100));
+        const total = round2(subtotal + ivaAmount - isrAmount);
+
+        totalsByProvider[p.id].subtotal += subtotal;
+        totalsByProvider[p.id].iva += ivaAmount;
+        totalsByProvider[p.id].isr += isrAmount;
+        totalsByProvider[p.id].total += total;
+
+        const unitCol = 5 + pIdx * 2;
+        const totalCol = unitCol + 1;
+        if (unitPrice > 0) {
+          ws.getCell(rowIndex, unitCol).value = unitPrice;
+          // En la columna del comparativo mostramos total por partida sin impuestos.
+          ws.getCell(rowIndex, totalCol).value = subtotal;
+          ws.getCell(rowIndex, unitCol).numFmt = currencyFmt;
+          ws.getCell(rowIndex, totalCol).numFmt = currencyFmt;
+        } else {
+          ws.getCell(rowIndex, unitCol).value = "";
+          ws.getCell(rowIndex, totalCol).value = "";
+        }
+
+        const selectedProviderId = Number(selectedProviderByItem[item.id] || 0);
+        if (selectedProviderId && selectedProviderId === Number(p.id)) {
+          ws.getCell(rowIndex, unitCol).fill = selectedFill;
+          ws.getCell(rowIndex, totalCol).fill = selectedFill;
+          ws.getCell(rowIndex, unitCol).font = selectedFont;
+          ws.getCell(rowIndex, totalCol).font = selectedFont;
+          ws.getCell(rowIndex, totalCol).note = "SELECCIONADO";
+          assignedTotalsByProvider[p.id].subtotal += subtotal;
+          assignedTotalsByProvider[p.id].iva += ivaAmount;
+          assignedTotalsByProvider[p.id].isr += isrAmount;
+          assignedTotalsByProvider[p.id].total += total;
+          assignedCountByProvider[p.id] += 1;
+        }
+      });
+      rowIndex += 1;
+    });
+
+    const summaryStart = rowIndex + 1;
+    const writeSummary = (label, key, row) => {
+      ws.getCell(row, 4).value = label;
+      ws.getCell(row, 4).font = { bold: true };
+      providers.forEach((p, pIdx) => {
+        const totalCol = 6 + pIdx * 2;
+        ws.getCell(row, totalCol).value = round2(totalsByProvider[p.id][key] || 0);
+        ws.getCell(row, totalCol).numFmt = currencyFmt;
+        ws.getCell(row, totalCol).font = { bold: true };
+      });
+    };
+    writeSummary("Sub Total", "subtotal", summaryStart);
+    writeSummary("I.V.A", "iva", summaryStart + 1);
+    writeSummary("TOTAL", "total", summaryStart + 2);
+
+    const assignedTitleRow = summaryStart + 4;
+    ws.getCell(assignedTitleRow, 4).value = "Totales seleccionados para pedido";
+    ws.getCell(assignedTitleRow, 4).font = { bold: true, color: { argb: "FF166534" } };
+    const assignedNoteRow = assignedTitleRow + 1;
+    ws.getCell(assignedNoteRow, 4).value =
+      "Nota: estos importes consideran unicamente las partidas marcadas como SELECCIONADO (lo que se va a pedir).";
+    ws.getCell(assignedNoteRow, 4).font = { italic: true, color: { argb: "FF475569" } };
+
+    const assignedStart = summaryStart + 6;
+    const writeAssignedSummary = (label, key, row) => {
+      ws.getCell(row, 4).value = label;
+      ws.getCell(row, 4).font = { bold: true };
+      providers.forEach((p, pIdx) => {
+        const totalCol = 6 + pIdx * 2;
+        const hasAssigned = assignedCountByProvider[p.id] > 0;
+        ws.getCell(row, totalCol).value = hasAssigned
+          ? round2(assignedTotalsByProvider[p.id][key] || 0)
+          : "";
+        ws.getCell(row, totalCol).numFmt = currencyFmt;
+        ws.getCell(row, totalCol).font = { bold: true };
+      });
+    };
+    writeAssignedSummary("Sub Total Seleccionado", "subtotal", assignedStart);
+    writeAssignedSummary("I.V.A Seleccionado", "iva", assignedStart + 1);
+    writeAssignedSummary("Total Seleccionado", "total", assignedStart + 2);
+
+    ws.mergeCells("D1:I1");
+    ws.mergeCells("D2:I2");
+    ws.mergeCells("H4:I4");
+    ws.mergeCells("I6:L6");
+    providers.forEach((_, idx) => {
+      const unitCol = 5 + idx * 2;
+      const totalCol = unitCol + 1;
+      ws.mergeCells(8, unitCol, 8, totalCol);
+    });
+
+    ws.getColumn(1).width = 8;
+    ws.getColumn(2).width = 10;
+    ws.getColumn(3).width = 12;
+    ws.getColumn(4).width = 40;
+    providers.forEach((_, idx) => {
+      ws.getColumn(5 + idx * 2).width = 14;
+      ws.getColumn(6 + idx * 2).width = 14;
+    });
+
+    ws.getCell("D1").font = { bold: true, size: 13 };
+    ws.getCell("D2").font = { bold: true, size: 11 };
+    ws.getCell("H4").font = { bold: true };
+    ws.getCell("I4").font = { bold: true };
+    ws.getCell("E6").font = { bold: true };
+    ws.getCell("H6").font = { bold: true };
+
+    const lastCol = 4 + providers.length * 2;
+    for (let c = 1; c <= lastCol; c += 1) {
+      ws.getCell(8, c).fill = tableHeaderFill;
+      ws.getCell(9, c).fill = tableHeaderFill;
+      ws.getCell(8, c).font = { bold: true };
+      ws.getCell(9, c).font = { bold: true, size: 10 };
+      ws.getCell(8, c).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+      ws.getCell(9, c).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+    }
+
+    for (let r = 8; r <= assignedStart + 2; r += 1) {
+      for (let c = 1; c <= lastCol; c += 1) {
+        ws.getCell(r, c).border = borderThin;
+      }
+    }
+
+    ws.views = [{ state: "frozen", ySplit: 9, xSplit: 4 }];
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const filename = `cuadro_comparativo_req_${id}.xlsx`;
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    return res.send(buffer);
+  } catch (error) {
+    console.error("Error downloadCotizacionExcel:", error);
+    return res.status(500).json({ message: "Error interno del servidor" });
   }
 };
 
@@ -1412,11 +2071,11 @@ export const saveCotizacionPrices = async (req, res) => {
     const ok = await ensureAssignedOrAdmin(req, res, id);
     if (!ok) return;
 
-    const { prices } = req.body;
-
-    if (!Array.isArray(prices) || prices.length === 0) {
-      return res.status(400).json({ message: "No hay datos para guardar" });
-    }
+    const { prices, selected_provider_ids } = req.body || {};
+    const safePrices = Array.isArray(prices) ? prices : [];
+    const selectedProviderIds = Array.isArray(selected_provider_ids)
+      ? selected_provider_ids.map((x) => Number(x)).filter(Boolean)
+      : [];
 
     const [reqRows] = await pool.query(
       `SELECT statuses_id, quotation_closed_at FROM requisition WHERE id = ?`,
@@ -1437,10 +2096,13 @@ export const saveCotizacionPrices = async (req, res) => {
     }
 
     const providerIdsIncoming = Array.from(
-      new Set(prices.map((p) => Number(p.provider_id)).filter(Boolean))
+      new Set([
+        ...safePrices.map((p) => Number(p.provider_id)).filter(Boolean),
+        ...selectedProviderIds,
+      ])
     );
     if (providerIdsIncoming.length === 0) {
-      return res.status(400).json({ message: "provider_id inválido" });
+      return res.status(400).json({ message: "No hay proveedores seleccionados para guardar" });
     }
 
     // Compatibilidad sin "invitación por correo":
@@ -1466,12 +2128,7 @@ export const saveCotizacionPrices = async (req, res) => {
     );
     const invitedSet = new Set(invRows.map((r) => Number(r.provider_id)));
 
-    const filtered = prices.filter((p) => invitedSet.has(Number(p.provider_id)));
-    if (filtered.length === 0) {
-      return res
-        .status(400)
-        .json({ message: "Ningún proveedor está invitado para guardar datos" });
-    }
+    const filtered = safePrices.filter((p) => invitedSet.has(Number(p.provider_id)));
 
     const insertQueries = filtered.map((p) => {
       const line_item_id = Number(p.line_item_id);
@@ -1569,7 +2226,11 @@ export const saveCotizacionPrices = async (req, res) => {
       );
     }
 
-    res.json({ message: "Datos guardados correctamente", respondedProviderIds });
+    res.json({
+      message: "Datos guardados correctamente",
+      respondedProviderIds,
+      selectedProviderIds: providerIdsIncoming,
+    });
   } catch (error) {
     console.error("Error guardando precios:", error);
     res.status(500).json({ message: "Error al guardar datos" });
@@ -1683,6 +2344,243 @@ export const getProvidersAdmin = async (req, res) => {
   } catch (error) {
     console.error("Error getProvidersAdmin:", error);
     res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const exportProvidersBasicExcel = async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    const status = String(req.query.status || "all");
+    const like = `%${q}%`;
+
+    const where = ["1=1"];
+    const params = [];
+    if (q) {
+      where.push("(p.name LIKE ? OR p.razon_social LIKE ? OR p.email LIKE ? OR p.rfc LIKE ?)");
+      params.push(like, like, like, like);
+    }
+    if (status !== "all") {
+      where.push("p.statuses_id = ?");
+      params.push(Number(status));
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT p.id, p.name, p.razon_social, p.rfc, p.email, p.statuses_id
+      FROM provider p
+      WHERE ${where.join(" AND ")}
+      ORDER BY p.name ASC
+      LIMIT 10000
+      `,
+      params
+    );
+
+    let XLSX;
+    try {
+      const xlsxModule = await import("xlsx");
+      XLSX = xlsxModule.default || xlsxModule;
+    } catch {
+      return res.status(500).json({
+        message: "Falta dependencia para exportar Excel. Ejecuta npm install en backend.",
+      });
+    }
+
+    const statusLabel = (id) => {
+      const n = Number(id);
+      if (n === 3) return "Activo";
+      if (n === 4) return "Inactivo";
+      if (n === 5) return "Verificado";
+      if (n === 6) return "No verificado";
+      return String(id || "");
+    };
+
+    const data = rows.map((r, idx) => ({
+      "#": idx + 1,
+      Nombre: r.name || "",
+      "Razon social": r.razon_social || "",
+      RFC: r.rfc || "",
+      Email: r.email || "",
+      Estatus: statusLabel(r.statuses_id),
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws["!cols"] = [
+      { wch: 6 },
+      { wch: 34 },
+      { wch: 34 },
+      { wch: 18 },
+      { wch: 34 },
+      { wch: 16 },
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Proveedores");
+
+    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    const filename = "proveedores_basicos.xlsx";
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    return res.send(buffer);
+  } catch (error) {
+    console.error("Error exportProvidersBasicExcel:", error);
+    return res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const importProvidersFromExcel = async (req, res) => {
+  try {
+    const role = req.user?.role || "";
+    if (role === "compras_lector") {
+      return res.status(403).json({ message: "Acceso de solo lectura" });
+    }
+
+    if (!req.file?.buffer) {
+      return res.status(400).json({ message: "Debes subir un archivo Excel (.xlsx/.xls/.csv)" });
+    }
+
+    let XLSX;
+    try {
+      const xlsxModule = await import("xlsx");
+      XLSX = xlsxModule.default || xlsxModule;
+    } catch {
+      return res.status(500).json({
+        message: "Falta dependencia para importar Excel. Ejecuta npm install en backend.",
+      });
+    }
+
+    const workbook = XLSX.read(req.file.buffer, { type: "buffer", raw: false });
+    const firstSheetName = workbook.SheetNames?.[0];
+    if (!firstSheetName) {
+      return res.status(400).json({ message: "El archivo no contiene hojas" });
+    }
+
+    const sheet = workbook.Sheets[firstSheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, {
+      defval: "",
+      raw: false,
+      blankrows: false,
+    });
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ message: "El archivo está vacío" });
+    }
+
+    if (rows.length > 5000) {
+      return res.status(400).json({ message: "Máximo 5000 filas por importación" });
+    }
+
+    const parsedRows = [];
+    const rowErrors = [];
+    const seenRfcs = new Set();
+
+    rows.forEach((row, idx) => {
+      const normalized = {};
+      Object.entries(row || {}).forEach(([key, value]) => {
+        normalized[normalizeHeader(key)] = value;
+      });
+
+      const rowNumber = idx + 2;
+      const nameRaw =
+        normalized.nombre ||
+        normalized.name ||
+        normalized.proveedor ||
+        normalized.nombrecomercial ||
+        "";
+      const razonRaw =
+        normalized.razonsocial ||
+        normalized.razonsoc ||
+        normalized.razonsocialfiscal ||
+        "";
+      const rfcRaw = normalized.rfc || "";
+
+      const name = String(nameRaw || "").trim();
+      const razonSocial = String(razonRaw || "").trim();
+      const rfc = String(rfcRaw || "").trim().toUpperCase();
+      const finalName = name || razonSocial;
+
+      if (!finalName && !rfc) return;
+
+      if (!finalName) {
+        rowErrors.push({ row: rowNumber, reason: "Nombre requerido" });
+        return;
+      }
+      if (!rfc) {
+        rowErrors.push({ row: rowNumber, reason: "RFC requerido" });
+        return;
+      }
+      if (!RFC_REGEX.test(rfc)) {
+        rowErrors.push({ row: rowNumber, reason: `RFC inválido (${rfc})` });
+        return;
+      }
+      if (seenRfcs.has(rfc)) {
+        rowErrors.push({ row: rowNumber, reason: `RFC repetido en archivo (${rfc})` });
+        return;
+      }
+      seenRfcs.add(rfc);
+      parsedRows.push({
+        row: rowNumber,
+        name: finalName,
+        razon_social: razonSocial || null,
+        rfc,
+      });
+    });
+
+    if (!parsedRows.length) {
+      return res.status(400).json({
+        message: "No se encontraron filas válidas para importar",
+        errors: rowErrors.slice(0, 50),
+      });
+    }
+
+    const incomingRfcs = parsedRows.map((r) => r.rfc);
+    const [existingRows] = await pool.query(
+      `SELECT UPPER(TRIM(rfc)) AS rfc FROM provider WHERE rfc IN (${incomingRfcs.map(() => "?").join(",")})`,
+      incomingRfcs
+    );
+    const existingSet = new Set(existingRows.map((r) => String(r.rfc || "").toUpperCase()));
+
+    let created = 0;
+    let skipped = 0;
+    const importErrors = [...rowErrors];
+
+    for (const entry of parsedRows) {
+      if (existingSet.has(entry.rfc)) {
+        skipped += 1;
+        importErrors.push({ row: entry.row, reason: `RFC ya existe (${entry.rfc})` });
+        continue;
+      }
+      try {
+        await pool.query(
+          `
+          INSERT INTO provider (name, razon_social, email, rfc, statuses_id, address)
+          VALUES (?, ?, NULL, ?, 6, NULL)
+          `,
+          [entry.name, entry.razon_social, entry.rfc]
+        );
+        created += 1;
+      } catch (error) {
+        skipped += 1;
+        importErrors.push({
+          row: entry.row,
+          reason: error?.code === "ER_DUP_ENTRY" ? `RFC duplicado (${entry.rfc})` : "Error al insertar fila",
+        });
+      }
+    }
+
+    return res.json({
+      ok: true,
+      created,
+      skipped,
+      totalRows: rows.length,
+      errors: importErrors.slice(0, 200),
+      message: `Importación completada. Creados: ${created}. Omitidos: ${skipped}.`,
+    });
+  } catch (error) {
+    console.error("Error importProvidersFromExcel:", error);
+    return res.status(500).json({ message: "Error al importar proveedores" });
   }
 };
 
@@ -1991,6 +2889,24 @@ export const closeCotizacionInvites = async (req, res) => {
       });
     }
 
+    const [[capturedProvidersRow]] = await conn.query(
+      `
+      SELECT COUNT(DISTINCT provider_id) AS total_captured_providers
+      FROM quotation_prices
+      WHERE requisition_id = ?
+        AND unit_price IS NOT NULL
+      `,
+      [id]
+    );
+    const totalCapturedProviders = Number(capturedProvidersRow?.total_captured_providers || 0);
+    if (totalCapturedProviders < 3) {
+      await conn.rollback();
+      return res.status(400).json({
+        message: "Debes capturar cotización de al menos 3 proveedores antes de cerrar recepción",
+        total_captured_providers: totalCapturedProviders,
+      });
+    }
+
     const [result] = await conn.query(
       `
       UPDATE quotation_requests
@@ -2034,6 +2950,10 @@ export const sendCotizacionToReview = async (req, res) => {
   const conn = await pool.getConnection();
   try {
     const { id } = req.params;
+    const role = req.user?.role || "";
+    if (!["compras_admin", "compras_operador"].includes(role)) {
+      return res.status(403).json({ message: "Solo compras admin u operador puede enviar a revisión interna" });
+    }
     const ok = await ensureAssignedOrAdmin(req, res, id);
     if (!ok) return;
 
@@ -2085,14 +3005,53 @@ export const sendCotizacionToReview = async (req, res) => {
       });
     }
 
-    const [hasPricesRows] = await conn.query(
-      `SELECT 1 FROM quotation_prices WHERE requisition_id = ? LIMIT 1`,
+    const [[capturedProvidersRow]] = await conn.query(
+      `
+      SELECT COUNT(DISTINCT provider_id) AS total_captured_providers
+      FROM quotation_prices
+      WHERE requisition_id = ?
+        AND unit_price IS NOT NULL
+      `,
       [id]
     );
-    if (hasPricesRows.length === 0) {
+    const totalCapturedProviders = Number(capturedProvidersRow?.total_captured_providers || 0);
+    if (totalCapturedProviders < 3) {
       await conn.rollback();
       return res.status(400).json({
-        message: "Primero guarda al menos una cotización antes de enviar a revisión",
+        message: "Debes tener cotización capturada de al menos 3 proveedores para enviar a revisión",
+        total_captured_providers: totalCapturedProviders,
+      });
+    }
+
+    const [[totalItemsRow]] = await conn.query(
+      `SELECT COUNT(*) AS total_items FROM line_items WHERE requisition_id = ?`,
+      [id]
+    );
+    const totalItems = Number(totalItemsRow?.total_items || 0);
+    if (totalItems <= 0) {
+      await conn.rollback();
+      return res.status(400).json({
+        message: "La requisición no tiene partidas",
+      });
+    }
+
+    const [[quotedItemsRow]] = await conn.query(
+      `
+      SELECT COUNT(DISTINCT line_item_id) AS quoted_items
+      FROM quotation_prices
+      WHERE requisition_id = ?
+        AND unit_price IS NOT NULL
+      `,
+      [id]
+    );
+    const quotedItems = Number(quotedItemsRow?.quoted_items || 0);
+    if (quotedItems < totalItems) {
+      await conn.rollback();
+      return res.status(400).json({
+        message:
+          "Faltan partidas por cotizar. Debes capturar al menos una cotización por cada partida antes de enviar a revisión",
+        total_items: totalItems,
+        quoted_items: quotedItems,
       });
     }
 
@@ -2104,26 +3063,389 @@ export const sendCotizacionToReview = async (req, res) => {
       `,
       [id]
     );
+    await logRequisitionStatusChange(
+      {
+        requisitionId: id,
+        fromStatusId: st,
+        toStatusId: 14,
+        changedBy: Number(req.user?.id || 0) || null,
+        note: "Enviado a revisión interna de compras",
+      },
+      conn
+    );
 
-    const ownerId = Number(reqRow.users_id || 0);
     const actorId = Number(req.user?.id || 0) || null;
+    const adminIds = (await getComprasAdminIds(conn)).filter((uid) => uid !== actorId);
     await conn.commit();
-    if (ownerId > 0) {
+    for (const adminId of adminIds) {
       await createNotification({
-        recipientUserId: ownerId,
+        recipientUserId: adminId,
         actorUserId: actorId,
-        title: "Cotización lista para revisión",
-        message: `La requisición #${id} está lista para que selecciones proveedor por partida.`,
+        title: "Revisión interna de cotización",
+        message: `La requisición #${id} está lista para revisión interna y selección final.`,
         entityType: "requisition",
         entityId: Number(id),
-        actionPath: `/unidad/revision/${id}`,
+        actionPath: `/compras/revision/${id}`,
       });
     }
-    res.json({ message: "Enviado a revisión", requisition_statuses_id: 14 });
+    res.json({ message: "Enviado a revisión interna de Compras", requisition_statuses_id: 14 });
   } catch (error) {
     await conn.rollback();
     console.error("Error enviando a revisión:", error);
     res.status(500).json({ message: "Error interno del servidor" });
+  } finally {
+    conn.release();
+  }
+};
+
+export const getComprasReviewData = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (req.user?.role !== "compras_admin") {
+      return res.status(403).json({ message: "Solo compras admin puede revisar y seleccionar" });
+    }
+    const ok = await ensureAssignedOrAdmin(req, res, id);
+    if (!ok) return;
+
+    const [reqRows] = await pool.query(
+      `
+      SELECT 
+        r.id,
+        r.request_name,
+        r.users_id,
+        r.statuses_id,
+        r.quotation_closed_at,
+        c.id as category_id,
+        c.name as category_name
+      FROM requisition r
+      LEFT JOIN categories c ON r.categories_id = c.id
+      WHERE r.id = ?
+      `,
+      [id]
+    );
+
+    if (reqRows.length === 0) {
+      return res.status(404).json({ message: "Requisición no encontrada" });
+    }
+
+    const requisition = reqRows[0];
+    if (Number(requisition.statuses_id) !== 14) {
+      return res.status(400).json({
+        message: "La requisición no está en revisión interna de compras",
+        current_status: requisition.statuses_id,
+      });
+    }
+
+    const [items] = await pool.query(
+      `
+      SELECT 
+        li.id,
+        li.quantity,
+        li.description,
+        un.name AS unidad_medida
+      FROM line_items li
+      LEFT JOIN units un ON li.units_id = un.id
+      WHERE li.requisition_id = ?
+      ORDER BY li.id ASC
+      `,
+      [id]
+    );
+
+    const [invitedProviders] = await pool.query(
+      `
+      SELECT 
+        p.id, p.name, p.email, p.rfc,
+        qr.status, qr.invited_at, qr.responded_at, qr.deadline_at
+      FROM quotation_requests qr
+      INNER JOIN provider p ON p.id = qr.provider_id
+      WHERE qr.requisition_id = ?
+      ORDER BY 
+        FIELD(qr.status, 'responded', 'invited', 'expired', 'declined') ASC,
+        qr.invited_at DESC
+      `,
+      [id]
+    );
+
+    const [savedPrices] = await pool.query(
+      `
+      SELECT 
+        line_item_id,
+        provider_id,
+        unit_price,
+        offered_description,
+        notes,
+        is_winner
+      FROM quotation_prices
+      WHERE requisition_id = ?
+      `,
+      [id]
+    );
+
+    const [selections] = await pool.query(
+      `
+      SELECT line_item_id, provider_id, selected_unit_price, selected_description
+      FROM quotation_selections
+      WHERE requisition_id = ?
+      `,
+      [id]
+    );
+
+    return res.json({
+      requisition,
+      items,
+      invitedProviders,
+      savedPrices,
+      selections,
+      canEdit: true,
+    });
+  } catch (error) {
+    console.error("Error getComprasReviewData:", error);
+    return res.status(500).json({ message: "Error interno del servidor" });
+  }
+};
+
+export const getComprasRequisitionTimeline = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ok = await ensureAssignedOrAdmin(req, res, id);
+    if (!ok) return;
+
+    const [[reqRow]] = await pool.query(
+      `
+      SELECT id, created_at, sent_on, quotation_closed_at, statuses_id
+      FROM requisition
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [id]
+    );
+    if (!reqRow) {
+      return res.status(404).json({ message: "Requisición no encontrada" });
+    }
+
+    const statusTimeline = await getRequisitionStatusTimeline(id);
+    return res.json({
+      requisition: reqRow,
+      statusTimeline,
+    });
+  } catch (error) {
+    console.error("Error getComprasRequisitionTimeline:", error);
+    return res.status(500).json({ message: "Error interno del servidor" });
+  }
+};
+
+export const submitComprasReviewSelection = async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const { id } = req.params;
+    const { selections } = req.body || {};
+    if (req.user?.role !== "compras_admin") {
+      return res.status(403).json({ message: "Solo compras admin puede seleccionar proveedores" });
+    }
+    const ok = await ensureAssignedOrAdmin(req, res, id);
+    if (!ok) return;
+
+    if (!Array.isArray(selections) || selections.length === 0) {
+      return res.status(400).json({ message: "selections es requerido" });
+    }
+
+    await conn.beginTransaction();
+    const withSelectionTaxCols = await hasSelectionTaxColumns(conn);
+
+    const [reqRows] = await conn.query(
+      `SELECT id, statuses_id, assigned_operator_id FROM requisition WHERE id = ? FOR UPDATE`,
+      [id]
+    );
+    if (reqRows.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ message: "Requisición no encontrada" });
+    }
+
+    if (Number(reqRows[0].statuses_id) !== 14) {
+      await conn.rollback();
+      return res.status(400).json({
+        message: "La requisición no está en revisión interna de compras",
+        current_status: reqRows[0].statuses_id,
+      });
+    }
+
+    const [validItems] = await conn.query(
+      `SELECT id FROM line_items WHERE requisition_id = ?`,
+      [id]
+    );
+    const validItemSet = new Set(validItems.map((x) => Number(x.id)));
+    if (validItemSet.size === 0) {
+      await conn.rollback();
+      return res.status(400).json({ message: "La requisición no tiene partidas" });
+    }
+
+    const [validProviders] = await conn.query(
+      `SELECT DISTINCT provider_id FROM quotation_requests WHERE requisition_id = ?`,
+      [id]
+    );
+    const validProviderSet = new Set(validProviders.map((x) => Number(x.provider_id)));
+    if (validProviderSet.size === 0) {
+      await conn.rollback();
+      return res.status(400).json({ message: "No hay proveedores invitados a esta requisición" });
+    }
+
+    for (const s of selections) {
+      const line_item_id = Number(s.line_item_id);
+      const provider_id = Number(s.provider_id);
+
+      if (!line_item_id || !provider_id) {
+        await conn.rollback();
+        return res.status(400).json({ message: "line_item_id y provider_id son requeridos" });
+      }
+      if (!validItemSet.has(line_item_id)) {
+        await conn.rollback();
+        return res.status(400).json({ message: `Partida inválida: ${line_item_id}` });
+      }
+      if (!validProviderSet.has(provider_id)) {
+        await conn.rollback();
+        return res.status(400).json({ message: `Proveedor inválido/no invitado: ${provider_id}` });
+      }
+
+      const [priceRows] = await conn.query(
+        `
+        SELECT unit_price, offered_description, notes
+        FROM quotation_prices
+        WHERE requisition_id = ? AND line_item_id = ? AND provider_id = ?
+        LIMIT 1
+        `,
+        [id, line_item_id, provider_id]
+      );
+      if (priceRows.length === 0) {
+        await conn.rollback();
+        return res.status(400).json({
+          message: `No existe cotización para partida ${line_item_id} con proveedor ${provider_id}`,
+        });
+      }
+      const selectedSource = priceRows[0];
+      const { vatPct, isrPct } = parseSelectionTaxesFromNotes(selectedSource.notes);
+
+      const selected_unit_price =
+        selectedSource.unit_price === "" || selectedSource.unit_price == null
+          ? null
+          : Number(selectedSource.unit_price);
+      const selected_description = (selectedSource.offered_description ?? "").toString();
+
+      if (withSelectionTaxCols) {
+        await conn.query(
+          `
+          INSERT INTO quotation_selections
+            (
+              requisition_id,
+              line_item_id,
+              provider_id,
+              selected_unit_price,
+              selected_description,
+              selected_vat_percentage,
+              selected_isr_percentage,
+              created_at,
+              updated_at
+            )
+          VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+          ON DUPLICATE KEY UPDATE
+            provider_id = VALUES(provider_id),
+            selected_unit_price = VALUES(selected_unit_price),
+            selected_description = VALUES(selected_description),
+            selected_vat_percentage = VALUES(selected_vat_percentage),
+            selected_isr_percentage = VALUES(selected_isr_percentage),
+            updated_at = NOW()
+          `,
+          [
+            id,
+            line_item_id,
+            provider_id,
+            selected_unit_price,
+            selected_description,
+            vatPct,
+            isrPct,
+          ]
+        );
+      } else {
+        await conn.query(
+          `
+          INSERT INTO quotation_selections
+            (requisition_id, line_item_id, provider_id, selected_unit_price, selected_description, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+          ON DUPLICATE KEY UPDATE
+            provider_id = VALUES(provider_id),
+            selected_unit_price = VALUES(selected_unit_price),
+            selected_description = VALUES(selected_description),
+            updated_at = NOW()
+          `,
+          [id, line_item_id, provider_id, selected_unit_price, selected_description]
+        );
+      }
+    }
+
+    const [[tot]] = await conn.query(
+      `SELECT COUNT(*) AS total FROM line_items WHERE requisition_id = ?`,
+      [id]
+    );
+    const [[sel]] = await conn.query(
+      `
+      SELECT COUNT(DISTINCT line_item_id) AS selected
+      FROM quotation_selections
+      WHERE requisition_id = ?
+      `,
+      [id]
+    );
+
+    const total = Number(tot.total || 0);
+    const selected = Number(sel.selected || 0);
+    const missing = Math.max(0, total - selected);
+    let sent_to_purchase = false;
+
+    if (total > 0 && selected === total) {
+      await conn.query(`UPDATE requisition SET statuses_id = 13 WHERE id = ?`, [id]);
+      await logRequisitionStatusChange(
+        {
+          requisitionId: id,
+          fromStatusId: 14,
+          toStatusId: 13,
+          changedBy: Number(req.user?.id || 0) || null,
+          note: "Selección final completa en cuadro comparativo",
+        },
+        conn
+      );
+      sent_to_purchase = true;
+    }
+
+    await conn.commit();
+
+    if (sent_to_purchase) {
+      const actorId = Number(req.user?.id || 0) || null;
+      const operatorId = Number(reqRows[0].assigned_operator_id || 0);
+      if (operatorId > 0) {
+        await createNotification({
+          recipientUserId: operatorId,
+          actorUserId: actorId,
+          title: "Selección aprobada por Compras Admin",
+          message: `La requisición #${id} ya tiene selección completa y pasó a proceso de compra.`,
+          entityType: "requisition",
+          entityId: Number(id),
+          actionPath: "/compras/dashboard",
+        });
+      }
+    }
+
+    return res.json({
+      ok: true,
+      sent_to_purchase,
+      total,
+      selected,
+      missing,
+      message: sent_to_purchase
+        ? "Selección completa. Enviada a proceso de compra."
+        : `Selección guardada. Faltan ${missing} partida(s) por seleccionar.`,
+    });
+  } catch (error) {
+    await conn.rollback();
+    console.error("Error submitComprasReviewSelection:", error);
+    return res.status(500).json({ message: "Error interno del servidor" });
   } finally {
     conn.release();
   }
