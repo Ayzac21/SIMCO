@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom"; // <--- 1. IMPORTAR ESTO
-import { X, User, FileText, CheckCircle, XCircle, ShoppingBag, Building2, MapPin, Download } from "lucide-react";
+import { X, User, FileText, CheckCircle, XCircle, ShoppingBag, Building2, MapPin, Download, Paperclip } from "lucide-react";
 import { toast } from 'sonner';
 import ConfirmModal from "../../../components/ConfirmModal";
 import RequisitionTimelineModal from "../../../components/RequisitionTimelineModal";
@@ -40,6 +40,8 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
     const [providers, setProviders] = useState([]);
     const [loadingProviders, setLoadingProviders] = useState(false);
     const [timelineOpen, setTimelineOpen] = useState(false);
+    const [attachments, setAttachments] = useState([]);
+    const [loadingAttachments, setLoadingAttachments] = useState(false);
 
     useEscapeKey(Boolean(req), () => {
         if (assignOpen) {
@@ -85,6 +87,27 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
             setProviders([]);
         }
     }, [req]);
+
+    useEffect(() => {
+        if (!req?.id) {
+            setAttachments([]);
+            return;
+        }
+        setLoadingAttachments(true);
+        fetch(`${API_ASSIGN}/${req.id}/attachments`, {
+            headers: getAuthHeaders(),
+        })
+            .then((res) => {
+                if (!res.ok) throw new Error();
+                return res.json();
+            })
+            .then((data) => setAttachments(Array.isArray(data) ? data : []))
+            .catch(() => {
+                setAttachments([]);
+                toast.error("No se pudieron cargar adjuntos");
+            })
+            .finally(() => setLoadingAttachments(false));
+    }, [req?.id]);
 
     if (!req) return null;
 
@@ -187,6 +210,37 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
             toast.error(e?.message || "No se pudo generar el PDF");
         } finally {
             setDownloading(false);
+        }
+    };
+
+    const downloadAttachment = async (attachment) => {
+        try {
+            const resp = await fetch(
+                `${API_ASSIGN}/${req.id}/attachments/${attachment.id}/download`,
+                { headers: getAuthHeaders() }
+            );
+            if (!resp.ok) throw new Error("No se pudo descargar el adjunto");
+            const blob = await resp.blob();
+            const disposition = String(resp.headers.get("content-disposition") || "");
+            const match = disposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+            const rawFilename = (match?.[1] || attachment.original_name || "adjunto").replace(/"/g, "");
+            let filename = rawFilename;
+            try {
+                filename = decodeURIComponent(rawFilename);
+            } catch {
+                filename = rawFilename;
+            }
+
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (e) {
+            toast.error(e?.message || "No se pudo descargar el adjunto");
         }
     };
 
@@ -390,6 +444,38 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                                     )}
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 className="font-bold text-gray-800 mb-2 flex items-center gap-2 text-sm">
+                            <Paperclip size={16} className="text-[#8B1D35]" /> Adjuntos
+                        </h3>
+                        <div className="border border-gray-200 rounded-lg bg-white divide-y divide-gray-100">
+                            {loadingAttachments ? (
+                                <div className="p-4 text-xs text-gray-500">Cargando adjuntos...</div>
+                            ) : attachments.length === 0 ? (
+                                <div className="p-4 text-xs text-gray-400">Sin adjuntos.</div>
+                            ) : (
+                                attachments.map((att) => (
+                                    <div key={att.id} className="p-3 flex items-center justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <p className="text-xs font-semibold text-gray-700 truncate">{att.original_name}</p>
+                                            <p className="text-[11px] text-gray-400">
+                                                {att.mime_type || "archivo"} · {Math.max(1, Math.round((Number(att.size_bytes || 0) / 1024) * 10) / 10)} KB
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => downloadAttachment(att)}
+                                            className="px-3 py-1.5 rounded-md border border-[#8B1D35]/30 text-[#8B1D35] text-[11px] font-bold hover:bg-[#8B1D35]/10 flex items-center gap-1.5"
+                                        >
+                                            <Download size={12} />
+                                            Descargar
+                                        </button>
+                                    </div>
+                                ))
+                            )}
                         </div>
                     </div>
 

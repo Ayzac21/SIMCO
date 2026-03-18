@@ -1042,8 +1042,8 @@ router.get("/:id/pdf-firma", async (req, res) => {
       : "—";
     const pageWidth = doc.page.width;
     const pageHeight = doc.page.height;
-    const headerX = doc.page.margins.left;
-    const headerW = pageWidth - doc.page.margins.left - doc.page.margins.right;
+    const headerX = 0;
+    const headerW = pageWidth;
     const contentX = requisitionPrintLayout.bodyMargins.left;
     const contentW = pageWidth - requisitionPrintLayout.bodyMargins.left - requisitionPrintLayout.bodyMargins.right;
     const headerFill = "#002060";
@@ -1066,8 +1066,8 @@ router.get("/:id/pdf-firma", async (req, res) => {
         .fontSize(requisitionPrintLayout.header.titleFontSize)
         .fillColor(text)
         .font(fontBold)
-        .text("REQUISICION DE ARTICULOS Y/O SERVICIOS", headerX, mainTitleY, {
-          width: headerW - 120,
+        .text("REQUISICION DE ARTICULOS Y/O SERVICIOS", headerX + 6, mainTitleY, {
+          width: headerW - (requisitionPrintLayout.header.logoWidth + 18),
           align: "center",
         });
 
@@ -1278,18 +1278,25 @@ router.get("/:id/pdf-firma", async (req, res) => {
     });
     y += 42;
 
+    const dependenciaSolicitanteFirma =
+      safe(reqRow.dependencia_solicitante) || "Unidad Solicitante";
+    const coordinacionFirma =
+      safe(reqRow.coordinacion_dependencia) || "Área Ejecutora";
+    const secretariaFirma =
+      safe(reqRow.secretaria_dependencia) || "Secretaría Administrativa";
+
     const signatures = [
       {
         name: safe(reqRow.solicitante) || "Solicitante",
-        role: "Jefe de Unidad",
+        role: `Jefe de Unidad (${dependenciaSolicitanteFirma})`,
       },
       {
-        name: safe(reqRow.coordinador_firma) || "Coordinación",
-        role: "Coordinador",
+        name: safe(reqRow.coordinador_firma) || "Coordinador",
+        role: `Coordinador (${coordinacionFirma})`,
       },
       {
-        name: safe(reqRow.secretaria_firma) || "Secretaría Académica",
-        role: "Secretaría",
+        name: safe(reqRow.secretaria_firma) || "Secretario Académico",
+        role: "Secretario Académico",
       },
     ];
     const fixedSignatures = [

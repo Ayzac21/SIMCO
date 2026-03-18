@@ -70,6 +70,9 @@ export default function ComprasLayout() {
         return headers[match] || headers["/compras/dashboard"] || { title: "Panel Compras", subtitle: "Sistema SIMCO" };
     }, [headers, pathname]);
 
+    const isWideContentRoute = pathname.startsWith("/compras/cotizar/");
+    const contentMaxWidthClass = isWideContentRoute ? "max-w-[2000px]" : "max-w-7xl";
+
     // --- Cerrar sidebar al cambiar de ruta (mejor UX móvil) ---
     useEffect(() => {
         setOpen(false);
@@ -215,7 +218,7 @@ export default function ComprasLayout() {
 
             {/* Outlet */}
             <div className="flex-1 overflow-y-auto px-4 md:px-10 py-6 bg-gray-100">
-                <div className="max-w-7xl mx-auto animate-in fade-in duration-500">
+                <div className={`${contentMaxWidthClass} mx-auto animate-in fade-in duration-500`}>
                     <Outlet />
                 </div>
             </div>

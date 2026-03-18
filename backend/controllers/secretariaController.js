@@ -251,6 +251,15 @@ export const updateEstatusSecretaria = async (req, res) => {
                 entityId: Number(id),
                 actionPath: `/compras/dashboard`,
             });
+            const coordinatorIds = await getCoordinatorUsersForRequisition(id);
+            await createNotificationsForUsers(coordinatorIds, {
+                actorUserId: actorId,
+                title: "Secretaría autorizó requisición",
+                message: `La requisición #${id} fue validada en Secretaría y enviada a Compras.`,
+                entityType: "requisition",
+                entityId: Number(id),
+                actionPath: `/coordinador/dashboard`,
+            });
             if (ownerId) {
                 await createNotification({
                     recipientUserId: ownerId,

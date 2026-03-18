@@ -374,7 +374,7 @@ export default function Recibidas() {
             }
             const blob = await res.blob();
             const disposition = String(res.headers.get("content-disposition") || "");
-            const match = disposition.match(/filename\*?=(?:UTF-8''|")?([^\";]+)/i);
+            const match = disposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
             const rawFilename = (match?.[1] || `requisicion-${reqId}-firma.pdf`).replace(/"/g, "");
             let filename = rawFilename;
             try {

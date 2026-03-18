@@ -2,7 +2,9 @@ import { Router } from "express";
 import multer from "multer";
 import {
     getComprasDashboard,
+    getComprasRequisitionAttachments,
     getRequisitionItems,
+    downloadComprasRequisitionAttachment,
     getCotizacionData,
     downloadCotizacionExcel,
     saveCotizacionPrices,
@@ -62,6 +64,11 @@ router.get("/operators", getComprasOperators);
 router.get("/historial", getComprasHistorial);
 router.get("/historial/report", getComprasHistorialReport);
 router.get("/requisiciones/:id/items", getRequisitionItems);
+router.get("/requisiciones/:id/attachments", getComprasRequisitionAttachments);
+router.get(
+    "/requisiciones/:id/attachments/:attachmentId/download",
+    downloadComprasRequisitionAttachment
+);
 router.get("/requisiciones/:id/seleccion", getCompraSeleccion);
 router.get("/requisiciones/:id/timeline", getComprasRequisitionTimeline);
 router.put("/requisiciones/:id/estatus", blockReader, updateEstatusCompras);

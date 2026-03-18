@@ -205,6 +205,17 @@ export const updateEstatusRequisicion = async (req, res) => {
                 actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
             });
         } else if (targetStatus === 9) {
+            if (ownerId) {
+                await createNotification({
+                    recipientUserId: ownerId,
+                    actorUserId: actorId,
+                    title: "Requisición autorizada por Coordinación",
+                    message: `La requisición #${id} fue aprobada y enviada a Secretaría para su revisión.`,
+                    entityType: "requisition",
+                    entityId: Number(id),
+                    actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+                });
+            }
             const secretariaIds = await getUsersByRole("secretaria");
             await createNotificationsForUsers(secretariaIds, {
                 actorUserId: actorId,

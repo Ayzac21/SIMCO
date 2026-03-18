@@ -18,6 +18,7 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const templatesDir = path.resolve(__dirname, "..", "templates");
+const requisitionUploadsDir = path.resolve(__dirname, "..", "uploads", "requisiciones");
 const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
 
 const normalizeHeader = (value) =>
@@ -85,6 +86,7 @@ const getComprasAdminIds = async (connOrPool = pool) => {
 };
 
 let selectionTaxColumnsAvailableCache = null;
+let ensureAttachmentsTablePromise = null;
 const hasSelectionTaxColumns = async (connOrPool = pool) => {
   if (selectionTaxColumnsAvailableCache !== null) return selectionTaxColumnsAvailableCache;
   try {
@@ -99,6 +101,30 @@ const hasSelectionTaxColumns = async (connOrPool = pool) => {
     selectionTaxColumnsAvailableCache = false;
   }
   return selectionTaxColumnsAvailableCache;
+};
+
+const ensureAttachmentsTable = async () => {
+  if (!ensureAttachmentsTablePromise) {
+    ensureAttachmentsTablePromise = pool.query(`
+      CREATE TABLE IF NOT EXISTS requisition_attachments (
+        id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        requisition_id INT NOT NULL,
+        original_name VARCHAR(255) NOT NULL,
+        stored_name VARCHAR(255) NOT NULL,
+        mime_type VARCHAR(120) NOT NULL,
+        size_bytes INT NOT NULL,
+        file_path VARCHAR(500) NOT NULL,
+        uploaded_by INT NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_req_att_req (requisition_id),
+        CONSTRAINT fk_req_att_req FOREIGN KEY (requisition_id) REFERENCES requisition(id) ON DELETE CASCADE
+      )
+    `).catch((error) => {
+      ensureAttachmentsTablePromise = null;
+      throw error;
+    });
+  }
+  await ensureAttachmentsTablePromise;
 };
 
 /* =============================
@@ -916,6 +942,70 @@ export const getComprasHistorialReport = async (req, res) => {
   } catch (error) {
     console.error("Error generando reporte PDF:", error);
     res.status(500).json({ message: "Error al generar reporte" });
+  }
+};
+
+/* =============================
+   ADJUNTOS DE REQUISICIÓN (COMPRAS)
+============================= */
+export const getComprasRequisitionAttachments = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ok = await ensureAssignedOrAdmin(req, res, id);
+    if (!ok) return;
+    await ensureAttachmentsTable();
+
+    const [rows] = await pool.query(
+      `
+      SELECT id, original_name, mime_type, size_bytes, created_at
+      FROM requisition_attachments
+      WHERE requisition_id = ?
+      ORDER BY created_at DESC, id DESC
+      `,
+      [id]
+    );
+    return res.json(rows);
+  } catch (error) {
+    console.error("Error obteniendo adjuntos:", error);
+    return res.status(500).json({ message: "Error obteniendo adjuntos" });
+  }
+};
+
+export const downloadComprasRequisitionAttachment = async (req, res) => {
+  try {
+    const { id, attachmentId } = req.params;
+    const ok = await ensureAssignedOrAdmin(req, res, id);
+    if (!ok) return;
+    await ensureAttachmentsTable();
+
+    const [[row]] = await pool.query(
+      `
+      SELECT id, original_name, mime_type, file_path
+      FROM requisition_attachments
+      WHERE id = ? AND requisition_id = ?
+      LIMIT 1
+      `,
+      [attachmentId, id]
+    );
+
+    if (!row) {
+      return res.status(404).json({ message: "Adjunto no encontrado" });
+    }
+
+    const absPath = path.resolve(String(row.file_path || ""));
+    if (!absPath.startsWith(requisitionUploadsDir)) {
+      return res.status(404).json({ message: "Archivo no disponible" });
+    }
+
+    await fs.access(absPath);
+    res.setHeader("Content-Type", row.mime_type || "application/octet-stream");
+    return res.download(absPath, row.original_name || "adjunto");
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return res.status(404).json({ message: "Archivo no disponible" });
+    }
+    console.error("Error descargando adjunto:", error);
+    return res.status(500).json({ message: "Error descargando adjunto" });
   }
 };
 

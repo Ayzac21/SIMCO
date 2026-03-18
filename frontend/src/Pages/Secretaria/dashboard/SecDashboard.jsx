@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { 
     Clock, CheckCircle, XCircle, BarChart3, FileText,
-    Truck, ArrowRight, User, Briefcase, Loader2, AlertTriangle, Lightbulb 
+    Truck, ArrowRight, User, Briefcase, Loader2, AlertTriangle, Lightbulb, RefreshCw
 } from "lucide-react";
 import { toast } from 'sonner'; 
 import { useNavigate } from "react-router-dom"; 
@@ -14,6 +14,7 @@ export default function SecDashboard() {
     // --- ESTADO ---
     const [allReqs, setAllReqs] = useState([]); 
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [selectedReq, setSelectedReq] = useState(null);
     const [modalItems, setModalItems] = useState([]);
     const [loadingItems, setLoadingItems] = useState(false);
@@ -29,31 +30,47 @@ export default function SecDashboard() {
 
     const navigate = useNavigate(); 
     const userId = localStorage.getItem("users_id");
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
     // --- CARGAR DATOS ---
+    const fetchData = async ({ showRefresh = false } = {}) => {
+        if (!userId) {
+            if (!showRefresh) setLoading(false);
+            return;
+        }
+        const t0 = Date.now();
+        if (showRefresh) setRefreshing(true);
+        else setLoading(true);
+        try {
+            const params = new URLSearchParams({
+                page: "1",
+                limit: "50",
+                q: "",
+                status: "todos",
+            });
+            const res = await fetch(`${API_BASE_URL}/secretaria/${userId}/recibidas?${params.toString()}`, {
+                headers: getAuthHeaders(),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setAllReqs(Array.isArray(data?.rows) ? data.rows : []);
+            } else {
+                setAllReqs([]);
+            }
+        } catch {
+            setAllReqs([]);
+        } finally {
+            const elapsed = Date.now() - t0;
+            const minMs = showRefresh ? 1000 : 500;
+            if (elapsed < minMs) await sleep(minMs - elapsed);
+            if (showRefresh) setRefreshing(false);
+            else setLoading(false);
+        }
+    };
+
     useEffect(() => {
-        let isMounted = true;
-        const fetchData = async () => {
-            if (!userId) { if (isMounted) setLoading(false); return; }
-            try {
-                const params = new URLSearchParams({
-                    page: "1",
-                    limit: "50",
-                    q: "",
-                    status: "todos",
-                });
-                const res = await fetch(`${API_BASE_URL}/secretaria/${userId}/recibidas?${params.toString()}`, {
-                    headers: getAuthHeaders(),
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (isMounted) setAllReqs(Array.isArray(data?.rows) ? data.rows : []);
-                } else { if (isMounted) setAllReqs([]); }
-            } catch { if (isMounted) setAllReqs([]); } 
-            finally { if (isMounted) setLoading(false); }
-        };
-        fetchData();
-        return () => { isMounted = false; };
+        fetchData({ showRefresh: false });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId]);
 
     // --- CÁLCULOS ---
@@ -106,7 +123,7 @@ export default function SecDashboard() {
 
         const needsComment = type === 'reject' || type === 'adjust';
         if (needsComment && !motivo.trim()) {
-            toast.error(type === 'adjust' ? "Debes escribir qué debe ajustar." : "Debes escribir un motivo para rechazar.");
+            toast.error(type === 'adjust' ? "Debes escribir qué debe revisar Coordinación." : "Debes escribir un motivo para rechazar.");
             return;
         }
 
@@ -128,23 +145,11 @@ export default function SecDashboard() {
             });
             if (res.ok) {
                 toast.success(
-                    type === 'approve' ? "¡Autorizado!" : type === 'adjust' ? "Enviada a Coordinación para ajustes" : "Rechazada",
+                    type === 'approve' ? "¡Autorizado!" : type === 'adjust' ? "Reenviada a Coordinación para revisión" : "Rechazada",
                     { id: toastId }
                 );
                 setSelectedReq(null);
-                const refreshParams = new URLSearchParams({
-                    page: "1",
-                    limit: "50",
-                    q: "",
-                    status: "todos",
-                });
-                const refreshRes = await fetch(`${API_BASE_URL}/secretaria/${userId}/recibidas?${refreshParams.toString()}`, {
-                    headers: getAuthHeaders(),
-                });
-                if (refreshRes.ok) {
-                    const data = await refreshRes.json();
-                    setAllReqs(Array.isArray(data?.rows) ? data.rows : []);
-                }
+                await fetchData({ showRefresh: false });
             } else { throw new Error(); }
         } catch { toast.error("Error al procesar", { id: toastId }); }
     };
@@ -165,6 +170,20 @@ export default function SecDashboard() {
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500 pb-10">
+            <div className="flex items-center justify-between gap-3">
+                <h1 className="text-lg md:text-xl font-extrabold text-gray-800">Dashboard de Secretaría</h1>
+                <button
+                    onClick={() => fetchData({ showRefresh: true })}
+                    disabled={refreshing || loading}
+                    className={`px-4 py-2 rounded-lg text-xs font-extrabold text-white bg-secundario inline-flex items-center gap-2 ${
+                        refreshing || loading ? "opacity-70 cursor-not-allowed" : "hover:bg-secundario/90"
+                    }`}
+                >
+                    <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+                    {refreshing ? "Actualizando..." : "Actualizar"}
+                </button>
+            </div>
+
             {/* 1. EL MODAL */}
             {selectedReq && (
                 <SecModal 
@@ -194,7 +213,7 @@ export default function SecDashboard() {
                             {confirmDialog.type === "approve"
                                 ? "¿Autorizar solicitud?"
                                 : confirmDialog.type === "adjust"
-                                ? "¿Solicitar ajustes?"
+                                ? "¿Reenviar a Coordinación?"
                                 : "¿Rechazar solicitud?"}
                         </h3>
 
@@ -212,7 +231,7 @@ export default function SecDashboard() {
                                     }`}
                                 >
                                     {confirmDialog.type === "adjust"
-                                        ? "Describe de forma clara qué debe corregir la URE."
+                                        ? "Describe qué debe revisar Coordinación. Si aplica, Coordinación la devolverá a URE para edición."
                                         : "Indica el motivo del rechazo de la requisición."}
                                 </p>
                                 <textarea
@@ -224,7 +243,7 @@ export default function SecDashboard() {
                                     rows="3"
                                     placeholder={
                                         confirmDialog.type === "adjust"
-                                            ? "Ejemplo: falta especificación técnica en la partida 2."
+                                            ? "Ejemplo: validar especificación técnica de la partida 2 antes de continuar."
                                             : "Escribe aquí por qué se rechaza..."
                                     }
                                     value={confirmDialog.motivo}
@@ -260,7 +279,7 @@ export default function SecDashboard() {
                                 {confirmDialog.type === "approve"
                                     ? "Confirmar"
                                     : confirmDialog.type === "adjust"
-                                    ? "Solicitar ajustes"
+                                    ? "Reenviar a Coordinación"
                                     : "Rechazar"}
                             </button>
                         </div>

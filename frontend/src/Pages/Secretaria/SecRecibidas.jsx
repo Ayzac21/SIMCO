@@ -142,7 +142,7 @@ export default function SecRecibidas() {
 
         const needsComment = type === 'reject' || type === 'adjust';
         if (needsComment && !motivo.trim()) {
-            toast.error(type === 'adjust' ? "Debes escribir qué debe ajustar." : "Debes escribir un motivo para rechazar.");
+            toast.error(type === 'adjust' ? "Debes escribir qué debe revisar Coordinación." : "Debes escribir un motivo para rechazar.");
             return;
         }
 
@@ -166,7 +166,7 @@ export default function SecRecibidas() {
 
             if (res.ok) {
                 toast.success(
-                    type === 'approve' ? "¡Autorizado!" : type === 'adjust' ? "Enviada a Coordinación para ajustes" : "Rechazada",
+                    type === 'approve' ? "¡Autorizado!" : type === 'adjust' ? "Reenviada a Coordinación para revisión" : "Rechazada",
                     { id: toastId }
                 );
                 setSelectedReq(null); // Cierra el modal grande
@@ -380,7 +380,7 @@ export default function SecRecibidas() {
                             {confirmDialog.type === "approve"
                                 ? "¿Autorizar solicitud?"
                                 : confirmDialog.type === "adjust"
-                                ? "¿Solicitar ajustes?"
+                                ? "¿Reenviar a Coordinación?"
                                 : "¿Rechazar solicitud?"}
                         </h3>
 
@@ -398,7 +398,7 @@ export default function SecRecibidas() {
                                     }`}
                                 >
                                     {confirmDialog.type === "adjust"
-                                        ? "Describe de forma clara qué debe corregir la URE."
+                                        ? "Describe qué debe revisar Coordinación. Si aplica, Coordinación la devolverá a URE para edición."
                                         : "Indica el motivo del rechazo de la requisición."}
                                 </p>
                                 <textarea
@@ -410,7 +410,7 @@ export default function SecRecibidas() {
                                     rows="3"
                                     placeholder={
                                         confirmDialog.type === "adjust"
-                                            ? "Ejemplo: falta especificación técnica en la partida 2."
+                                            ? "Ejemplo: validar especificación técnica de la partida 2 antes de continuar."
                                             : "Escribe aquí por qué se rechaza..."
                                     }
                                     value={confirmDialog.motivo}
@@ -445,7 +445,7 @@ export default function SecRecibidas() {
                                 {confirmDialog.type === "approve"
                                     ? "Confirmar"
                                     : confirmDialog.type === "adjust"
-                                    ? "Solicitar ajustes"
+                                    ? "Reenviar a Coordinación"
                                     : "Rechazar"}
                             </button>
                         </div>

@@ -7,6 +7,7 @@ import {
   Clock,
   AlertTriangle,
   TrendingUp,
+  RefreshCw,
 } from "lucide-react";
 import RequisitionModal from "../requisiciones/RequisitionModal";
 import ConfirmModal from "../../../components/ConfirmModal";
@@ -105,6 +106,7 @@ export default function CoorDashboard() {
   const coordinadorId = useMemo(() => getCoordinadorId(), []);
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [allReqs, setAllReqs] = useState([]);
 
   // Modal
@@ -114,11 +116,14 @@ export default function CoorDashboard() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState(null);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async ({ showRefresh = false } = {}) => {
     if (!coordinadorId) return;
 
+    const MIN_MS = 900;
+    const t0 = Date.now();
     try {
-      setLoading(true);
+      if (showRefresh) setRefreshing(true);
+      else setLoading(true);
 
       const res = await fetch(`${API}/coordinador/${coordinadorId}/recibidas`, {
         headers: getAuthHeaders(),
@@ -132,12 +137,17 @@ export default function CoorDashboard() {
       console.error(e);
       toast.error("No se pudo cargar el dashboard");
     } finally {
-      setLoading(false);
+      const elapsed = Date.now() - t0;
+      if (showRefresh && elapsed < MIN_MS) {
+        await sleep(MIN_MS - elapsed);
+      }
+      if (showRefresh) setRefreshing(false);
+      else setLoading(false);
     }
   }, [coordinadorId]);
 
   useEffect(() => {
-    fetchData();
+    fetchData({ showRefresh: false });
   }, [fetchData]);
 
   // ===== DERIVADOS =====
@@ -341,7 +351,7 @@ export default function CoorDashboard() {
 
       const blob = await res.blob();
       const disposition = String(res.headers.get("content-disposition") || "");
-      const match = disposition.match(/filename\*?=(?:UTF-8''|")?([^\";]+)/i);
+      const match = disposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
       const rawFilename = (match?.[1] || `requisicion-${reqId}-firma.pdf`).replace(/"/g, "");
       let filename = rawFilename;
       try {
@@ -452,6 +462,20 @@ export default function CoorDashboard() {
           setConfirmConfig(null);
         }}
       />
+
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-lg md:text-xl font-extrabold text-gray-800">Dashboard de Coordinación</h1>
+        <button
+          onClick={() => fetchData({ showRefresh: true })}
+          disabled={refreshing || loading}
+          className={`px-4 py-2 rounded-lg text-xs font-extrabold text-white bg-secundario inline-flex items-center gap-2 ${
+            refreshing || loading ? "opacity-70 cursor-not-allowed" : "hover:bg-secundario/90"
+          }`}
+        >
+          <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+          {refreshing ? "Actualizando..." : "Actualizar"}
+        </button>
+      </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">

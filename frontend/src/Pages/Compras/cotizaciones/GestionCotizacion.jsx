@@ -49,7 +49,22 @@ const parseTaxesFromNotes = (notes) => {
     }
 };
 
-const sanitizePriceInput = (value) => String(value || "").replace(/,/g, "").trim();
+const sanitizePriceInput = (value) => {
+    const cleaned = String(value || "")
+        .replace(/[$\s,]/g, "")
+        .replace(/[^\d.]/g, "");
+    const parts = cleaned.split(".");
+    if (parts.length <= 1) return cleaned;
+    return `${parts[0]}.${parts.slice(1).join("")}`;
+};
+
+const normalizePriceInput = (value) => {
+    const raw = sanitizePriceInput(value);
+    if (raw === "") return "";
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return "";
+    return n.toFixed(2);
+};
 
 const formatPriceInput = (value) => {
     const raw = sanitizePriceInput(value);
@@ -232,6 +247,15 @@ export default function GestionCotizacion() {
         if (clean !== "" && vatPercentages[key] === undefined) {
             setVatPercentages((prev) => ({ ...prev, [key]: "16" }));
         }
+    };
+
+    const handlePriceBlur = (itemId, providerId) => {
+        const key = `${itemId}_${providerId}`;
+        setEditingPriceKey(null);
+        setPrices((prev) => ({
+            ...prev,
+            [key]: normalizePriceInput(prev[key]),
+        }));
     };
 
     const toggleVatForKey = (itemId, providerId) => {
@@ -870,7 +894,7 @@ export default function GestionCotizacion() {
                 onScroll={handleTableScroll}
                 className="overflow-auto max-h-[calc(100vh-240px)]"
             >
-                <table className="w-full text-sm text-left border-collapse">
+                <table className="min-w-max w-full text-sm text-left border-collapse">
                 <thead className="text-xs text-gray-500 uppercase bg-gray-50 sticky top-0 z-20 shadow-sm">
                     <tr>
                     <th className="sticky left-0 z-30 bg-gray-50 px-2 py-3 min-w-[56px] border-r border-gray-300 text-gray-700 font-bold text-center">
@@ -882,7 +906,7 @@ export default function GestionCotizacion() {
                     <th className="sticky left-[128px] z-30 bg-gray-50 px-2 py-3 min-w-[78px] border-r border-gray-300 text-gray-700 font-bold text-center">
                         Unidad
                     </th>
-                    <th className="sticky left-[206px] z-30 bg-gray-50 px-4 py-3 min-w-[360px] border-r border-gray-300 text-gray-700 font-bold">
+                    <th className="sticky left-[206px] z-30 bg-gray-50 px-4 py-3 min-w-[420px] border-r border-gray-300 text-gray-700 font-bold">
                         Descripción ({items.length})
                     </th>
 
@@ -894,10 +918,10 @@ export default function GestionCotizacion() {
                     {visibleProviders.map((prov) => (
                         <th
                         key={prov.id}
-                        className="px-2 py-3 min-w-[220px] border-r border-gray-200 text-center font-semibold text-gray-600 bg-gray-50"
+                        className="px-2 py-3 min-w-[300px] border-r border-gray-200 text-center font-semibold text-gray-600 bg-gray-50"
                         title={prov.status ? `Status: ${statusLabel(prov.status)}` : prov.name}
                         >
-                        <div className="truncate max-w-[200px] mx-auto">{prov.name}</div>
+                        <div className="truncate max-w-[280px] mx-auto">{prov.name}</div>
                         {prov.status && (
                             <div className="text-[10px] mt-1 text-gray-400 capitalize">
                             {statusLabel(prov.status)}
@@ -945,11 +969,14 @@ export default function GestionCotizacion() {
                                     : "bg-white group-hover:bg-gray-50"
                             }`}
                             >
-                            <div className="relative">
-                                <div className="absolute left-2 top-3 text-gray-300 text-[10px] pointer-events-none">$</div>
+                            <div className={`relative mx-2 mt-2 rounded-md border ${
+                                isSelectedFinal ? "border-emerald-300 bg-emerald-50/60" : "border-gray-200 bg-white"
+                            } focus-within:ring-2 focus-within:ring-[#8B1D35]/20 focus-within:border-[#8B1D35]`}>
+                                <div className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-[11px] pointer-events-none">$</div>
                                 <input
                                 type="text"
                                 inputMode="decimal"
+                                pattern="[0-9]*[.]?[0-9]*"
                                 placeholder="0.00"
                                 disabled={isClosed}
                                 value={
@@ -957,11 +984,14 @@ export default function GestionCotizacion() {
                                         ? prices[k] ?? ""
                                         : formatPriceInput(prices[k] ?? "")
                                 }
-                                className={`w-full text-right text-xs py-2 pr-2 bg-transparent outline-none font-medium text-gray-700 pl-4 ${
+                                className={`w-full text-right text-sm py-1.5 pr-2 bg-transparent outline-none font-semibold text-gray-700 pl-5 ${
                                     isClosed ? "opacity-60 cursor-not-allowed" : ""
                                 }`}
-                                onFocus={() => setEditingPriceKey(k)}
-                                onBlur={() => setEditingPriceKey(null)}
+                                onFocus={(e) => {
+                                    setEditingPriceKey(k);
+                                    e.currentTarget.select();
+                                }}
+                                onBlur={() => handlePriceBlur(item.id, prov.id)}
                                 onChange={(e) => handlePriceChange(item.id, prov.id, e.target.value)}
                                 />
                             </div>
