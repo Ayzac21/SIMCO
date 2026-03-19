@@ -928,7 +928,7 @@ export default function GestionCotizacion() {
                             </div>
                         )}
                         {selectedCountByProvider[prov.id] > 0 && (
-                            <div className="text-[10px] mt-1 font-bold text-emerald-700">
+                            <div className="text-[10px] mt-1 font-bold text-[#8B1D35]">
                             Seleccionado en {selectedCountByProvider[prov.id]} partida(s)
                             </div>
                         )}
@@ -965,12 +965,12 @@ export default function GestionCotizacion() {
                             key={prov.id}
                             className={`border-r border-gray-100 relative align-top ${
                                 isSelectedFinal
-                                    ? "bg-emerald-50 group-hover:bg-emerald-50"
+                                    ? "bg-[#8B1D35]/10 group-hover:bg-[#8B1D35]/10"
                                     : "bg-white group-hover:bg-gray-50"
                             }`}
                             >
                             <div className={`relative mx-2 mt-2 rounded-md border ${
-                                isSelectedFinal ? "border-emerald-300 bg-emerald-50/60" : "border-gray-200 bg-white"
+                                isSelectedFinal ? "border-[#8B1D35]/40 bg-[#8B1D35]/10" : "border-gray-200 bg-white"
                             } focus-within:ring-2 focus-within:ring-[#8B1D35]/20 focus-within:border-[#8B1D35]`}>
                                 <div className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-[11px] pointer-events-none">$</div>
                                 <input
@@ -997,7 +997,7 @@ export default function GestionCotizacion() {
                             </div>
 
                             {isSelectedFinal && (
-                                <div className="px-2 pt-1 text-[10px] font-bold text-emerald-700">
+                                <div className="px-2 pt-1 text-[10px] font-bold text-[#8B1D35]">
                                 Seleccionado por Compras Admin
                                 </div>
                             )}

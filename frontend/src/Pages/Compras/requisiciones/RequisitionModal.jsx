@@ -39,6 +39,7 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
     const [downloading, setDownloading] = useState(false);
     const [providers, setProviders] = useState([]);
     const [loadingProviders, setLoadingProviders] = useState(false);
+    const [selectedOrderProviderId, setSelectedOrderProviderId] = useState("");
     const [timelineOpen, setTimelineOpen] = useState(false);
     const [attachments, setAttachments] = useState([]);
     const [loadingAttachments, setLoadingAttachments] = useState(false);
@@ -79,12 +80,23 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
         if (req && req.id && Number(req.statuses_id) === 11) {
             setLoadingProviders(true);
             fetch(`${API_ORDEN_PDF}/${req.id}/providers`, { headers: getAuthHeaders() })
-                .then(res => res.json())
-                .then(data => setProviders(Array.isArray(data) ? data : []))
-                .catch(() => setProviders([]))
+                .then(res => {
+                    if (!res.ok) throw new Error("No se pudieron cargar proveedores");
+                    return res.json();
+                })
+                .then(data => {
+                    const list = Array.isArray(data) ? data : [];
+                    setProviders(list);
+                    setSelectedOrderProviderId(list.length ? String(list[0].id) : "");
+                })
+                .catch(() => {
+                    setProviders([]);
+                    setSelectedOrderProviderId("");
+                })
                 .finally(() => setLoadingProviders(false));
         } else {
             setProviders([]);
+            setSelectedOrderProviderId("");
         }
     }, [req]);
 
@@ -244,6 +256,8 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
         }
     };
 
+    const showOrderButtons = Number(req.statuses_id) === 11;
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
             {assignOpen && (
@@ -319,7 +333,7 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
-                        {Number(req.statuses_id) === 11 && (
+                        {showOrderButtons && (
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={() => setTimelineOpen(true)}
@@ -327,36 +341,6 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                                 >
                                     VER PROGRESO
                                 </button>
-                                {providers.length <= 1 ? (
-                                    <button
-                                        onClick={() => downloadOrdenPdf(providers[0]?.id)}
-                                        disabled={downloading || loadingProviders}
-                                        className={`px-3 py-2 text-[11px] font-bold rounded-lg border flex items-center gap-2 ${
-                                            downloading || loadingProviders
-                                                ? "bg-gray-200 text-gray-500 border-gray-200 cursor-not-allowed"
-                                                : "bg-white text-[#8B1D35] border-[#8B1D35]/30 hover:bg-[#8B1D35]/10"
-                                        }`}
-                                    >
-                                        <Download size={14} />
-                                        {downloading ? "GENERANDO..." : "ORDEN PDF"}
-                                    </button>
-                                ) : (
-                                    providers.map((p) => (
-                                        <button
-                                            key={p.id}
-                                            onClick={() => downloadOrdenPdf(p.id)}
-                                            disabled={downloading || loadingProviders}
-                                            className={`px-3 py-2 text-[10px] font-bold rounded-lg border flex items-center gap-2 ${
-                                                downloading || loadingProviders
-                                                    ? "bg-gray-200 text-gray-500 border-gray-200 cursor-not-allowed"
-                                                    : "bg-white text-[#8B1D35] border-[#8B1D35]/30 hover:bg-[#8B1D35]/10"
-                                            }`}
-                                        >
-                                            <Download size={12} />
-                                            {p.name}
-                                        </button>
-                                    ))
-                                )}
                             </div>
                         )}
                         <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors text-gray-500">
@@ -375,6 +359,61 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                             Etapa Actual: Compras / Cotización
                         </div>
                     </div>
+
+                    {showOrderButtons && (
+                        <div className="bg-[#8B1D35]/5 border border-[#8B1D35]/15 rounded-xl p-4">
+                            <div className="text-[11px] font-extrabold uppercase tracking-wide text-[#8B1D35] mb-2">
+                                Órdenes de compra
+                            </div>
+                            <div className="flex flex-col md:flex-row md:items-center gap-2">
+                                {providers.length > 1 && (
+                                    <select
+                                        value={selectedOrderProviderId}
+                                        onChange={(e) => setSelectedOrderProviderId(e.target.value)}
+                                        disabled={downloading || loadingProviders}
+                                        className="w-full md:w-[420px] px-3 py-2 text-xs border border-[#8B1D35]/20 rounded-lg bg-white text-gray-700"
+                                    >
+                                        {providers.map((p) => (
+                                            <option key={p.id} value={p.id}>
+                                                {p.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                )}
+                                <button
+                                    onClick={() =>
+                                        downloadOrdenPdf(
+                                            providers.length <= 1
+                                                ? providers[0]?.id
+                                                : Number(selectedOrderProviderId || 0)
+                                        )
+                                    }
+                                    disabled={
+                                        downloading ||
+                                        loadingProviders ||
+                                        providers.length === 0 ||
+                                        (providers.length > 1 && !selectedOrderProviderId)
+                                    }
+                                    className={`px-3 py-2 text-[11px] font-bold rounded-lg border flex items-center gap-2 w-fit ${
+                                        downloading || loadingProviders || providers.length === 0 || (providers.length > 1 && !selectedOrderProviderId)
+                                            ? "bg-gray-200 text-gray-500 border-gray-200 cursor-not-allowed"
+                                            : "bg-white text-[#8B1D35] border-[#8B1D35]/30 hover:bg-[#8B1D35]/10"
+                                    }`}
+                                >
+                                    <Download size={14} />
+                                    {loadingProviders
+                                        ? "CARGANDO..."
+                                        : downloading
+                                        ? "GENERANDO..."
+                                        : providers.length === 0
+                                        ? "SIN PROVEEDORES"
+                                        : providers.length > 1
+                                        ? "VER ORDEN DEL PROVEEDOR"
+                                        : "VER ORDEN PDF"}
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Información Principal */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -1407,6 +1407,15 @@ export const getOrdenCompraPdf = async (req, res) => {
       if (!Number.isFinite(num)) return "";
       return moneyFormatter.format(num);
     };
+    const formatQty = (n) => {
+      const num = Number(n);
+      if (!Number.isFinite(num)) return "";
+      if (Number.isInteger(num)) return String(num);
+      return num.toLocaleString("es-MX", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 4,
+      });
+    };
 
     const setText = (form, name, value) => {
       try {
@@ -1504,16 +1513,18 @@ export const getOrdenCompraPdf = async (req, res) => {
       : subtotalBase + ivaFallback;
 
     const single = itemValues.length === 1 ? itemValues[0] : null;
-    const mergedDescription = itemValues
-      .map((it, idx) => `${idx + 1}. ${it.desc}`)
-      .join("\n");
+    const multilineGap = "\n\n";
+    const mergedDescription = itemValues.map((it, idx) => `${idx + 1}. ${it.desc}`).join(multilineGap);
+    const mergedQty = itemValues.map((it) => formatQty(it.qty) || "-").join(multilineGap);
+    const mergedUnits = itemValues.map((it) => it.unidad || "-").join(multilineGap);
+    const mergedUnitPrices = itemValues.map((it) => (it.unit ? formatMoney(it.unit) : "-")).join(multilineGap);
     const isrNote = isrFromItems > 0 ? `\nRetención ISR: ${formatMoney(isrFromItems)}` : "";
     const obsBase = requisition.observation || requisition.notes || "";
 
-    setText(form, "CANTIDADRow1", single ? (single.qty ? String(single.qty) : "") : "VARIAS");
+    setText(form, "CANTIDADRow1", single ? (single.qty ? formatQty(single.qty) : "") : mergedQty);
     setTextAny(form, ["DESCRIPCIÓN DE LOS SERVICIOSRow1", "DESCRIPCIÓN DE LOS BIENESRow1"], single ? single.desc : mergedDescription);
-    setTextAny(form, ["UNIDAD DE MEDIDARow1"], single ? single.unidad : "");
-    setText(form, "PRECIO UNITARIORow1", single ? (single.unit ? formatMoney(single.unit) : "") : "N/A");
+    setTextAny(form, ["UNIDAD DE MEDIDARow1"], single ? single.unidad : mergedUnits);
+    setText(form, "PRECIO UNITARIORow1", single ? (single.unit ? formatMoney(single.unit) : "") : mergedUnitPrices);
     setText(form, "IMPORTE TOTALRow1", subtotalBase ? formatMoney(subtotalBase) : "");
     setText(form, "IMPORTE TOTALSUBTOTAL IVA TOTAL", subtotalBase ? formatMoney(subtotalBase) : "");
     setText(form, "IMPORTE TOTALSUBTOTAL IVA TOTAL_2", iva ? formatMoney(iva) : "0.00");
@@ -1830,6 +1841,16 @@ export const downloadCotizacionExcel = async (req, res) => {
       return Number.isFinite(n) ? n : 0;
     };
     const round2 = (value) => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+    const excelColLetter = (colNumber) => {
+      let n = Number(colNumber || 0);
+      let result = "";
+      while (n > 0) {
+        const rem = (n - 1) % 26;
+        result = String.fromCharCode(65 + rem) + result;
+        n = Math.floor((n - 1) / 26);
+      }
+      return result || "A";
+    };
 
     const priceMap = new Map();
     savedPrices.forEach((p) => {
@@ -1900,6 +1921,25 @@ export const downloadCotizacionExcel = async (req, res) => {
 
     const workbook = new ExcelJS.Workbook();
     const ws = workbook.addWorksheet("CuadroComparativo");
+    ws.properties.defaultRowHeight = 20;
+    ws.pageSetup = {
+      paperSize: 9, // A4
+      orientation: "landscape",
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      horizontalCentered: true,
+      margins: {
+        left: 0.3,
+        right: 0.3,
+        top: 0.4,
+        bottom: 0.4,
+        header: 0.2,
+        footer: 0.2,
+      },
+    };
+    ws.pageSetup.printTitlesRow = "8:9";
+    ws.headerFooter.oddFooter = "&C&P / &N";
     const now = new Date();
     const series = `${id}-${now.getFullYear()}`;
 
@@ -1925,7 +1965,18 @@ export const downloadCotizacionExcel = async (req, res) => {
     const tableHeaderFill = {
       type: "pattern",
       pattern: "solid",
-      fgColor: { argb: "FFF2F2F2" },
+      fgColor: { argb: "FFE5E7EB" },
+    };
+    const tableHeaderFont = { bold: true, size: 10, color: { argb: "FF1F2937" } };
+    const zebraFill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFF8FAFC" },
+    };
+    const summaryFill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFF1F5F9" },
     };
     const selectedFill = {
       type: "pattern",
@@ -2036,6 +2087,88 @@ export const downloadCotizacionExcel = async (req, res) => {
     writeAssignedSummary("Sub Total Seleccionado", "subtotal", assignedStart);
     writeAssignedSummary("I.V.A Seleccionado", "iva", assignedStart + 1);
     writeAssignedSummary("Total Seleccionado", "total", assignedStart + 2);
+    const lastCol = 4 + providers.length * 2;
+
+    const signatureLineRow = assignedStart + 10;
+    const signatureLabelRow = signatureLineRow + 1;
+    const signatureNameRow = signatureLineRow + 2;
+    const signatureRoleRow = signatureLineRow + 3;
+
+    const leftSignStart = 4;
+    const signWidthCols = 4;
+    const leftSignEnd = Math.min(
+      leftSignStart + (signWidthCols - 1),
+      Math.max(leftSignStart, lastCol - (signWidthCols + 2))
+    );
+    const rightSignEnd = lastCol;
+    const rightSignStart = Math.max(leftSignEnd + 2, rightSignEnd - (signWidthCols - 1));
+
+    const setMergedCenteredText = (row, startCol, endCol, text, font = {}) => {
+      if (endCol <= startCol) {
+        ws.getCell(row, startCol).value = text;
+        ws.getCell(row, startCol).font = font;
+        ws.getCell(row, startCol).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+        return;
+      }
+      ws.mergeCells(row, startCol, row, endCol);
+      const cell = ws.getCell(row, startCol);
+      cell.value = text;
+      cell.font = font;
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    };
+
+    for (let c = leftSignStart; c <= leftSignEnd; c += 1) {
+      ws.getCell(signatureLineRow, c).border = {
+        top: { style: "thin", color: { argb: "FF808080" } },
+      };
+    }
+    for (let c = rightSignStart; c <= rightSignEnd; c += 1) {
+      ws.getCell(signatureLineRow, c).border = {
+        top: { style: "thin", color: { argb: "FF808080" } },
+      };
+    }
+
+    setMergedCenteredText(signatureLabelRow, leftSignStart, leftSignEnd, "ELABORÓ", {
+      bold: true,
+      size: 11,
+    });
+    setMergedCenteredText(signatureLabelRow, rightSignStart, rightSignEnd, "Vo. Bo.", {
+      bold: true,
+      size: 11,
+    });
+    setMergedCenteredText(
+      signatureNameRow,
+      leftSignStart,
+      leftSignEnd,
+      "Mtro. Juan Jerónimo Centeno Quevedo",
+      { size: 11 }
+    );
+    setMergedCenteredText(
+      signatureNameRow,
+      rightSignStart,
+      rightSignEnd,
+      "Arq. Héctor Cárdenas Monayo",
+      { size: 11 }
+    );
+    setMergedCenteredText(
+      signatureRoleRow,
+      leftSignStart,
+      leftSignEnd,
+      "Jefe de la Unidad de Adquisiciones y Suministros",
+      { size: 10 }
+    );
+    setMergedCenteredText(
+      signatureRoleRow,
+      rightSignStart,
+      rightSignEnd,
+      "Coordinador de Servicios Generales",
+      { size: 10 }
+    );
+
+    ws.getRow(signatureLineRow).height = 16;
+    ws.getRow(signatureLabelRow).height = 20;
+    ws.getRow(signatureNameRow).height = 20;
+    ws.getRow(signatureRoleRow).height = 22;
 
     ws.mergeCells("D1:I1");
     ws.mergeCells("D2:I2");
@@ -2050,10 +2183,10 @@ export const downloadCotizacionExcel = async (req, res) => {
     ws.getColumn(1).width = 8;
     ws.getColumn(2).width = 10;
     ws.getColumn(3).width = 12;
-    ws.getColumn(4).width = 40;
+    ws.getColumn(4).width = 48;
     providers.forEach((_, idx) => {
-      ws.getColumn(5 + idx * 2).width = 14;
-      ws.getColumn(6 + idx * 2).width = 14;
+      ws.getColumn(5 + idx * 2).width = 13;
+      ws.getColumn(6 + idx * 2).width = 13;
     });
 
     ws.getCell("D1").font = { bold: true, size: 13 };
@@ -2062,15 +2195,45 @@ export const downloadCotizacionExcel = async (req, res) => {
     ws.getCell("I4").font = { bold: true };
     ws.getCell("E6").font = { bold: true };
     ws.getCell("H6").font = { bold: true };
+    ws.getRow(8).height = 26;
+    ws.getRow(9).height = 24;
 
-    const lastCol = 4 + providers.length * 2;
+    const lastColLetter = excelColLetter(lastCol);
+    const lastPrintRow = signatureRoleRow;
+    ws.pageSetup.printArea = `A1:${lastColLetter}${lastPrintRow}`;
     for (let c = 1; c <= lastCol; c += 1) {
       ws.getCell(8, c).fill = tableHeaderFill;
       ws.getCell(9, c).fill = tableHeaderFill;
-      ws.getCell(8, c).font = { bold: true };
-      ws.getCell(9, c).font = { bold: true, size: 10 };
+      ws.getCell(8, c).font = tableHeaderFont;
+      ws.getCell(9, c).font = tableHeaderFont;
       ws.getCell(8, c).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
       ws.getCell(9, c).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+    }
+
+    for (let r = 10; r < rowIndex; r += 1) {
+      ws.getCell(r, 1).alignment = { vertical: "middle", horizontal: "center" };
+      ws.getCell(r, 2).alignment = { vertical: "middle", horizontal: "center" };
+      ws.getCell(r, 3).alignment = { vertical: "middle", horizontal: "center" };
+      ws.getCell(r, 4).alignment = { vertical: "top", horizontal: "left", wrapText: true };
+      if (r % 2 === 0) {
+        for (let c = 1; c <= lastCol; c += 1) {
+          if (!ws.getCell(r, c).fill) ws.getCell(r, c).fill = zebraFill;
+        }
+      }
+      for (let c = 5; c <= lastCol; c += 1) {
+        ws.getCell(r, c).alignment = { vertical: "middle", horizontal: "right" };
+      }
+    }
+
+    for (let r = summaryStart; r <= summaryStart + 2; r += 1) {
+      for (let c = 4; c <= lastCol; c += 1) {
+        ws.getCell(r, c).fill = summaryFill;
+      }
+    }
+    for (let r = assignedStart; r <= assignedStart + 2; r += 1) {
+      for (let c = 4; c <= lastCol; c += 1) {
+        ws.getCell(r, c).fill = summaryFill;
+      }
     }
 
     for (let r = 8; r <= assignedStart + 2; r += 1) {
@@ -2079,7 +2242,7 @@ export const downloadCotizacionExcel = async (req, res) => {
       }
     }
 
-    ws.views = [{ state: "frozen", ySplit: 9, xSplit: 4 }];
+    ws.views = [{ state: "frozen", ySplit: 9 }];
 
     const buffer = await workbook.xlsx.writeBuffer();
     const filename = `cuadro_comparativo_req_${id}.xlsx`;

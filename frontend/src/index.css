@@ -8,3 +8,19 @@
     --color-other: #FAACC4;          /* Rosa mas fuerte*/
     --color-fondo: #eff4f8;
 }
+
+/* Unificar color de selección/foco a la paleta principal (evita bordes verdes del navegador) */
+input[type="checkbox"],
+input[type="radio"],
+progress {
+    accent-color: #8B1D35;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 2px solid #8B1D35;
+    outline-offset: 1px;
+}
