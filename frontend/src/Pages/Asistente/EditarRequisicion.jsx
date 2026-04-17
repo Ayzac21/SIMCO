@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { getAuthHeaders } from "../../api/auth";
 import { API_BASE_URL } from "../../api/config";
 import useEscapeKey from "../../hooks/useEscapeKey";
+import { safeUUID } from "../../utils/uuid";
 
 /* ICONO ELIMINAR */
 const IconTrash = () => (
@@ -236,7 +237,7 @@ export default function EditarRequisicion() {
         setPartidas(
           (dataReq.partidas || []).map((p) => ({
             ...p,
-            unique_key: p.id || crypto.randomUUID(),
+            unique_key: p.id || safeUUID(),
             quantity: p.quantity ?? "",
             units_id: p.units_id ?? "",
             product_name: p.product_name ?? "",
@@ -264,7 +265,7 @@ export default function EditarRequisicion() {
       ...partidas,
       {
         id: null,
-        unique_key: crypto.randomUUID(),
+        unique_key: safeUUID(),
         product_name: "",
         description: "",
         quantity: "",
