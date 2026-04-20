@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Menu, X, ShoppingCart, Archive, LayoutGrid, Users, Truck, Ruler } from "lucide-react";
+import { Menu, X, Archive, LayoutGrid, Users, Truck, Ruler, Eye } from "lucide-react";
 import { canManageUnits } from "../unidades/unitsAccess";
 import NotificationBell from "../../../components/NotificationBell";
+import escudoCualtos from "../../../assets/escudo-cualtos-02_0_1.png";
+import UserMenu from "../../../components/UserMenu";
 
 export default function ComprasLayout() {
     const [open, setOpen] = useState(false);
@@ -29,6 +31,10 @@ export default function ComprasLayout() {
         "/compras/dashboard": {
             title: "Requisiciones por Cotizar",
             subtitle: "Solicitudes autorizadas pendientes de precio",
+        },
+        "/compras/preparacion": {
+            title: "Vista de Preparación",
+            subtitle: "Borradores en creación para anticipar carga de trabajo",
         },
         "/compras/historial": {
             title: "Historial de Órdenes",
@@ -85,6 +91,12 @@ export default function ComprasLayout() {
     }, [isAdmin, pathname, navigate]);
 
     useEffect(() => {
+        if (!isAdmin && pathname.startsWith("/compras/preparacion")) {
+            navigate("/compras/dashboard");
+        }
+    }, [isAdmin, pathname, navigate]);
+
+    useEffect(() => {
         if (!canAccessUnits && pathname.startsWith("/compras/unidades")) {
             navigate("/compras/dashboard");
         }
@@ -130,9 +142,18 @@ export default function ComprasLayout() {
             role="navigation"
             aria-label="Menú de Compras"
         >
-            <div className="p-6 flex items-center justify-center gap-2 border-b border-white/20">
-            <ShoppingCart size={24} />
-            <span className="text-xl font-bold">Compras</span>
+            <div className="p-4 border-b border-white/20">
+                <div className="rounded-xl border border-white/20 bg-white/10 p-3">
+                    <div className="flex items-center gap-3">
+                        <div className="h-9 w-9 aspect-square shrink-0 rounded-full bg-white text-secundario font-bold flex items-center justify-center">
+                            {userInitial}
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-sm font-semibold text-white truncate">{userName}</p>
+                            <p className="text-[11px] text-white/80 uppercase truncate">{user?.ure || "Departamento de Compras"}</p>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <nav className="flex-1 p-4 space-y-2">
@@ -145,6 +166,13 @@ export default function ComprasLayout() {
                     <Archive size={20} />
                     Historial OC
                 </NavLink>
+
+                {isAdmin && (
+                    <NavLink to="/compras/preparacion" className={linkClass}>
+                        <Eye size={20} />
+                        Preparación
+                    </NavLink>
+                )}
 
                 {isAdmin && (
                     <NavLink to="/compras/empleados" className={linkClass}>
@@ -166,13 +194,14 @@ export default function ComprasLayout() {
                 )}
             </nav>
 
-            <div className="p-4 border-t border-white/20">
-                <button
-                    onClick={handleLogout}
-                    className="w-full bg-red-800 py-2 rounded-lg font-semibold hover:bg-red-700 transition shadow-lg"
-                >
-                    Cerrar sesión
-                </button>
+            <div className="p-2 border-t border-white/20 relative overflow-hidden">
+                <div className="absolute -left-6 top-1/2 -translate-y-1/2 h-24 w-24 rounded-full bg-white/20 blur-2xl pointer-events-none"></div>
+                <div className="absolute right-0 -top-6 h-20 w-20 rounded-full bg-white/15 blur-2xl pointer-events-none"></div>
+                <img
+                    src={escudoCualtos}
+                    alt="Escudo institucional UDG CUAltos"
+                    className="relative z-10 block w-full h-auto object-contain"
+                />
             </div>
         </aside>
 
@@ -204,15 +233,18 @@ export default function ComprasLayout() {
                 <div className="flex items-center gap-3">
                     <NotificationBell />
                     <div className="text-right hidden md:block">
-                    <p className="text-sm font-bold text-gray-800">Hola, {userName}</p>
+                    <p className="text-sm font-bold text-gray-800">Bienvenido, {userName}</p>
                     <p className="text-xs text-gray-500 uppercase">
                         {user?.ure || "Departamento de Compras"}
                     </p>
                     </div>
 
-                    <div className="h-10 w-10 rounded-full bg-secundario text-white flex items-center justify-center font-bold shadow-md text-lg border border-gray-100">
-                    {userInitial}
-                    </div>
+                    <UserMenu
+                        userName={userName}
+                        userInitial={userInitial}
+                        subtitle={user?.ure || "Departamento de Compras"}
+                        onLogout={handleLogout}
+                    />
                 </div>
             </header>
 

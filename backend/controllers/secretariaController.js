@@ -1,4 +1,7 @@
 import { pool } from "../db/connection.js";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import {
     createNotification,
     createNotificationsForUsers,
@@ -13,6 +16,9 @@ const parseUserId = (value) => {
 };
 
 const getAuthUserId = (req) => parseUserId(req.user?.id);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const requisitionUploadsDir = path.resolve(__dirname, "..", "uploads", "requisiciones");
 
 const ensureSameSecretaria = (req, res, requestedId) => {
     const authId = getAuthUserId(req);
@@ -241,6 +247,17 @@ export const updateEstatusSecretaria = async (req, res) => {
                 entityId: Number(id),
                 actionPath: `/coordinador/requisiciones?openReq=${id}`,
             });
+            if (ownerId) {
+                await createNotification({
+                    recipientUserId: ownerId,
+                    actorUserId: actorId,
+                    title: "Secretaría solicitó ajustes",
+                    message: `La requisición #${id} regresó a Coordinación para ajustes previos.`,
+                    entityType: "requisition",
+                    entityId: Number(id),
+                    actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+                });
+            }
         } else if (targetStatus === 12) {
             const comprasIds = await getUsersByRolePrefix("compras_");
             await createNotificationsForUsers(comprasIds, {
@@ -307,5 +324,41 @@ export const getSecretariaItems = async (req, res) => {
     } catch (error) {
         console.error("Error obteniendo items:", error.message);
         res.status(200).json([]);
+    }
+};
+
+export const getSecretariaItemImage = async (req, res) => {
+    try {
+        const { id, line_item_id } = req.params;
+        const [[itemRow]] = await pool.query(
+            `
+            SELECT id, image_file_path, image_mime_type, image_original_name
+            FROM line_items
+            WHERE id = ? AND requisition_id = ?
+            LIMIT 1
+            `,
+            [line_item_id, id]
+        );
+
+        if (!itemRow || !itemRow.image_file_path) {
+            return res.status(404).json({ message: "Imagen no encontrada" });
+        }
+
+        const absPath = path.resolve(String(itemRow.image_file_path));
+        if (!absPath.startsWith(requisitionUploadsDir) || !fs.existsSync(absPath)) {
+            return res.status(404).json({ message: "Archivo no disponible" });
+        }
+
+        const mime = itemRow.image_mime_type || "application/octet-stream";
+        const fileName = encodeURIComponent(itemRow.image_original_name || "imagen");
+        res.setHeader("Content-Type", mime);
+        res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${fileName}`);
+        return res.sendFile(absPath);
+    } catch (error) {
+        if (error?.code === "ER_BAD_FIELD_ERROR") {
+            return res.status(404).json({ message: "Imagen no disponible" });
+        }
+        console.error("Error obteniendo imagen de partida (Secretaría):", error);
+        return res.status(500).json({ message: "Error interno del servidor" });
     }
 };

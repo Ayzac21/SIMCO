@@ -16,6 +16,7 @@ import usersRoutes from "./routes/users.js";
 import notificationsRoutes from "./routes/notifications.js";
 import timelineRoutes from "./routes/timeline.js";
 import { authenticateJWT } from "./middleware/auth.js";
+import { cleanupOrphanRequisitionUploads } from "./services/uploadsCleanup.js";
 
 dotenv.config();
 
@@ -58,6 +59,34 @@ app.use("/api/asistente", asistenteRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api", timelineRoutes);
+
+const cleanupEnabled = String(process.env.CLEANUP_UPLOADS_ENABLED || "true").toLowerCase() === "true";
+const cleanupIntervalMinutes = Number(process.env.CLEANUP_UPLOADS_INTERVAL_MINUTES || 180);
+const cleanupGraceMinutes = Number(process.env.CLEANUP_UPLOADS_GRACE_MINUTES || 120);
+const cleanupMaxDelete = Number(process.env.CLEANUP_UPLOADS_MAX_DELETE || 200);
+
+if (cleanupEnabled) {
+  let cleanupRunning = false;
+  const runCleanup = async () => {
+    if (cleanupRunning) return;
+    cleanupRunning = true;
+    try {
+      await cleanupOrphanRequisitionUploads({
+        dryRun: false,
+        graceMinutes: cleanupGraceMinutes,
+        maxDelete: cleanupMaxDelete,
+        logger: console,
+      });
+    } catch (error) {
+      console.error("[cleanup] error ejecutando job programado:", error);
+    } finally {
+      cleanupRunning = false;
+    }
+  };
+
+  setTimeout(runCleanup, 30 * 1000);
+  setInterval(runCleanup, Math.max(15, cleanupIntervalMinutes) * 60 * 1000);
+}
 
 app.listen(4000, () => {
   console.log("Servidor listo en http://localhost:4000");

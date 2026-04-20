@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { 
     Clock, CheckCircle, XCircle, BarChart3, FileText,
-    Truck, ArrowRight, User, Briefcase, Loader2, AlertTriangle, Lightbulb, RefreshCw
+    Truck, ArrowRight, User, Briefcase, AlertTriangle, Lightbulb, RefreshCw
 } from "lucide-react";
 import { toast } from 'sonner'; 
 import { useNavigate } from "react-router-dom"; 
@@ -9,6 +9,17 @@ import SecModal from "./SecModal";
 import { getAuthHeaders } from "../../../api/auth";
 import { API_BASE_URL } from "../../../api/config";
 import useEscapeKey from "../../../hooks/useEscapeKey";
+
+function AppLoader({ label = "Cargando..." }) {
+    return (
+        <div className="flex-col gap-4 w-full flex items-center justify-center py-10">
+            <div className="w-20 h-20 border-4 border-transparent text-secundario text-4xl animate-spin flex items-center justify-center border-t-secundario rounded-full">
+                <div className="w-16 h-16 border-4 border-transparent text-principal text-2xl animate-spin flex items-center justify-center border-t-principal rounded-full" />
+            </div>
+            <div className="text-xs text-gray-500 mt-2">{label}</div>
+        </div>
+    );
+}
 
 export default function SecDashboard() {
     // --- ESTADO ---
@@ -166,10 +177,15 @@ export default function SecDashboard() {
         }
     };
 
-    if (loading) return <div className="flex justify-center h-64 items-center"><Loader2 className="animate-spin text-[#8B1D35]" size={40}/></div>;
+    if (loading) return <AppLoader />;
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-500 pb-10">
+        <div className="relative space-y-6 animate-in fade-in duration-500 pb-10">
+            {refreshing && !loading && (
+                <div className="absolute inset-0 z-40 bg-white/70 backdrop-blur-[1px] flex items-center justify-center rounded-xl">
+                    <AppLoader label="Actualizando..." />
+                </div>
+            )}
             <div className="flex items-center justify-between gap-3">
                 <h1 className="text-lg md:text-xl font-extrabold text-gray-800">Dashboard de Secretaría</h1>
                 <button

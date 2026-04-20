@@ -186,6 +186,59 @@ export default function UreDashboard() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detail, setDetail] = useState(null);
   const [timelineOpen, setTimelineOpen] = useState(false);
+  const [partidaImagePreviews, setPartidaImagePreviews] = useState({});
+
+  const revokePreviewUrls = (map) => {
+    Object.values(map || {}).forEach((url) => {
+      if (url) URL.revokeObjectURL(url);
+    });
+  };
+
+  const clearPartidaImagePreviews = () => {
+    setPartidaImagePreviews((prev) => {
+      revokePreviewUrls(prev);
+      return {};
+    });
+  };
+
+  const loadPartidaImagePreviews = async (reqId, partidas = []) => {
+    const validPartidas = (partidas || []).filter(
+      (p) =>
+        p?.id &&
+        (p?.image_original_name || p?.image_mime_type || Number(p?.image_size_bytes || 0) > 0)
+    );
+
+    if (!validPartidas.length) {
+      clearPartidaImagePreviews();
+      return;
+    }
+
+    const entries = await Promise.all(
+      validPartidas.map(async (p) => {
+        try {
+          const resp = await fetch(`${API}/requisiciones/${reqId}/partidas/${p.id}/image`, {
+            headers: getAuthHeaders(),
+          });
+          if (!resp.ok) return null;
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          return [String(p.id), url];
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    const nextMap = {};
+    entries.filter(Boolean).forEach(([id, url]) => {
+      nextMap[id] = url;
+    });
+
+    setPartidaImagePreviews((prev) => {
+      revokePreviewUrls(prev);
+      return nextMap;
+    });
+  };
 
   const loadDashboard = async ({ showRefresh = false } = {}) => {
     if (!usersId) {
@@ -249,6 +302,7 @@ export default function UreDashboard() {
     setSelectedRow(null);
     setDetail(null);
     setDetailLoading(false);
+    clearPartidaImagePreviews();
   };
 
   useEscapeKey(open, closeModal, detailLoading);
@@ -266,6 +320,7 @@ export default function UreDashboard() {
 
       if (!resp.ok) throw new Error(data?.message || "No se pudo cargar la requisición");
       setDetail(data);
+      await loadPartidaImagePreviews(row.id, data?.partidas || []);
     } catch (e) {
       console.error(e);
       toast.error("No se pudo abrir la requisición");
@@ -273,6 +328,12 @@ export default function UreDashboard() {
       setDetailLoading(false);
     }
   };
+
+  useEffect(() => {
+    return () => {
+      revokePreviewUrls(partidaImagePreviews);
+    };
+  }, [partidaImagePreviews]);
 
   const continuar = () => {
     if (!selectedRow) return;
@@ -328,7 +389,7 @@ export default function UreDashboard() {
           <div className="absolute inset-0 bg-black/40" onClick={closeModal} />
 
           <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+            <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
               <div className="p-5 border-b border-gray-100 flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -418,13 +479,14 @@ export default function UreDashboard() {
                     <div>
                       <div className="text-xs font-extrabold text-gray-800 uppercase tracking-wide mb-2">Lista de artículos</div>
 
-                      <div className="border border-gray-200 rounded-xl overflow-hidden">
+                      <div className="border border-[#8B1D35]/20 rounded-xl overflow-hidden">
                         <table className="w-full text-sm">
-                          <thead className="text-xs uppercase text-gray-500 bg-gray-50">
+                          <thead className="text-xs uppercase text-[#6F152B] bg-[#8B1D35]/[0.08]">
                             <tr>
                               <th className="text-left px-4 py-3">Producto</th>
                               <th className="text-left px-4 py-3">Descripción</th>
                               <th className="text-right px-4 py-3">Cant.</th>
+                              <th className="text-center px-4 py-3">Img</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100">
@@ -433,12 +495,36 @@ export default function UreDashboard() {
                                 <td className="px-4 py-3 font-semibold text-gray-900">{p.product_name || "—"}</td>
                                 <td className="px-4 py-3 text-gray-700">{p.description || "—"}</td>
                                 <td className="px-4 py-3 text-right font-extrabold text-gray-900">{p.quantity ?? "—"}</td>
+                                <td className="px-4 py-3 text-center">
+                                  {partidaImagePreviews[String(p.id)] ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        window.open(
+                                          partidaImagePreviews[String(p.id)],
+                                          "_blank",
+                                          "noopener,noreferrer"
+                                        )
+                                      }
+                                      className="h-11 w-11 rounded border border-[#8B1D35]/20 overflow-hidden inline-flex"
+                                      title="Abrir imagen"
+                                    >
+                                      <img
+                                        src={partidaImagePreviews[String(p.id)]}
+                                        alt={`Imagen partida ${p.id}`}
+                                        className="h-full w-full object-cover"
+                                      />
+                                    </button>
+                                  ) : (
+                                    <span className="text-xs text-gray-400">—</span>
+                                  )}
+                                </td>
                               </tr>
                             ))}
 
                             {(!detail?.partidas || detail.partidas.length === 0) && (
                               <tr>
-                                <td className="px-4 py-5 text-center text-gray-500" colSpan={3}>
+                                <td className="px-4 py-5 text-center text-gray-500" colSpan={4}>
                                   No hay artículos.
                                 </td>
                               </tr>

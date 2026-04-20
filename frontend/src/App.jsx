@@ -27,6 +27,7 @@ const SecRecibidas = lazy(() => import("./Pages/Secretaria/SecRecibidas.jsx"));
 // --- Compras ---
 const ComprasLayout = lazy(() => import("./Pages/Compras/layout/ComprasLayout.jsx"));
 const ComprasDashboard = lazy(() => import("./Pages/Compras/Dashboard/ComprasDashboard.jsx"));
+const ComprasPreparacion = lazy(() => import("./Pages/Compras/preparacion/ComprasPreparacion.jsx"));
 const GestionCotizacion = lazy(() => import("./Pages/Compras/cotizaciones/GestionCotizacion.jsx"));
 const ComprasHistorial = lazy(() => import("./Pages/Compras/historial/ComprasHistorial.jsx"));
 const ComprasPersonal = lazy(() => import("./Pages/Compras/personal/ComprasPersonal.jsx"));
@@ -95,11 +96,33 @@ export default function App() {
           }
         >
           <Route path="dashboard" element={<ComprasDashboard />} />
+          <Route
+            path="preparacion"
+            element={
+              <ProtectedRoute allowedRoles={["compras_admin"]}>
+                <ComprasPreparacion />
+              </ProtectedRoute>
+            }
+          />
           <Route path="cotizar/:id" element={<GestionCotizacion />} />
-          <Route path="revision/:id" element={<ComprasRevision />} />
+          <Route
+            path="revision/:id"
+            element={
+              <ProtectedRoute allowedRoles={["compras_admin"]}>
+                <ComprasRevision />
+              </ProtectedRoute>
+            }
+          />
           <Route path="orden/:id" element={<OrdenCompra />} />
           <Route path="historial" element={<ComprasHistorial />} />
-          <Route path="empleados" element={<ComprasPersonal />} />
+          <Route
+            path="empleados"
+            element={
+              <ProtectedRoute allowedRoles={["compras_admin"]}>
+                <ComprasPersonal />
+              </ProtectedRoute>
+            }
+          />
           <Route path="proveedores" element={<ComprasProveedores />} />
           <Route path="unidades" element={<ComprasUnidades />} />
         </Route>

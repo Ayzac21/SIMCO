@@ -43,6 +43,7 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
     const [timelineOpen, setTimelineOpen] = useState(false);
     const [attachments, setAttachments] = useState([]);
     const [loadingAttachments, setLoadingAttachments] = useState(false);
+    const [itemImagePreviews, setItemImagePreviews] = useState({});
 
     useEscapeKey(Boolean(req), () => {
         if (assignOpen) {
@@ -54,6 +55,12 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
 
     useEffect(() => {
         setTimelineOpen(false);
+        setItemImagePreviews((prev) => {
+            Object.values(prev).forEach((url) => {
+                if (url) URL.revokeObjectURL(url);
+            });
+            return {};
+        });
     }, [req?.id]);
 
     // Cargar items cuando se abre el modal
@@ -75,6 +82,64 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                 });
         }
     }, [req]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadItemImages = async () => {
+            const validItems = (items || []).filter((item) => item?.id);
+            if (!req?.id || !validItems.length) {
+                setItemImagePreviews((prev) => {
+                    Object.values(prev).forEach((url) => {
+                        if (url) URL.revokeObjectURL(url);
+                    });
+                    return {};
+                });
+                return;
+            }
+
+            const entries = await Promise.all(
+                validItems.map(async (item) => {
+                    try {
+                        const resp = await fetch(`${API_ASSIGN}/${req.id}/items/${item.id}/image`, {
+                            headers: getAuthHeaders(),
+                        });
+                        if (!resp.ok) return null;
+                        const blob = await resp.blob();
+                        const url = URL.createObjectURL(blob);
+                        return [String(item.id), url];
+                    } catch {
+                        return null;
+                    }
+                })
+            );
+
+            if (cancelled) {
+                entries.forEach((entry) => {
+                    if (entry?.[1]) URL.revokeObjectURL(entry[1]);
+                });
+                return;
+            }
+
+            const nextMap = {};
+            entries.filter(Boolean).forEach(([id, url]) => {
+                nextMap[id] = url;
+            });
+
+            setItemImagePreviews((prev) => {
+                Object.values(prev).forEach((url) => {
+                    if (url) URL.revokeObjectURL(url);
+                });
+                return nextMap;
+            });
+        };
+
+        loadItemImages();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [items, req?.id]);
     
     useEffect(() => {
         if (req && req.id && Number(req.statuses_id) === 11) {
@@ -465,19 +530,44 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                                         <th className="px-4 py-2 w-16 text-center">Cant.</th>
                                         <th className="px-4 py-2">Descripción</th>
                                         <th className="px-4 py-2 w-24 text-right">Unidad</th>
+                                        <th className="px-4 py-2 w-16 text-center">Img</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100 text-xs">
                                     {loadingItems ? (
-                                        <tr><td colSpan="3" className="p-4 text-center text-gray-400">Cargando detalles...</td></tr>
+                                        <tr><td colSpan="4" className="p-4 text-center text-gray-400">Cargando detalles...</td></tr>
                                     ) : items.length === 0 ? (
-                                        <tr><td colSpan="3" className="p-4 text-center text-gray-400">Sin artículos listados</td></tr>
+                                        <tr><td colSpan="4" className="p-4 text-center text-gray-400">Sin artículos listados</td></tr>
                                     ) : (
                                         items.map((item, idx) => (
                                             <tr key={idx} className="hover:bg-gray-50/50">
                                                 <td className="px-4 py-3 text-center font-bold text-gray-700">{item.quantity || item.cantidad}</td>
                                                 <td className="px-4 py-3 text-gray-600">{item.description || item.descripcion}</td>
                                                 <td className="px-4 py-3 text-right text-gray-400 uppercase">{item.unidad}</td>
+                                                <td className="px-4 py-3 text-center">
+                                                    {itemImagePreviews[String(item.id)] ? (
+                                                        <button
+                                                            type="button"
+                                                            className="h-10 w-10 rounded border border-[#8B1D35]/20 overflow-hidden inline-flex"
+                                                            title="Abrir imagen"
+                                                            onClick={() =>
+                                                                window.open(
+                                                                    itemImagePreviews[String(item.id)],
+                                                                    "_blank",
+                                                                    "noopener,noreferrer"
+                                                                )
+                                                            }
+                                                        >
+                                                            <img
+                                                                src={itemImagePreviews[String(item.id)]}
+                                                                alt={`Imagen partida ${item.id}`}
+                                                                className="h-full w-full object-cover"
+                                                            />
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-gray-400">—</span>
+                                                    )}
+                                                </td>
                                             </tr>
                                         ))
                                     )}

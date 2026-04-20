@@ -1,96 +1,146 @@
 import { Link } from "react-router-dom";
-import { LayoutDashboard, ShoppingCart, FileCheck, ShieldCheck, ArrowRight } from "lucide-react";
+import {
+  ArrowRight,
+  Building2,
+  CircleCheckBig,
+  FileSearch,
+  Landmark,
+  ShieldCheck,
+  ShoppingCart,
+} from "lucide-react";
 
-export default function Home() {
-    return (
-        <div className="min-h-screen flex flex-col bg-gray-50 relative overflow-hidden font-sans">
-            {/* --- FONDO DECORATIVO (Blobs estáticos) --- */}
-            <div className="absolute top-0 right-0 -mr-20 -mt-20 w-[500px] h-[500px] rounded-full bg-red-100 opacity-50 blur-3xl pointer-events-none"></div>
-            <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-[400px] h-[400px] rounded-full bg-gray-200 opacity-60 blur-3xl pointer-events-none"></div>
+const flow = [
+  {
+    phase: "Etapa 1",
+    title: "Registro de la solicitud",
+    detail: "La URE documenta la requisición con formato institucional y soporte requerido.",
+    icon: FileSearch,
+  },
+  {
+    phase: "Etapa 2",
+    title: "Validación administrativa",
+    detail: "Coordinación y Secretaría verifican procedencia, consistencia y cumplimiento.",
+    icon: CircleCheckBig,
+  },
+  {
+    phase: "Etapa 3",
+    title: "Gestión institucional de compra",
+    detail: "Compras ejecuta cotización, análisis comparativo y seguimiento hasta cierre.",
+    icon: ShoppingCart,
+  },
+];
 
-            <main className="flex-grow container mx-auto px-6 py-12 flex flex-col md:flex-row items-center justify-between relative z-10">
-                
-                {/* === COLUMNA IZQUIERDA: TEXTO === */}
-                <div className="md:w-1/2 space-y-8 text-center md:text-left animate-in slide-in-from-left duration-700">
-                    
-                    {/* Badge */}
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-50 border border-red-100 text-principal text-xs font-bold uppercase tracking-wider mb-2">
-                        <ShieldCheck size={14} />
-                        Plataforma Institucional
-                    </div>
+export default function Hero() {
+  return (
+    <div className="relative h-[calc(100vh-82px)] overflow-hidden bg-[#f4f1ee]">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute inset-x-0 top-0 h-72 bg-gradient-to-b from-[#7a1f32]/12 via-[#7a1f32]/6 to-transparent" />
+        <div className="absolute -left-24 top-16 h-72 w-72 rounded-full bg-[#b37c44]/10 blur-3xl" />
+        <div className="absolute right-0 top-28 h-80 w-80 rounded-full bg-[#7a1f32]/10 blur-3xl" />
+      </div>
 
-                    <h1 className="text-5xl md:text-6xl font-extrabold text-gray-900 leading-tight">
-                        Gestión inteligente para <span className="text-principal">Compras</span> y <span className="text-secundario">Presupuesto</span>
-                    </h1>
+      <main className="relative mx-auto h-full w-full max-w-[90rem] px-4 py-2 sm:px-6 md:py-3 lg:px-8">
+        <section className="flex h-full w-full flex-col gap-3 rounded-3xl border border-[#7a1f32]/15 bg-white/95 p-4 shadow-[0_16px_40px_rgba(53,24,30,0.1)] sm:p-5">
+          <div className="mb-3 inline-flex w-fit items-center gap-2 whitespace-nowrap rounded-full border border-[#7a1f32]/20 bg-[#7a1f32]/5 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[#7a1f32]">
+            <Landmark size={14} />
+            Sistema Institucional CUAltos
+          </div>
 
-                    <p className="text-lg text-gray-600 md:max-w-lg leading-relaxed">
-                        Bienvenido a <strong>SIMIC</strong>. Centraliza requisiciones, valida presupuestos y gestiona órdenes de compra en un solo flujo de trabajo eficiente y transparente.
+          <h1
+            className="text-3xl font-extrabold leading-tight text-[#2f2a29] sm:text-4xl lg:text-5xl"
+            style={{ fontFamily: "Georgia, Cambria, 'Times New Roman', serif" }}
+          >
+            Plataforma oficial para{" "}
+            <span className="text-[#7a1f32]">requisiciones</span> y gestión de{" "}
+            <span className="text-[#9d3e54]">compras universitarias</span>
+          </h1>
+
+          <p className="mt-2 inline-flex w-fit rounded-lg border border-[#7a1f32]/20 bg-[#7a1f32]/5 px-2.5 py-1 text-xs font-semibold text-[#7a1f32]">
+            SIMCO: Sistema Institucional para la Gestión y Control de Compras.
+          </p>
+
+          <p
+            className="mt-2 max-w-4xl text-sm leading-relaxed text-[#4f4744] sm:text-base"
+            style={{ fontFamily: "Georgia, Cambria, 'Times New Roman', serif" }}
+          >
+            Centraliza el flujo completo de requisiciones, desde el registro y la validación administrativa hasta la
+            gestión de compra, con trazabilidad por estatus y control documental en una sola plataforma institucional.
+          </p>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            <div className="rounded-xl border border-[#7a1f32]/10 bg-[#faf6f4] p-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#6f6461]">Ámbito</p>
+              <p className="mt-1 text-sm font-bold text-[#2f2a29]">Centro Universitario de los Altos</p>
+            </div>
+            <div className="rounded-xl border border-[#7a1f32]/10 bg-[#faf6f4] p-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#6f6461]">Institución</p>
+              <p className="mt-1 text-sm font-bold text-[#2f2a29]">Universidad de Guadalajara</p>
+            </div>
+            <div className="rounded-xl border border-[#7a1f32]/10 bg-[#faf6f4] p-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#6f6461]">Cobertura</p>
+              <p className="mt-1 text-sm font-bold text-[#2f2a29]">Flujo completo de requisición a compra</p>
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            {flow.map((step) => {
+              const Icon = step.icon;
+              return (
+                <article
+                  key={step.title}
+                  className="flex items-start gap-2 rounded-xl border border-[#e8dfdb] bg-white p-3 transition hover:border-[#7a1f32]/30"
+                >
+                  <div className="mt-0.5 rounded-lg bg-[#7a1f32]/10 p-1.5 text-[#7a1f32]">
+                    <Icon size={14} />
+                  </div>
+                  <div>
+                    <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[#7a1f32]/75">
+                      {step.phase}
                     </p>
-
-                    <div className="flex flex-col sm:flex-row gap-4 justify-center md:justify-start">
-                        <Link
-                            to="/login"
-                            className="group flex items-center justify-center gap-2 bg-secundario text-white font-semibold py-3.5 px-8 rounded-xl hover:bg-red-800 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-1"
-                        >
-                            Acceder al Sistema
-                            <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform"/>
-                        </Link>
-                    </div>
+                    <h3 className="text-sm font-bold text-[#2f2a29]">{step.title}</h3>
+                    <p className="mt-1 text-xs leading-relaxed text-[#5b5451]">{step.detail}</p>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+          <div className="mt-3 rounded-2xl border border-[#d9cbc6] bg-[#fbf9f8] p-3 sm:p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-[#7a1f32]">
+                  <Building2 size={14} />
+                  Acceso institucional
                 </div>
-
-                {/* === COLUMNA DERECHA: VISUAL (Mockup Fijo) === */}
-                <div className="md:w-1/2 mt-16 md:mt-0 relative flex justify-center animate-in slide-in-from-right duration-700 delay-150">
-                    
-                    {/* Elemento decorativo detrás */}
-                    <div className="absolute inset-0 bg-gradient-to-tr from-secundario/10 to-principal/5 rounded-full filter blur-2xl transform scale-90"></div>
-
-                    {/* Tarjeta Principal (Dashboard Falso) - SIN MOVIMIENTO */}
-                    <div className="relative bg-white p-6 rounded-2xl shadow-2xl border border-gray-100 max-w-sm w-full z-20">
-                        {/* Header Falso */}
-                        <div className="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
-                            <div className="h-10 w-10 rounded-full bg-red-50 flex items-center justify-center text-principal">
-                                <LayoutDashboard size={20} />
-                            </div>
-                            <div>
-                                <div className="h-2 w-24 bg-gray-200 rounded mb-1"></div>
-                                <div className="h-2 w-16 bg-gray-100 rounded"></div>
-                            </div>
-                        </div>
-                        {/* Gráficas Falsas */}
-                        <div className="flex items-end gap-2 h-32 mb-6 px-2">
-                            <div className="w-1/4 bg-red-100 h-[40%] rounded-t-md"></div>
-                            <div className="w-1/4 bg-red-200 h-[60%] rounded-t-md"></div>
-                            <div className="w-1/4 bg-principal h-[80%] rounded-t-md shadow-md"></div>
-                            <div className="w-1/4 bg-secundario h-[50%] rounded-t-md"></div>
-                        </div>
-                        {/* Lista Falsa */}
-                        <div className="space-y-3">
-                            <div className="flex items-center gap-3 p-2 rounded-lg bg-gray-50">
-                                <div className="h-8 w-8 rounded bg-white border border-gray-200 flex items-center justify-center text-secundario"><FileCheck size={16}/></div>
-                                <div className="flex-1 h-2 bg-gray-300 rounded w-full"></div>
-                            </div>
-                            <div className="flex items-center gap-3 p-2 rounded-lg bg-gray-50">
-                                <div className="h-8 w-8 rounded bg-white border border-gray-200 flex items-center justify-center text-blue-600"><ShoppingCart size={16}/></div>
-                                <div className="flex-1 h-2 bg-gray-300 rounded w-3/4"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Tarjeta Secundaria (Decorativa) - SIN MOVIMIENTO */}
-                    <div className="absolute -bottom-6 -left-6 bg-white p-4 rounded-xl shadow-xl border border-gray-100 z-30">
-                        <div className="flex items-center gap-3">
-                            <div className="bg-secundario/10 p-2 rounded-full text-secundario">
-                                <FileCheck size={20} />
-                            </div>
-                            <div>
-                                <p className="text-xs text-gray-500 font-semibold">Estado</p>
-                                <p className="text-sm font-bold text-gray-800">Autorizado</p>
-                            </div>
-                        </div>
-                    </div>
-
+                <p className="mt-1.5 text-sm leading-relaxed text-[#514947]">
+                  Ingreso para personal autorizado con permisos por perfil y trazabilidad de acciones por estatus.
+                </p>
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-xs text-[#4f4744]">
+                  <span className="rounded-full border border-[#e5d6d1] bg-white px-2 py-0.5">Unidades</span>
+                  <span className="rounded-full border border-[#e5d6d1] bg-white px-2 py-0.5">Coordinación</span>
+                  <span className="rounded-full border border-[#e5d6d1] bg-white px-2 py-0.5">Secretaría</span>
+                  <span className="rounded-full border border-[#e5d6d1] bg-white px-2 py-0.5">Compras</span>
                 </div>
-            </main>
-        </div>
-    );
+              </div>
+
+              <div className="md:pl-4 md:border-l md:border-[#e6d8d3]">
+                <div className="mb-2 flex items-start gap-2 rounded-xl border border-[#7a1f32]/15 bg-[#faf6f4] p-2.5">
+                  <ShieldCheck size={14} className="mt-0.5 shrink-0 text-[#7a1f32]" />
+                  <p className="text-xs leading-relaxed text-[#5a4f4d]">
+                    El acceso es institucional y exclusivo.
+                  </p>
+                </div>
+                <Link
+                  to="/login"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#7a1f32] px-4 py-2.5 text-base font-bold text-white transition hover:bg-[#651a2a]"
+                >
+                  Acceder al sistema
+                  <ArrowRight size={16} />
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
 }

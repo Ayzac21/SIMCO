@@ -1,11 +1,23 @@
 import React, { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Pencil, Save, Plus, Search, X, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { Pencil, Save, Plus, Search, X, ChevronsLeft, ChevronsRight, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../../api/config";
 import { canManageUnits } from "./unitsAccess";
 
 const API_UNITS = `${API_BASE_URL}/units`;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function AppLoader({ label = "Cargando..." }) {
+  return (
+    <div className="flex-col gap-4 w-full flex items-center justify-center py-10">
+      <div className="w-20 h-20 border-4 border-transparent text-secundario text-4xl animate-spin flex items-center justify-center border-t-secundario rounded-full">
+        <div className="w-16 h-16 border-4 border-transparent text-principal text-2xl animate-spin flex items-center justify-center border-t-principal rounded-full" />
+      </div>
+      <div className="text-xs text-gray-500 mt-2">{label}</div>
+    </div>
+  );
+}
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem("token");
@@ -27,6 +39,7 @@ export default function ComprasUnidades() {
 
   const [units, setUnits] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [q, setQ] = useState("");
   const [name, setName] = useState("");
@@ -36,9 +49,11 @@ export default function ComprasUnidades() {
   const formCardRef = React.useRef(null);
   const nameInputRef = React.useRef(null);
 
-  const loadUnits = async () => {
+  const loadUnits = async ({ showRefresh = false } = {}) => {
+    const t0 = Date.now();
     try {
-      setLoading(true);
+      if (showRefresh) setRefreshing(true);
+      else setLoading(true);
       const res = await fetch(API_UNITS, { headers: getAuthHeaders() });
       const data = await res.json().catch(() => []);
       if (!res.ok) throw new Error();
@@ -47,13 +62,17 @@ export default function ComprasUnidades() {
       toast.error("No se pudieron cargar las unidades");
       setUnits([]);
     } finally {
-      setLoading(false);
+      const elapsed = Date.now() - t0;
+      const minMs = showRefresh ? 1000 : 500;
+      if (elapsed < minMs) await sleep(minMs - elapsed);
+      if (showRefresh) setRefreshing(false);
+      else setLoading(false);
     }
   };
 
   React.useEffect(() => {
     if (!isOwner) return;
-    loadUnits();
+    loadUnits({ showRefresh: false });
   }, [isOwner]);
 
   React.useEffect(() => {
@@ -129,7 +148,7 @@ export default function ComprasUnidades() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="relative space-y-5">
       {!isOwner && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 shadow-sm">
           <h2 className="text-sm font-bold text-amber-800">Acceso restringido</h2>
@@ -148,6 +167,11 @@ export default function ComprasUnidades() {
 
       {isOwner && (
         <>
+      {refreshing && !loading && (
+        <div className="absolute inset-0 z-40 bg-white/70 backdrop-blur-[1px] flex items-center justify-center rounded-xl">
+          <AppLoader label="Actualizando..." />
+        </div>
+      )}
       <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -157,10 +181,16 @@ export default function ComprasUnidades() {
             </p>
           </div>
           <button
-            onClick={loadUnits}
-            className="px-3 py-2 rounded-lg text-xs font-bold bg-secundario text-white hover:opacity-90"
+            onClick={() => loadUnits({ showRefresh: true })}
+            disabled={refreshing || loading}
+            className={`px-3 py-2 rounded-lg text-xs font-bold text-white inline-flex items-center gap-2 ${
+              refreshing || loading
+                ? "bg-secundario/70 cursor-not-allowed"
+                : "bg-secundario hover:opacity-90"
+            }`}
           >
-            Recargar
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+            {refreshing ? "Actualizando..." : "Recargar"}
           </button>
         </div>
       </div>

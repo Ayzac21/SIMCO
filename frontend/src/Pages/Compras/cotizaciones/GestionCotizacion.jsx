@@ -148,6 +148,8 @@ export default function GestionCotizacion() {
     const [selectedByItem, setSelectedByItem] = useState({});
     const [visibleItemCount, setVisibleItemCount] = useState(ITEM_CHUNK_SIZE);
     const tableScrollRef = useRef(null);
+    const [itemImagePreviews, setItemImagePreviews] = useState({});
+    const requestedItemImagesRef = useRef(new Set());
 
     const statusLabel = (s) => {
         if (!s) return "";
@@ -238,6 +240,16 @@ export default function GestionCotizacion() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
+    useEffect(() => {
+        setItemImagePreviews((prev) => {
+            Object.values(prev).forEach((url) => {
+                if (url) URL.revokeObjectURL(url);
+            });
+            return {};
+        });
+        requestedItemImagesRef.current = new Set();
+    }, [id]);
+
     const handlePriceChange = (itemId, providerId, val) => {
         const key = `${itemId}_${providerId}`;
         const clean = sanitizePriceInput(val);
@@ -316,7 +328,7 @@ export default function GestionCotizacion() {
         iva += vatAmount;
         isr += isrAmount;
         });
-        return { subtotal, iva, total: subtotal + iva - isr };
+        return { subtotal, iva, isr, total: subtotal + iva - isr };
     };
 
     const providerHasAnyPrice = (providerId) => {
@@ -379,6 +391,57 @@ export default function GestionCotizacion() {
         () => items.slice(0, visibleItemCount),
         [items, visibleItemCount]
     );
+
+    useEffect(() => {
+        let cancelled = false;
+        const toLoad = items
+            .map((item) => Number(item?.id || 0))
+            .filter((itemId) => itemId > 0 && !requestedItemImagesRef.current.has(itemId));
+
+        if (!toLoad.length) return () => {};
+
+        const loadImages = async () => {
+            const entries = await Promise.all(
+                toLoad.map(async (itemId) => {
+                    try {
+                        const resp = await fetch(`${API_URL}/requisiciones/${id}/items/${itemId}/image`, {
+                            headers: getAuthHeaders(),
+                        });
+                        if (!resp.ok) return null;
+                        const blob = await resp.blob();
+                        const url = URL.createObjectURL(blob);
+                        return [String(itemId), url];
+                    } catch {
+                        return null;
+                    }
+                })
+            );
+
+            toLoad.forEach((itemId) => requestedItemImagesRef.current.add(itemId));
+
+            if (cancelled) {
+                entries.forEach((entry) => {
+                    if (entry?.[1]) URL.revokeObjectURL(entry[1]);
+                });
+                return;
+            }
+
+            setItemImagePreviews((prev) => {
+                const next = { ...prev };
+                entries.filter(Boolean).forEach(([itemId, url]) => {
+                    if (next[itemId]) URL.revokeObjectURL(next[itemId]);
+                    next[itemId] = url;
+                });
+                return next;
+            });
+        };
+
+        loadImages();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [items, id]);
 
     useEffect(() => {
         setVisibleItemCount(ITEM_CHUNK_SIZE);
@@ -897,17 +960,20 @@ export default function GestionCotizacion() {
                 <table className="min-w-max w-full text-sm text-left border-collapse">
                 <thead className="text-xs text-gray-500 uppercase bg-gray-50 sticky top-0 z-20 shadow-sm">
                     <tr>
-                    <th className="sticky left-0 z-30 bg-gray-50 px-2 py-3 min-w-[56px] border-r border-gray-300 text-gray-700 font-bold text-center">
+                    <th className="sticky left-0 z-30 bg-gray-50 px-1.5 py-3 min-w-[42px] border-r border-gray-300 text-gray-700 font-bold text-center">
                         Partida
                     </th>
-                    <th className="sticky left-[56px] z-30 bg-gray-50 px-2 py-3 min-w-[72px] border-r border-gray-300 text-gray-700 font-bold text-center">
+                    <th className="sticky left-[42px] z-30 bg-gray-50 px-1.5 py-3 min-w-[54px] border-r border-gray-300 text-gray-700 font-bold text-center">
                         Cantidad
                     </th>
-                    <th className="sticky left-[128px] z-30 bg-gray-50 px-2 py-3 min-w-[78px] border-r border-gray-300 text-gray-700 font-bold text-center">
+                    <th className="sticky left-[96px] z-30 bg-gray-50 px-1.5 py-3 min-w-[62px] border-r border-gray-300 text-gray-700 font-bold text-center">
                         Unidad
                     </th>
-                    <th className="sticky left-[206px] z-30 bg-gray-50 px-4 py-3 min-w-[420px] border-r border-gray-300 text-gray-700 font-bold">
+                    <th className="sticky left-[158px] z-30 bg-gray-50 px-3 py-3 w-[210px] min-w-[210px] max-w-[210px] border-r border-gray-300 text-gray-700 font-bold">
                         Descripción ({items.length})
+                    </th>
+                    <th className="sticky left-[368px] z-30 bg-gray-50 px-2 py-3 w-[84px] min-w-[84px] max-w-[84px] border-r border-gray-300 text-gray-700 font-bold text-center">
+                        Img
                     </th>
 
                     {visibleProviders.length === 0 && (
@@ -918,10 +984,10 @@ export default function GestionCotizacion() {
                     {visibleProviders.map((prov) => (
                         <th
                         key={prov.id}
-                        className="px-2 py-3 min-w-[300px] border-r border-gray-200 text-center font-semibold text-gray-600 bg-gray-50"
+                        className="px-2 py-3 min-w-[220px] border-r border-gray-200 text-center font-semibold text-gray-600 bg-gray-50"
                         title={prov.status ? `Status: ${statusLabel(prov.status)}` : prov.name}
                         >
-                        <div className="truncate max-w-[280px] mx-auto">{prov.name}</div>
+                        <div className="truncate max-w-[200px] mx-auto">{prov.name}</div>
                         {prov.status && (
                             <div className="text-[10px] mt-1 text-gray-400 capitalize">
                             {statusLabel(prov.status)}
@@ -940,17 +1006,46 @@ export default function GestionCotizacion() {
                 <tbody className="divide-y divide-gray-100">
                     {renderedItems.map((item, idx) => (
                     <tr key={item.id} className="hover:bg-gray-50 transition-colors group">
-                        <td className="sticky left-0 z-20 bg-white group-hover:bg-gray-50 px-2 py-3 border-r border-gray-200 text-center">
+                        <td className="sticky left-0 z-20 bg-white group-hover:bg-gray-50 px-1.5 py-3 border-r border-gray-200 text-center">
                         <div className="font-bold text-gray-700 text-xs">{idx + 1}</div>
                         </td>
-                        <td className="sticky left-[56px] z-20 bg-white group-hover:bg-gray-50 px-2 py-3 border-r border-gray-200 text-center">
+                        <td className="sticky left-[42px] z-20 bg-white group-hover:bg-gray-50 px-1.5 py-3 border-r border-gray-200 text-center">
                         <div className="font-semibold text-gray-700 text-xs">{item.quantity}</div>
                         </td>
-                        <td className="sticky left-[128px] z-20 bg-white group-hover:bg-gray-50 px-2 py-3 border-r border-gray-200 text-center">
+                        <td className="sticky left-[96px] z-20 bg-white group-hover:bg-gray-50 px-1.5 py-3 border-r border-gray-200 text-center">
                         <div className="font-semibold text-gray-700 text-xs">{item.unidad_medida || "—"}</div>
                         </td>
-                        <td className="sticky left-[206px] z-20 bg-white group-hover:bg-gray-50 px-4 py-3 border-r border-gray-200">
-                        <div className="font-bold text-gray-700 text-xs">{item.description}</div>
+                        <td className="sticky left-[158px] z-20 bg-white group-hover:bg-gray-50 px-3 py-3 border-r border-gray-200 w-[210px] min-w-[210px] max-w-[210px]">
+                        <div
+                            className="font-bold text-gray-700 text-xs leading-tight line-clamp-3 break-words"
+                            title={item.description || ""}
+                        >
+                            {item.description}
+                        </div>
+                        </td>
+                        <td className="sticky left-[368px] z-20 bg-white group-hover:bg-gray-50 px-2 py-3 border-r border-gray-200 w-[84px] min-w-[84px] max-w-[84px] text-center">
+                        {itemImagePreviews[String(item.id)] ? (
+                            <button
+                                type="button"
+                                className="h-11 w-11 rounded border border-[#8B1D35]/20 overflow-hidden inline-flex"
+                                title="Abrir imagen"
+                                onClick={() =>
+                                    window.open(
+                                        itemImagePreviews[String(item.id)],
+                                        "_blank",
+                                        "noopener,noreferrer"
+                                    )
+                                }
+                            >
+                                <img
+                                    src={itemImagePreviews[String(item.id)]}
+                                    alt={`Imagen partida ${idx + 1}`}
+                                    className="h-full w-full object-cover"
+                                />
+                            </button>
+                        ) : (
+                            <span className="text-[10px] text-gray-400">—</span>
+                        )}
                         </td>
 
                         {visibleProviders.map((prov) => {
@@ -1067,8 +1162,8 @@ export default function GestionCotizacion() {
 
                     {renderedItems.length < items.length && (
                     <tr>
-                        <td
-                            colSpan={4 + Math.max(visibleProviders.length, 1)}
+                            <td
+                            colSpan={5 + Math.max(visibleProviders.length, 1)}
                             className="px-4 py-3 text-center text-xs text-gray-500 bg-gray-50 border-t border-gray-200"
                         >
                             Mostrando {renderedItems.length} de {items.length} partidas. Desplázate para cargar más.
@@ -1078,11 +1173,12 @@ export default function GestionCotizacion() {
 
                     <tr className="bg-gray-100 font-bold text-xs border-t border-gray-300">
                     <td className="sticky left-0 z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[56px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[128px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[206px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
+                    <td className="sticky left-[42px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[96px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[158px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
                         Sub Total:
                     </td>
+                    <td className="sticky left-[368px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
 
                     {visibleProviders.map((prov) => {
                         const subtotal = Number(providerBreakdownMap[prov.id]?.subtotal || 0);
@@ -1103,11 +1199,12 @@ export default function GestionCotizacion() {
 
                     <tr className="bg-gray-100 font-bold text-xs border-t border-gray-300">
                     <td className="sticky left-0 z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[56px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[128px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[206px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
+                    <td className="sticky left-[42px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[96px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[158px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
                         I.V.A:
                     </td>
+                    <td className="sticky left-[368px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
 
                     {visibleProviders.map((prov) => {
                         const iva = Number(providerBreakdownMap[prov.id]?.iva || 0);
@@ -1128,11 +1225,38 @@ export default function GestionCotizacion() {
 
                     <tr className="bg-gray-100 font-bold text-xs border-t border-gray-300">
                     <td className="sticky left-0 z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[56px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[128px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[206px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
+                    <td className="sticky left-[42px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[96px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[158px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
+                        I.S.R. (-):
+                    </td>
+                    <td className="sticky left-[368px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+
+                    {visibleProviders.map((prov) => {
+                        const isr = Number(providerBreakdownMap[prov.id]?.isr || 0);
+                        return (
+                        <td
+                            key={prov.id}
+                            className={`px-2 py-3 text-right pr-2 border-r border-gray-200 ${
+                            isr > 0 ? "text-blue-700" : "text-gray-400"
+                            }`}
+                        >
+                            {isr > 0
+                            ? `-$${isr.toLocaleString("es-MX", { minimumFractionDigits: 2 })}`
+                            : "-"}
+                        </td>
+                        );
+                    })}
+                    </tr>
+
+                    <tr className="bg-gray-100 font-bold text-xs border-t border-gray-300">
+                    <td className="sticky left-0 z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[42px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[96px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[158px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
                         Total Cotización:
                     </td>
+                    <td className="sticky left-[368px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
 
                     {visibleProviders.map((prov) => {
                         const total = Number(providerBreakdownMap[prov.id]?.total || 0);

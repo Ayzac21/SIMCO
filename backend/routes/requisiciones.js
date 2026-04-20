@@ -26,6 +26,7 @@ const requisitionHeaderLogoJpegPath = path.resolve(__dirname, "..", "templates",
 const arialRegularPath = "/System/Library/Fonts/Supplemental/Arial.ttf";
 const arialBoldPath = "/System/Library/Fonts/Supplemental/Arial Bold.ttf";
 const maxAttachmentSizeBytes = 8 * 1024 * 1024;
+const maxLineItemImageSizeBytes = 8 * 1024 * 1024;
 const requisitionPrintLayout = {
   size: "A4",
   margins: { top: 32, right: 12, bottom: 34, left: 12 },
@@ -51,6 +52,7 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 let ensureAttachmentsTablePromise = null;
+let ensureLineItemImageColumnsPromise = null;
 
 const ensureAttachmentsTable = async () => {
   if (!ensureAttachmentsTablePromise) {
@@ -75,6 +77,36 @@ const ensureAttachmentsTable = async () => {
   }
 
   await ensureAttachmentsTablePromise;
+};
+
+const ensureLineItemImageColumns = async () => {
+  if (!ensureLineItemImageColumnsPromise) {
+    ensureLineItemImageColumnsPromise = (async () => {
+      const requiredColumns = [
+        ["image_original_name", "VARCHAR(255) NULL"],
+        ["image_mime_type", "VARCHAR(120) NULL"],
+        ["image_size_bytes", "INT NULL"],
+        ["image_file_path", "VARCHAR(500) NULL"],
+      ];
+
+      for (const [columnName, columnType] of requiredColumns) {
+        const [existsRows] = await pool.query(
+          `SHOW COLUMNS FROM line_items LIKE ?`,
+          [columnName]
+        );
+        if (!Array.isArray(existsRows) || !existsRows.length) {
+          await pool.query(
+            `ALTER TABLE line_items ADD COLUMN ${columnName} ${columnType}`
+          );
+        }
+      }
+    })().catch((error) => {
+      ensureLineItemImageColumnsPromise = null;
+      throw error;
+    });
+  }
+
+  await ensureLineItemImageColumnsPromise;
 };
 
 const upload = multer({
@@ -104,6 +136,43 @@ const upload = multer({
     return cb(null, true);
   },
 });
+
+const lineItemImageUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadsDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || "").toLowerCase();
+      const safeExt = ext || ".bin";
+      const unique = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+      cb(null, `line-item-${unique}${safeExt}`);
+    },
+  }),
+  limits: {
+    fileSize: maxLineItemImageSizeBytes,
+    files: 1,
+  },
+  fileFilter: (_req, file, cb) => {
+    const mime = String(file.mimetype || "").toLowerCase();
+    const ext = path.extname(String(file.originalname || "")).toLowerCase();
+    const isImage =
+      mime.startsWith("image/") || [".png", ".jpg", ".jpeg", ".webp"].includes(ext);
+    if (!isImage) {
+      return cb(new Error("Solo se permiten imágenes (PNG/JPG/WEBP)"));
+    }
+    return cb(null, true);
+  },
+});
+
+const safeUnlinkUpload = (maybePath) => {
+  try {
+    if (!maybePath) return;
+    const absPath = path.resolve(String(maybePath));
+    if (!absPath.startsWith(uploadsDir)) return;
+    if (fs.existsSync(absPath)) fs.unlinkSync(absPath);
+  } catch (error) {
+    console.error("WARN unlink upload:", error);
+  }
+};
 
 const parseUserId = (value) => {
   const n = Number(value);
@@ -448,6 +517,159 @@ router.get("/:id/attachments/:attachmentId/download", async (req, res) => {
   } catch (err) {
     console.error("ERROR download attachment:", err);
     return res.status(500).json({ ok: false, message: "Error interno" });
+  }
+});
+
+router.post("/:id/partidas/:lineItemId/image", lineItemImageUpload.single("file"), async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const { id, lineItemId } = req.params;
+    await ensureLineItemImageColumns();
+    const ownsReq = await ensureOwnsRequisition(req, res, id, conn);
+    if (!ownsReq) {
+      if (req.file?.path) safeUnlinkUpload(req.file.path);
+      return;
+    }
+
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ ok: false, message: "Falta la imagen" });
+    }
+
+    const [[lineItem]] = await conn.query(
+      `
+      SELECT id, image_file_path
+      FROM line_items
+      WHERE id = ? AND requisition_id = ?
+      LIMIT 1
+      `,
+      [lineItemId, id]
+    );
+
+    if (!lineItem) {
+      safeUnlinkUpload(file.path);
+      return res.status(404).json({ ok: false, message: "Partida no encontrada" });
+    }
+
+    await conn.query(
+      `
+      UPDATE line_items
+      SET
+        image_original_name = ?,
+        image_mime_type = ?,
+        image_size_bytes = ?,
+        image_file_path = ?
+      WHERE id = ? AND requisition_id = ?
+      `,
+      [
+        file.originalname || "imagen",
+        file.mimetype || "image/*",
+        Number(file.size || 0),
+        file.path,
+        lineItemId,
+        id,
+      ]
+    );
+
+    safeUnlinkUpload(lineItem.image_file_path);
+
+    return res.json({
+      ok: true,
+      image: {
+        original_name: file.originalname || "imagen",
+        mime_type: file.mimetype || "image/*",
+        size_bytes: Number(file.size || 0),
+      },
+    });
+  } catch (err) {
+    if (req.file?.path) safeUnlinkUpload(req.file.path);
+    console.error("ERROR upload line item image:", err);
+    return res.status(500).json({ ok: false, message: "Error interno" });
+  } finally {
+    conn.release();
+  }
+});
+
+router.get("/:id/partidas/:lineItemId/image", async (req, res) => {
+  try {
+    const { id, lineItemId } = req.params;
+    await ensureLineItemImageColumns();
+    const ownsReq = await ensureOwnsRequisition(req, res, id);
+    if (!ownsReq) return;
+
+    const [[lineItem]] = await pool.query(
+      `
+      SELECT image_file_path, image_mime_type, image_original_name
+      FROM line_items
+      WHERE id = ? AND requisition_id = ?
+      LIMIT 1
+      `,
+      [lineItemId, id]
+    );
+
+    if (!lineItem || !lineItem.image_file_path) {
+      return res.status(404).json({ ok: false, message: "Imagen no encontrada" });
+    }
+
+    const absPath = path.resolve(lineItem.image_file_path);
+    if (!absPath.startsWith(uploadsDir) || !fs.existsSync(absPath)) {
+      return res.status(404).json({ ok: false, message: "Archivo no disponible" });
+    }
+
+    const mime = lineItem.image_mime_type || "application/octet-stream";
+    const filename = encodeURIComponent(lineItem.image_original_name || "imagen");
+    res.setHeader("Content-Type", mime);
+    res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${filename}`);
+    return res.sendFile(absPath);
+  } catch (err) {
+    console.error("ERROR download line item image:", err);
+    return res.status(500).json({ ok: false, message: "Error interno" });
+  }
+});
+
+router.delete("/:id/partidas/:lineItemId/image", async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const { id, lineItemId } = req.params;
+    await ensureLineItemImageColumns();
+    const ownsReq = await ensureOwnsRequisition(req, res, id, conn);
+    if (!ownsReq) return;
+
+    const [[lineItem]] = await conn.query(
+      `
+      SELECT image_file_path
+      FROM line_items
+      WHERE id = ? AND requisition_id = ?
+      LIMIT 1
+      `,
+      [lineItemId, id]
+    );
+
+    if (!lineItem) {
+      return res.status(404).json({ ok: false, message: "Partida no encontrada" });
+    }
+
+    await conn.query(
+      `
+      UPDATE line_items
+      SET
+        image_original_name = NULL,
+        image_mime_type = NULL,
+        image_size_bytes = NULL,
+        image_file_path = NULL
+      WHERE id = ? AND requisition_id = ?
+      `,
+      [lineItemId, id]
+    );
+
+    safeUnlinkUpload(lineItem.image_file_path);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("ERROR remove line item image:", err);
+    return res.status(500).json({ ok: false, message: "Error interno" });
+  } finally {
+    conn.release();
   }
 });
 
@@ -1390,6 +1612,7 @@ router.get("/:id", async (req, res) => {
 
     if (!requisicion) return res.status(404).json({ ok: false, message: "No encontrada" });
 
+    await ensureLineItemImageColumns();
     const [partidas] = await pool.query(
       `
       SELECT
@@ -1397,7 +1620,10 @@ router.get("/:id", async (req, res) => {
         product_name,
         description,
         quantity,
-        units_id
+        units_id,
+        image_original_name,
+        image_mime_type,
+        image_size_bytes
       FROM line_items
       WHERE requisition_id = ?
       `,
@@ -1456,6 +1682,7 @@ router.put("/:id", async (req, res) => {
   const { notes, request_name, justification, observation, partidas } = req.body;
 
   try {
+    await ensureLineItemImageColumns();
     const ownsReq = await ensureOwnsRequisition(req, res, id, conn);
     if (!ownsReq) return;
 
@@ -1475,26 +1702,47 @@ router.put("/:id", async (req, res) => {
     );
 
     const [actuales] = await conn.query(`SELECT id FROM line_items WHERE requisition_id = ?`, [id]);
-    const idsActuales = actuales.map((p) => p.id);
-    const idsRecibidos = (partidas || []).filter((p) => p.id).map((p) => p.id);
+    const idsActuales = actuales.map((p) => Number(p.id)).filter((v) => Number.isInteger(v) && v > 0);
+    const idsRecibidos = (partidas || [])
+      .map((p) => Number(p?.id || 0))
+      .filter((v) => Number.isInteger(v) && v > 0);
 
     const eliminar = idsActuales.filter((x) => !idsRecibidos.includes(x));
+    let deletedImagePaths = [];
     if (eliminar.length) {
-      await conn.query(`DELETE FROM line_items WHERE id IN (?)`, [eliminar]);
+      const [toDeleteRows] = await conn.query(
+        `
+        SELECT image_file_path
+        FROM line_items
+        WHERE requisition_id = ? AND id IN (?)
+        `,
+        [id, eliminar]
+      );
+      deletedImagePaths = (toDeleteRows || []).map((row) => row.image_file_path).filter(Boolean);
+      await conn.query(`DELETE FROM line_items WHERE requisition_id = ? AND id IN (?)`, [id, eliminar]);
     }
 
+    const orderedIds = [];
     for (const p of partidas || []) {
       if (p.id) {
-        await conn.query(
+        const partidaId = Number(p.id);
+        if (!Number.isInteger(partidaId) || partidaId <= 0) {
+          throw Object.assign(new Error("Partida inválida"), { statusCode: 400 });
+        }
+        const [updateResult] = await conn.query(
           `
           UPDATE line_items
           SET product_name=?, description=?, quantity=?, units_id=?
-          WHERE id=?
+          WHERE id=? AND requisition_id=?
           `,
-          [p.product_name, p.description, p.quantity, p.units_id, p.id]
+          [p.product_name, p.description, p.quantity, p.units_id, partidaId, id]
         );
+        if (!updateResult?.affectedRows) {
+          throw Object.assign(new Error("Partida no encontrada en la requisición"), { statusCode: 400 });
+        }
+        orderedIds.push(partidaId);
       } else {
-        await conn.query(
+        const [insertResult] = await conn.query(
           `
           INSERT INTO line_items
             (product_name, description, quantity, units_id, requisition_id)
@@ -1502,13 +1750,43 @@ router.put("/:id", async (req, res) => {
           `,
           [p.product_name, p.description, p.quantity, p.units_id, id]
         );
+        orderedIds.push(Number(insertResult.insertId));
       }
     }
 
+    let partidasActualizadas = [];
+    if (orderedIds.length) {
+      const [rows] = await conn.query(
+        `
+        SELECT
+          id,
+          product_name,
+          description,
+          quantity,
+          units_id,
+          image_original_name,
+          image_mime_type,
+          image_size_bytes
+        FROM line_items
+        WHERE requisition_id = ? AND id IN (?)
+        `,
+        [id, orderedIds]
+      );
+
+      const byId = new Map(rows.map((row) => [Number(row.id), row]));
+      partidasActualizadas = orderedIds
+        .map((lineId) => byId.get(Number(lineId)))
+        .filter(Boolean);
+    }
+
     await conn.commit();
-    return res.json({ ok: true });
+    deletedImagePaths.forEach(safeUnlinkUpload);
+    return res.json({ ok: true, partidas: partidasActualizadas });
   } catch (err) {
     await conn.rollback();
+    if (Number(err?.statusCode) >= 400 && Number(err?.statusCode) < 500) {
+      return res.status(err.statusCode).json({ ok: false, message: err.message || "Datos inválidos" });
+    }
     console.error("ERROR editar requisición:", err);
     return res.status(500).json({ ok: false, message: "Error interno" });
   } finally {

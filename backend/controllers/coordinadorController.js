@@ -1,4 +1,7 @@
 import { pool } from "../db/connection.js"; 
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import {
     createNotification,
     createNotificationsForUsers,
@@ -12,6 +15,9 @@ const parseUserId = (value) => {
 };
 
 const getAuthUserId = (req) => parseUserId(req.user?.id);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const requisitionUploadsDir = path.resolve(__dirname, "..", "uploads", "requisiciones");
 
 const getCoordinatorUre = async (coordinadorId) => {
     const [rows] = await pool.query("SELECT ure FROM users WHERE id = ? LIMIT 1", [coordinadorId]);
@@ -136,6 +142,45 @@ export const getRequisicionesCoordinador = async (req, res) => {
     } catch (error) {
         console.error("ERROR FATAL:", error); 
         res.status(500).json({ message: error.message });
+    }
+};
+
+export const getRequisicionItemImage = async (req, res) => {
+    try {
+        const { id, line_item_id } = req.params;
+        const inScope = await ensureCoordinatorScopeByRequisition(req, res, id);
+        if (!inScope) return;
+
+        const [[itemRow]] = await pool.query(
+            `
+            SELECT id, image_file_path, image_mime_type, image_original_name
+            FROM line_items
+            WHERE id = ? AND requisition_id = ?
+            LIMIT 1
+            `,
+            [line_item_id, id]
+        );
+
+        if (!itemRow || !itemRow.image_file_path) {
+            return res.status(404).json({ message: "Imagen no encontrada" });
+        }
+
+        const absPath = path.resolve(String(itemRow.image_file_path));
+        if (!absPath.startsWith(requisitionUploadsDir) || !fs.existsSync(absPath)) {
+            return res.status(404).json({ message: "Archivo no disponible" });
+        }
+
+        const mime = itemRow.image_mime_type || "application/octet-stream";
+        const fileName = encodeURIComponent(itemRow.image_original_name || "imagen");
+        res.setHeader("Content-Type", mime);
+        res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${fileName}`);
+        return res.sendFile(absPath);
+    } catch (error) {
+        if (error?.code === "ER_BAD_FIELD_ERROR") {
+            return res.status(404).json({ message: "Imagen no disponible" });
+        }
+        console.error("Error al descargar imagen de partida:", error);
+        return res.status(500).json({ message: "Error interno del servidor" });
     }
 };
 
@@ -379,6 +424,58 @@ export const enviarBorradorCoordinador = async (req, res) => {
             changedBy: getAuthUserId(req),
             note: "Envío de borrador por coordinación",
         });
+
+        const actorId = getAuthUserId(req);
+        const ownerId = parseUserId(reqScope.users_id);
+        if (resumeTo === 9) {
+            if (ownerId && ownerId !== actorId) {
+                await createNotification({
+                    recipientUserId: ownerId,
+                    actorUserId: actorId,
+                    title: "Requisición enviada a Secretaría",
+                    message: `La requisición #${id} fue enviada a Secretaría para revisión.`,
+                    entityType: "requisition",
+                    entityId: Number(id),
+                    actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+                });
+            }
+
+            const secretariaIds = await getUsersByRole("secretaria");
+            await createNotificationsForUsers(secretariaIds, {
+                actorUserId: actorId,
+                title: "Nueva requisición en Secretaría",
+                message: `La requisición #${id} fue enviada por Coordinación y está lista para revisión.`,
+                entityType: "requisition",
+                entityId: Number(id),
+                actionPath: `/secretaria/recibidas?openReq=${id}`,
+            });
+        } else if (resumeTo === 12) {
+            if (ownerId && ownerId !== actorId) {
+                await createNotification({
+                    recipientUserId: ownerId,
+                    actorUserId: actorId,
+                    title: "Requisición enviada a Compras",
+                    message: `La requisición #${id} fue reenviada a Compras para cotización.`,
+                    entityType: "requisition",
+                    entityId: Number(id),
+                    actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+                });
+            }
+
+            const [comprasAdminIds, comprasOperadorIds] = await Promise.all([
+                getUsersByRole("compras_admin"),
+                getUsersByRole("compras_operador"),
+            ]);
+            const comprasIds = Array.from(new Set([...comprasAdminIds, ...comprasOperadorIds]));
+            await createNotificationsForUsers(comprasIds, {
+                actorUserId: actorId,
+                title: "Requisición en Compras",
+                message: `La requisición #${id} fue reenviada por Coordinación para continuar cotización.`,
+                entityType: "requisition",
+                entityId: Number(id),
+                actionPath: `/compras/dashboard`,
+            });
+        }
 
         return res.json({
             ok: true,

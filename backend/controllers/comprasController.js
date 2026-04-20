@@ -75,7 +75,7 @@ const ensureAssignedOrAdmin = async (req, res, requisitionId) => {
 };
 
 const getComprasAdminIds = async (connOrPool = pool) => {
-  const [rows] = await connOrPool.query(
+    const [rows] = await connOrPool.query(
     `
     SELECT id
     FROM users
@@ -87,6 +87,26 @@ const getComprasAdminIds = async (connOrPool = pool) => {
 
 let selectionTaxColumnsAvailableCache = null;
 let ensureAttachmentsTablePromise = null;
+let lineItemImageColumnsAvailableCache = null;
+const hasLineItemImageColumns = async (connOrPool = pool) => {
+  if (lineItemImageColumnsAvailableCache !== null) return lineItemImageColumnsAvailableCache;
+  try {
+    const [pathCols] = await connOrPool.query(
+      `SHOW COLUMNS FROM line_items LIKE 'image_file_path'`
+    );
+    const [mimeCols] = await connOrPool.query(
+      `SHOW COLUMNS FROM line_items LIKE 'image_mime_type'`
+    );
+    const [nameCols] = await connOrPool.query(
+      `SHOW COLUMNS FROM line_items LIKE 'image_original_name'`
+    );
+    lineItemImageColumnsAvailableCache =
+      pathCols.length > 0 && mimeCols.length > 0 && nameCols.length > 0;
+  } catch {
+    lineItemImageColumnsAvailableCache = false;
+  }
+  return lineItemImageColumnsAvailableCache;
+};
 const hasSelectionTaxColumns = async (connOrPool = pool) => {
   if (selectionTaxColumnsAvailableCache !== null) return selectionTaxColumnsAvailableCache;
   try {
@@ -283,6 +303,161 @@ export const getComprasDashboard = async (req, res) => {
 };
 
 /* =============================
+   PREPARACION COMPRAS (ADMIN)
+   Vista temprana de requisiciones en borrador (7)
+============================= */
+export const getComprasPreparation = async (req, res) => {
+  try {
+    if (req.user?.role !== "compras_admin") {
+      return res.status(403).json({ message: "Solo admin puede acceder a esta vista" });
+    }
+
+    const page = Math.max(1, Number(req.query.page || 1));
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit || 10)));
+    const offset = (page - 1) * limit;
+    const q = String(req.query.q || "").trim();
+
+    const status = String(req.query.status || "all");
+    const visibleStatuses = [7, 8, 9, 11, 12, 13, 14];
+    const whereParts = [`r.statuses_id IN (${visibleStatuses.join(",")})`];
+    const params = [];
+
+    if (status !== "all") {
+      const statusId = Number(status);
+      if (!Number.isInteger(statusId) || !visibleStatuses.includes(statusId)) {
+        return res.status(400).json({ message: "Filtro de estatus inválido" });
+      }
+      whereParts.push("r.statuses_id = ?");
+      params.push(statusId);
+    }
+
+    if (q) {
+      whereParts.push(`
+        (
+          CAST(r.id AS CHAR) LIKE ?
+          OR r.request_name LIKE ?
+          OR u.name LIKE ?
+          OR u.ure LIKE ?
+          OR ho.name LIKE ?
+          OR c.name LIKE ?
+          OR c2.name LIKE ?
+        )
+      `);
+      const like = `%${q}%`;
+      params.push(like, like, like, like, like, like, like);
+    }
+
+    const whereClause = `WHERE ${whereParts.join(" AND ")}`;
+
+    const countQuery = `
+      SELECT COUNT(DISTINCT r.id) AS total
+      FROM requisition r
+      LEFT JOIN users u ON r.users_id = u.id
+      LEFT JOIN head_offices ho
+        ON ho.id = (
+          SELECT ho2.id
+          FROM head_offices ho2
+          WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(ho2.ure)), '%')
+          ORDER BY LENGTH(TRIM(ho2.ure)) DESC
+          LIMIT 1
+        )
+      LEFT JOIN coordination c ON ho.coordination_id = c.id
+      LEFT JOIN coordination c2
+        ON c2.id = (
+          SELECT c3.id
+          FROM coordination c3
+          WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(c3.ure)), '%')
+          ORDER BY LENGTH(TRIM(c3.ure)) DESC
+          LIMIT 1
+        )
+      ${whereClause}
+    `;
+    const [countRows] = await pool.query(countQuery, params);
+    const total = Number(countRows?.[0]?.total || 0);
+
+    const [countsRows] = await pool.query(
+      `
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN r.statuses_id = 7 THEN 1 ELSE 0 END) AS s7,
+        SUM(CASE WHEN r.statuses_id = 8 THEN 1 ELSE 0 END) AS s8,
+        SUM(CASE WHEN r.statuses_id = 9 THEN 1 ELSE 0 END) AS s9,
+        SUM(CASE WHEN r.statuses_id = 10 THEN 1 ELSE 0 END) AS s10,
+        SUM(CASE WHEN r.statuses_id = 11 THEN 1 ELSE 0 END) AS s11,
+        SUM(CASE WHEN r.statuses_id = 12 THEN 1 ELSE 0 END) AS s12,
+        SUM(CASE WHEN r.statuses_id = 13 THEN 1 ELSE 0 END) AS s13,
+        SUM(CASE WHEN r.statuses_id = 14 THEN 1 ELSE 0 END) AS s14
+      FROM requisition r
+      WHERE r.statuses_id IN (${visibleStatuses.join(",")})
+      `
+    );
+    const counts = countsRows?.[0] || {};
+
+    const query = `
+      SELECT
+        r.id,
+        r.request_name,
+        r.created_at,
+        r.statuses_id,
+        r.notes,
+        r.justification,
+        r.observation,
+        s.name AS nombre_estatus,
+        u.name AS solicitante,
+        u.role AS created_by_role,
+        u.ure AS ure_solicitante,
+        COALESCE(NULLIF(TRIM(ho.name), ''), NULLIF(TRIM(c2.name), ''), u.ure) AS nombre_unidad,
+        COALESCE(NULLIF(TRIM(c.name), ''), NULLIF(TRIM(c2.name), ''), 'General') AS coordinacion
+      FROM requisition r
+      LEFT JOIN statuses s ON r.statuses_id = s.id
+      LEFT JOIN users u ON r.users_id = u.id
+      LEFT JOIN head_offices ho
+        ON ho.id = (
+          SELECT ho2.id
+          FROM head_offices ho2
+          WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(ho2.ure)), '%')
+          ORDER BY LENGTH(TRIM(ho2.ure)) DESC
+          LIMIT 1
+        )
+      LEFT JOIN coordination c ON ho.coordination_id = c.id
+      LEFT JOIN coordination c2
+        ON c2.id = (
+          SELECT c3.id
+          FROM coordination c3
+          WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(c3.ure)), '%')
+          ORDER BY LENGTH(TRIM(c3.ure)) DESC
+          LIMIT 1
+        )
+      ${whereClause}
+      ORDER BY r.created_at DESC
+      LIMIT ? OFFSET ?
+    `;
+    const [rows] = await pool.query(query, [...params, limit, offset]);
+
+    return res.json({
+      rows,
+      total,
+      page,
+      limit,
+      counts: {
+        total: Number(counts.total || 0),
+        s7: Number(counts.s7 || 0),
+        s8: Number(counts.s8 || 0),
+        s9: Number(counts.s9 || 0),
+        s10: Number(counts.s10 || 0),
+        s11: Number(counts.s11 || 0),
+        s12: Number(counts.s12 || 0),
+        s13: Number(counts.s13 || 0),
+        s14: Number(counts.s14 || 0),
+      },
+    });
+  } catch (error) {
+    console.error("Error en vista de preparación compras:", error);
+    return res.status(500).json({ message: "Error en el servidor" });
+  }
+};
+
+/* =============================
    OPERADORES DE COMPRAS
 ============================= */
 export const getComprasOperators = async (req, res) => {
@@ -418,6 +593,14 @@ export const updateEstatusCompras = async (req, res) => {
       return res.status(400).json({ message: "Falta status_id" });
     }
 
+    const allowedTargets = new Set([7, 10, 11]);
+    if (!allowedTargets.has(targetStatusId)) {
+      return res.status(400).json({
+        message: "status_id no permitido para Compras",
+        allowed_statuses: [7, 10, 11],
+      });
+    }
+
     if ((targetStatusId === 10 || targetStatusId === 7) && req.user?.role !== "compras_admin") {
       return res.status(403).json({ message: "Solo admin puede ejecutar esta acción" });
     }
@@ -437,6 +620,25 @@ export const updateEstatusCompras = async (req, res) => {
       return res.status(404).json({ message: "Requisición no encontrada" });
     }
     const currentStatusId = Number(currentRow.statuses_id || 0);
+
+    if (currentStatusId === targetStatusId) {
+      return res.json({ message: "La requisición ya tiene ese estatus" });
+    }
+
+    // Reglas de transición para evitar saltos de proceso por error o llamadas externas
+    if (targetStatusId === 11 && currentStatusId !== 13) {
+      return res.status(400).json({
+        message: "Solo se puede marcar como comprada cuando está en proceso de compra (13)",
+        current_status: currentStatusId,
+      });
+    }
+
+    if ((targetStatusId === 7 || targetStatusId === 10) && ![12, 13, 14].includes(currentStatusId)) {
+      return res.status(400).json({
+        message: "Solo se puede ajustar/rechazar requisiciones activas en flujo de Compras (12, 13, 14)",
+        current_status: currentStatusId,
+      });
+    }
 
     if (targetStatusId === 11) {
       const [rows] = await pool.query(
@@ -496,7 +698,17 @@ export const updateEstatusCompras = async (req, res) => {
 
     const ownerId = Number(currentRow.users_id || 0);
     const actorId = Number(req.user?.id || 0) || null;
-    if (ownerId > 0 && targetStatusId === 11) {
+    if (ownerId > 0 && targetStatusId === 7) {
+      await createNotification({
+        recipientUserId: ownerId,
+        actorUserId: actorId,
+        title: "Compras solicitó corrección",
+        message: `La requisición #${id} regresó a borrador para ajustes. Revisa comentarios y reenvía.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+      });
+    } else if (ownerId > 0 && targetStatusId === 11) {
       await createNotification({
         recipientUserId: ownerId,
         actorUserId: actorId,
@@ -540,6 +752,26 @@ export const updateEstatusCompras = async (req, res) => {
           targetStatusId === 11
             ? `La requisición #${id} fue finalizada por Compras.`
             : `La requisición #${id} fue rechazada por Compras.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/secretaria/recibidas?openReq=${id}`,
+      });
+    } else if (targetStatusId === 7) {
+      const coordinatorIds = await getCoordinatorUsersForRequisition(id);
+      await createNotificationsForUsers(coordinatorIds, {
+        actorUserId: actorId,
+        title: "Compras solicitó corrección",
+        message: `La requisición #${id} regresó a borrador para ajustes solicitados por Compras.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/coordinador/requisiciones?openReq=${id}`,
+      });
+
+      const secretariaIds = await getUsersByRole("secretaria");
+      await createNotificationsForUsers(secretariaIds, {
+        actorUserId: actorId,
+        title: "Ajuste solicitado por Compras",
+        message: `La requisición #${id} fue devuelta a borrador por Compras.`,
         entityType: "requisition",
         entityId: Number(id),
         actionPath: `/secretaria/recibidas?openReq=${id}`,
@@ -1033,6 +1265,49 @@ export const getRequisitionItems = async (req, res) => {
   } catch (error) {
     console.error("Error obteniendo items:", error);
     res.status(500).json([]);
+  }
+};
+
+export const getComprasRequisitionItemImage = async (req, res) => {
+  try {
+    const { id, lineItemId } = req.params;
+    const ok = await ensureAssignedOrAdmin(req, res, id);
+    if (!ok) return;
+
+    const [[row]] = await pool.query(
+      `
+      SELECT image_file_path, image_mime_type, image_original_name
+      FROM line_items
+      WHERE id = ? AND requisition_id = ?
+      LIMIT 1
+      `,
+      [lineItemId, id]
+    );
+
+    if (!row || !row.image_file_path) {
+      return res.status(404).json({ message: "Imagen no encontrada" });
+    }
+
+    const absPath = path.resolve(String(row.image_file_path || ""));
+    if (!absPath.startsWith(requisitionUploadsDir)) {
+      return res.status(404).json({ message: "Archivo no disponible" });
+    }
+
+    await fs.access(absPath);
+    const mime = row.image_mime_type || "application/octet-stream";
+    const fileName = encodeURIComponent(row.image_original_name || "imagen");
+    res.setHeader("Content-Type", mime);
+    res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${fileName}`);
+    return res.sendFile(absPath);
+  } catch (error) {
+    if (error?.code === "ER_BAD_FIELD_ERROR") {
+      return res.status(404).json({ message: "Imagen no disponible" });
+    }
+    if (error?.code === "ENOENT") {
+      return res.status(404).json({ message: "Archivo no disponible" });
+    }
+    console.error("Error obteniendo imagen por partida (compras):", error);
+    return res.status(500).json({ message: "Error interno" });
   }
 };
 
@@ -3170,7 +3445,7 @@ export const closeCotizacionInvites = async (req, res) => {
       [id]
     );
 
-    const closedBy = null;
+    const closedBy = Number(req.user?.id || 0) || null;
 
     await conn.query(
       `
@@ -3214,7 +3489,7 @@ export const sendCotizacionToReview = async (req, res) => {
 
     const [reqRows] = await conn.query(
       `
-      SELECT id, statuses_id, quotation_closed_at
+      SELECT id, statuses_id, quotation_closed_at, users_id
       FROM requisition
       WHERE id = ? FOR UPDATE
       `,
@@ -3329,6 +3604,7 @@ export const sendCotizacionToReview = async (req, res) => {
 
     const actorId = Number(req.user?.id || 0) || null;
     const adminIds = (await getComprasAdminIds(conn)).filter((uid) => uid !== actorId);
+    const ownerId = Number(reqRow.users_id || 0) || null;
     await conn.commit();
     for (const adminId of adminIds) {
       await createNotification({
@@ -3341,6 +3617,35 @@ export const sendCotizacionToReview = async (req, res) => {
         actionPath: `/compras/revision/${id}`,
       });
     }
+    if (ownerId && ownerId !== actorId) {
+      await createNotification({
+        recipientUserId: ownerId,
+        actorUserId: actorId,
+        title: "Requisición en revisión interna de Compras",
+        message: `La requisición #${id} avanzó a revisión interna de cotizaciones.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+      });
+    }
+    const coordinatorIds = await getCoordinatorUsersForRequisition(id);
+    await createNotificationsForUsers(coordinatorIds, {
+      actorUserId: actorId,
+      title: "Requisición en revisión interna de Compras",
+      message: `La requisición #${id} cambió a revisión interna de Compras.`,
+      entityType: "requisition",
+      entityId: Number(id),
+      actionPath: `/coordinador/requisiciones?openReq=${id}`,
+    });
+    const secretariaIds = await getUsersByRole("secretaria");
+    await createNotificationsForUsers(secretariaIds, {
+      actorUserId: actorId,
+      title: "Requisición en revisión interna",
+      message: `La requisición #${id} está en revisión interna de Compras.`,
+      entityType: "requisition",
+      entityId: Number(id),
+      actionPath: `/secretaria/recibidas?openReq=${id}`,
+    });
     res.json({ message: "Enviado a revisión interna de Compras", requisition_statuses_id: 14 });
   } catch (error) {
     await conn.rollback();
@@ -3506,7 +3811,7 @@ export const submitComprasReviewSelection = async (req, res) => {
     const withSelectionTaxCols = await hasSelectionTaxColumns(conn);
 
     const [reqRows] = await conn.query(
-      `SELECT id, statuses_id, assigned_operator_id FROM requisition WHERE id = ? FOR UPDATE`,
+      `SELECT id, statuses_id, assigned_operator_id, users_id FROM requisition WHERE id = ? FOR UPDATE`,
       [id]
     );
     if (reqRows.length === 0) {
@@ -3672,6 +3977,7 @@ export const submitComprasReviewSelection = async (req, res) => {
     if (sent_to_purchase) {
       const actorId = Number(req.user?.id || 0) || null;
       const operatorId = Number(reqRows[0].assigned_operator_id || 0);
+      const ownerId = Number(reqRows[0].users_id || 0);
       if (operatorId > 0) {
         await createNotification({
           recipientUserId: operatorId,
@@ -3683,6 +3989,35 @@ export const submitComprasReviewSelection = async (req, res) => {
           actionPath: "/compras/dashboard",
         });
       }
+      if (ownerId > 0 && ownerId !== actorId) {
+        await createNotification({
+          recipientUserId: ownerId,
+          actorUserId: actorId,
+          title: "Requisición en proceso de compra",
+          message: `La requisición #${id} pasó a proceso de compra.`,
+          entityType: "requisition",
+          entityId: Number(id),
+          actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+        });
+      }
+      const coordinatorIds = await getCoordinatorUsersForRequisition(id);
+      await createNotificationsForUsers(coordinatorIds, {
+        actorUserId: actorId,
+        title: "Requisición en proceso de compra",
+        message: `La requisición #${id} pasó a proceso de compra.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/coordinador/requisiciones?openReq=${id}`,
+      });
+      const secretariaIds = await getUsersByRole("secretaria");
+      await createNotificationsForUsers(secretariaIds, {
+        actorUserId: actorId,
+        title: "Requisición en proceso de compra",
+        message: `La requisición #${id} avanzó a proceso de compra.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/secretaria/recibidas?openReq=${id}`,
+      });
     }
 
     return res.json({

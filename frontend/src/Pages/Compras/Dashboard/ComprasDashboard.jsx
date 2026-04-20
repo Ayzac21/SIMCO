@@ -21,6 +21,17 @@ const getAuthHeaders = () => {
     };
 };
 
+function AppLoader({ label = "Cargando..." }) {
+    return (
+        <div className="flex-col gap-4 w-full flex items-center justify-center py-10">
+            <div className="w-20 h-20 border-4 border-transparent text-secundario text-4xl animate-spin flex items-center justify-center border-t-secundario rounded-full">
+                <div className="w-16 h-16 border-4 border-transparent text-principal text-2xl animate-spin flex items-center justify-center border-t-principal rounded-full" />
+            </div>
+            <div className="text-xs text-gray-500 mt-2">{label}</div>
+        </div>
+    );
+}
+
 export default function ComprasDashboard() {
     const location = useLocation();
     const navigate = useNavigate();
@@ -173,7 +184,7 @@ export default function ComprasDashboard() {
     };
 
     return (
-        <div className="p-6 min-h-screen bg-[#F3F4F6]">
+        <div className="relative p-6 min-h-screen bg-[#F3F4F6]">
         {assigningReq && (
             <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4">
             <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-6">
@@ -534,11 +545,8 @@ export default function ComprasDashboard() {
             />
         )}
         {refreshing && !loading && (
-            <div className="fixed inset-0 z-30 pointer-events-none flex items-center justify-center">
-                <div className="px-4 py-2 rounded-full bg-white/90 border border-[#8B1D35]/20 shadow text-[#8B1D35] text-xs font-bold flex items-center gap-2">
-                    <RotateCw size={14} className="animate-spin" />
-                    Actualizando datos...
-                </div>
+            <div className="absolute inset-0 z-40 bg-white/70 backdrop-blur-[1px] flex items-center justify-center rounded-xl">
+                <AppLoader label="Actualizando..." />
             </div>
         )}
         </div>

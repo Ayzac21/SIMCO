@@ -3,6 +3,7 @@ import {
     getRequisicionesCoordinador, 
     updateEstatusRequisicion, 
     getRequisicionItems,
+    getRequisicionItemImage,
     createRequisicionCoordinador,
     enviarBorradorCoordinador
 } from "../controllers/coordinadorController.js";
@@ -29,6 +30,12 @@ router.get(
     "/coordinador/requisiciones/:id/items",
     requireRoles("coordinador"),
     getRequisicionItems
+);
+
+router.get(
+    "/coordinador/requisiciones/:id/items/:line_item_id/image",
+    requireRoles("coordinador"),
+    getRequisicionItemImage
 );
 
 // 4. Crear requisición desde coordinador

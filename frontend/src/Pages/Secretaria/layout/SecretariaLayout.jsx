@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Menu, X, LayoutGrid, LogOut, FileText } from "lucide-react";
+import { Menu, X, LayoutGrid, FileText } from "lucide-react";
 import { Toaster } from 'sonner';
 import NotificationBell from "../../../components/NotificationBell";
+import escudoCualtos from "../../../assets/escudo-cualtos-02_0_1.png";
+import UserMenu from "../../../components/UserMenu";
 
 export default function SecretariaLayout() {
     const [open, setOpen] = useState(false);
@@ -53,9 +55,18 @@ export default function SecretariaLayout() {
                     ${open ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
                 `}
             >
-                {/* Logo / Título Sidebar */}
-                <div className="h-16 flex items-center justify-center border-b border-white/20">
-                    <span className="text-xl font-bold tracking-wide">Secretaría</span>
+                <div className="p-4 border-b border-white/20">
+                    <div className="rounded-xl border border-white/20 bg-white/10 p-3">
+                        <div className="flex items-center gap-3">
+                            <div className="h-9 w-9 aspect-square shrink-0 rounded-full bg-white text-secundario font-bold flex items-center justify-center">
+                                {userInitial}
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-sm font-semibold text-white truncate">{userName}</p>
+                                <p className="text-[11px] text-white/80 truncate">{user?.ure || "Secretaría"}</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <nav className="flex-1 p-4 space-y-2">
@@ -88,13 +99,14 @@ export default function SecretariaLayout() {
                     </NavLink>
                 </nav>
 
-                <div className="p-4 border-t border-white/20">
-                    <button
-                        onClick={handleLogout}
-                        className="w-full flex items-center justify-center gap-2 bg-red-800 py-2.5 rounded-lg font-semibold hover:bg-red-700 transition shadow-lg text-sm"
-                    >
-                        <LogOut size={18} /> Cerrar Sesión
-                    </button>
+                <div className="p-2 border-t border-white/20 relative overflow-hidden">
+                    <div className="absolute -left-6 top-1/2 -translate-y-1/2 h-24 w-24 rounded-full bg-white/20 blur-2xl pointer-events-none"></div>
+                    <div className="absolute right-0 -top-6 h-20 w-20 rounded-full bg-white/15 blur-2xl pointer-events-none"></div>
+                    <img
+                        src={escudoCualtos}
+                        alt="Escudo institucional UDG CUAltos"
+                        className="relative z-10 block w-full h-auto object-contain"
+                    />
                 </div>
             </aside>
 
@@ -126,14 +138,17 @@ export default function SecretariaLayout() {
                     <div className="flex items-center gap-3">
                         <NotificationBell />
                         <div className="text-right hidden md:block">
-                            <p className="text-sm font-bold text-gray-800 uppercase">{userName}</p>
+                            <p className="text-sm font-bold text-gray-800">Bienvenido, {userName}</p>
                             <p className="text-[10px] text-gray-500">Administración</p>
                         </div>
                         
-                        {/* Círculo con Inicial (Usa bg-secundario) */}
-                        <div className="h-9 w-9 rounded-full bg-secundario text-white flex items-center justify-center font-bold shadow-sm border border-gray-100 text-sm">
-                            {userInitial}
-                        </div>
+                        <UserMenu
+                            userName={userName}
+                            userInitial={userInitial}
+                            subtitle={user?.ure || "Secretaría"}
+                            onLogout={handleLogout}
+                            avatarClassName="h-9 w-9 aspect-square shrink-0 rounded-full bg-secundario text-white flex items-center justify-center font-bold shadow-sm border border-gray-100 text-sm leading-none"
+                        />
                     </div>
                 </header>
 

@@ -13,6 +13,8 @@ import {
 import { toast } from "sonner";
 import useEscapeKey from "../../../hooks/useEscapeKey";
 import RequisitionTimelineModal from "../../../components/RequisitionTimelineModal";
+import { getAuthHeaders } from "../../../api/auth";
+import { API_BASE_URL } from "../../../api/config";
 
 // ✅ Loader doble (tu diseño)
 const DoubleSpinner = ({ label = "Cargando..." }) => (
@@ -23,6 +25,8 @@ const DoubleSpinner = ({ label = "Cargando..." }) => (
     <div className="text-xs text-gray-500 mt-2">{label}</div>
   </div>
 );
+
+const API = API_BASE_URL;
 
 export default function RequisitionModal({
   req,
@@ -39,6 +43,7 @@ export default function RequisitionModal({
   const [actionMode, setActionMode] = useState(null); // reject | adjust | null
   const [reason, setReason] = useState("");
   const [timelineOpen, setTimelineOpen] = useState(false);
+  const [itemImagePreviews, setItemImagePreviews] = useState({});
 
   useEscapeKey(Boolean(req), () => {
     if (!loadingItems) onClose?.();
@@ -49,7 +54,77 @@ export default function RequisitionModal({
     setActionMode(null);
     setReason("");
     setTimelineOpen(false);
+    setItemImagePreviews((prev) => {
+      Object.values(prev).forEach((url) => {
+        if (url) URL.revokeObjectURL(url);
+      });
+      return {};
+    });
   }, [req?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadItemImages = async () => {
+      const validItems = (items || []).filter(
+        (item) =>
+          item?.id &&
+          (item?.image_original_name || item?.image_mime_type || Number(item?.image_size_bytes || 0) > 0)
+      );
+
+      if (!req?.id || !validItems.length) {
+        setItemImagePreviews((prev) => {
+          Object.values(prev).forEach((url) => {
+            if (url) URL.revokeObjectURL(url);
+          });
+          return {};
+        });
+        return;
+      }
+
+      const loadedEntries = await Promise.all(
+        validItems.map(async (item) => {
+          try {
+            const resp = await fetch(
+              `${API}/coordinador/requisiciones/${req.id}/items/${item.id}/image`,
+              { headers: getAuthHeaders() }
+            );
+            if (!resp.ok) return null;
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            return [String(item.id), url];
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      if (cancelled) {
+        loadedEntries.forEach((entry) => {
+          if (entry?.[1]) URL.revokeObjectURL(entry[1]);
+        });
+        return;
+      }
+
+      const nextMap = {};
+      loadedEntries.filter(Boolean).forEach(([key, url]) => {
+        nextMap[key] = url;
+      });
+
+      setItemImagePreviews((prev) => {
+        Object.values(prev).forEach((url) => {
+          if (url) URL.revokeObjectURL(url);
+        });
+        return nextMap;
+      });
+    };
+
+    loadItemImages();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [items, req?.id]);
 
   if (!req) return null;
   const statusId = Number(req.statuses_id);
@@ -98,7 +173,7 @@ export default function RequisitionModal({
         requisitionId={req?.id}
         onClose={() => setTimelineOpen(false)}
       />
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[94vw] lg:max-w-3xl xl:max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
         {/* Header */}
         <div className="p-5 border-b border-gray-100 flex justify-between items-start bg-gray-50">
           <div className="min-w-0">
@@ -236,10 +311,10 @@ export default function RequisitionModal({
               {/* Justificación y Observaciones */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {req.justification && (
-                  <div className="bg-principal/10 border border-principal/25 rounded-lg p-3 flex gap-3">
-                    <Info className="text-principal shrink-0 mt-1" size={18} />
+                  <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 flex gap-3">
+                    <Info className="text-sky-700 shrink-0 mt-1" size={18} />
                     <div>
-                      <p className="text-xs font-bold text-principal uppercase mb-1">
+                      <p className="text-xs font-bold text-sky-700 uppercase mb-1">
                         Justificación
                       </p>
                       <p className="text-sm text-gray-700 leading-snug">
@@ -276,39 +351,64 @@ export default function RequisitionModal({
                   <table className="w-full text-sm text-left">
                     <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-200">
                       <tr>
-                        <th className="px-4 py-2 text-center w-20">Cant.</th>
-                        <th className="px-4 py-2 w-24">Unidad</th>
-                        <th className="px-4 py-2">Descripción</th>
+                        <th className="px-3 py-2 text-center w-16">Cant.</th>
+                        <th className="px-3 py-2 w-20">Unidad</th>
+                        <th className="px-3 py-2 w-[52%]">Descripción</th>
+                        <th className="px-3 py-2 text-center w-16">Imagen</th>
                       </tr>
                     </thead>
 
                     <tbody className="divide-y divide-gray-100">
                       {loadingItems ? (
                         <tr>
-                          <td colSpan="3" className="p-0">
+                          <td colSpan="4" className="p-0">
                             <DoubleSpinner label="Cargando artículos..." />
                           </td>
                         </tr>
                       ) : items.length === 0 ? (
                         <tr>
-                          <td colSpan="3" className="p-4 text-center text-gray-400">
+                          <td colSpan="4" className="p-4 text-center text-gray-400">
                             No hay artículos
                           </td>
                         </tr>
                       ) : (
                         items.map((item, idx) => (
                           <tr key={idx}>
-                            <td className="px-4 py-3 font-bold text-center bg-gray-50/50">
+                            <td className="px-3 py-3 font-bold text-center bg-gray-50/50">
                               {item.quantity || item.cantidad || 0}
                             </td>
-                            <td className="px-4 py-3 text-gray-600 font-medium">
+                            <td className="px-3 py-3 text-gray-600 font-medium">
                               {item.nombre_unidad || item.unit || "-"}
                             </td>
-                            <td className="px-4 py-3 font-medium text-gray-800">
+                            <td className="px-3 py-3 font-medium text-gray-800">
                               {item.name ||
                                 item.description ||
                                 item.concept ||
                                 item.descripcion}
+                            </td>
+                            <td className="px-3 py-3 text-center">
+                              {itemImagePreviews[String(item.id)] ? (
+                                <button
+                                  type="button"
+                                  className="h-14 w-14 rounded border border-gray-200 overflow-hidden inline-flex"
+                                  onClick={() =>
+                                    window.open(
+                                      itemImagePreviews[String(item.id)],
+                                      "_blank",
+                                      "noopener,noreferrer"
+                                    )
+                                  }
+                                  title="Abrir imagen"
+                                >
+                                  <img
+                                    src={itemImagePreviews[String(item.id)]}
+                                    alt={`Imagen partida ${idx + 1}`}
+                                    className="h-full w-full object-cover"
+                                  />
+                                </button>
+                              ) : (
+                                <span className="text-xs text-gray-400">-</span>
+                              )}
                             </td>
                           </tr>
                         ))

@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node Server.js",
-    "dev": "nodemon Server.js"
+    "dev": "nodemon Server.js",
+    "cleanup:uploads:dry": "node scripts/cleanup-orphan-uploads.mjs",
+    "cleanup:uploads": "node scripts/cleanup-orphan-uploads.mjs --delete"
   },
   "keywords": [],
   "author": "Isaac",

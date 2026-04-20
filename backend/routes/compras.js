@@ -2,7 +2,9 @@ import { Router } from "express";
 import multer from "multer";
 import {
     getComprasDashboard,
+    getComprasPreparation,
     getComprasRequisitionAttachments,
+    getComprasRequisitionItemImage,
     getRequisitionItems,
     downloadComprasRequisitionAttachment,
     getCotizacionData,
@@ -58,12 +60,20 @@ const blockReader = (req, res, next) => {
     }
     return next();
 };
+const requireComprasAdmin = (req, res, next) => {
+    if (req.user?.role !== "compras_admin") {
+        return res.status(403).json({ message: "Acceso restringido a Compras Admin" });
+    }
+    return next();
+};
 
 router.get("/dashboard", getComprasDashboard);
+router.get("/preparacion", requireComprasAdmin, getComprasPreparation);
 router.get("/operators", getComprasOperators);
 router.get("/historial", getComprasHistorial);
 router.get("/historial/report", getComprasHistorialReport);
 router.get("/requisiciones/:id/items", getRequisitionItems);
+router.get("/requisiciones/:id/items/:lineItemId/image", getComprasRequisitionItemImage);
 router.get("/requisiciones/:id/attachments", getComprasRequisitionAttachments);
 router.get(
     "/requisiciones/:id/attachments/:attachmentId/download",
@@ -81,8 +91,8 @@ router.post("/cotizacion/:id/invite", blockReader, inviteProvidersToCotizacion);
 router.post("/cotizacion/:id/close", blockReader, closeCotizacionInvites);
 router.post("/cotizacion/:id/send-review", blockReader, sendCotizacionToReview);
 router.post("/cotizacion/:id/reopen", blockReader, reopenCotizacionReception);
-router.get("/revision/:id/data", getComprasReviewData);
-router.post("/revision/:id/select", blockReader, submitComprasReviewSelection);
+router.get("/revision/:id/data", requireComprasAdmin, getComprasReviewData);
+router.post("/revision/:id/select", requireComprasAdmin, submitComprasReviewSelection);
 router.get("/orden/:id/pdf", getOrdenCompraPdf);
 router.get("/orden/:id/providers", getOrdenCompraProviders);
 router.get("/orden/:id/meta", getOrdenCompraMeta);

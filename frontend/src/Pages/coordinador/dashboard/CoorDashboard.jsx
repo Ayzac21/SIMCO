@@ -434,7 +434,12 @@ export default function CoorDashboard() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="relative space-y-6">
+      {refreshing && !loading && (
+        <div className="absolute inset-0 z-40 bg-white/70 backdrop-blur-[1px] flex items-center justify-center rounded-xl">
+          <AppLoader label="Actualizando..." />
+        </div>
+      )}
       <RequisitionModal
         req={selectedReq}
         items={modalItems}

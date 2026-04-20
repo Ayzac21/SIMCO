@@ -105,6 +105,10 @@ CREATE TABLE IF NOT EXISTS line_items (
   units_id INT NULL,
   unit VARCHAR(80) NULL,
   estimated_price DECIMAL(14,2) NULL,
+  image_original_name VARCHAR(255) NULL,
+  image_mime_type VARCHAR(120) NULL,
+  image_size_bytes INT NULL,
+  image_file_path VARCHAR(500) NULL,
   INDEX idx_li_req (requisition_id),
   INDEX idx_li_unit (units_id),
   CONSTRAINT fk_li_req

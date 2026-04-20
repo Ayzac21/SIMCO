@@ -21,7 +21,7 @@ const IconTrash = () => (
 
 /* LABEL */
 const Label = ({ children, required }) => (
-  <label className="block text-sm font-bold text-gray-800 mb-2">
+  <label className="block text-sm font-bold text-gray-800 mb-1.5">
     {children} {required && <span className="text-red-500">*</span>}
   </label>
 );
@@ -178,7 +178,7 @@ export default function EditarRequisicion() {
   const [attachments, setAttachments] = useState([]);
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
-  const [dragActive, setDragActive] = useState(false);
+  const [partidaPhotoDrafts, setPartidaPhotoDrafts] = useState({});
 
   // ✅ Modal enviar
   const [confirmSendOpen, setConfirmSendOpen] = useState(false);
@@ -192,6 +192,51 @@ export default function EditarRequisicion() {
     if (n < 1024) return `${n} B`;
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
     return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const partidaImageEndpoint = (lineItemId) =>
+    `${API}/requisiciones/${id}/partidas/${lineItemId}/image`;
+
+  const hydratePartidaImages = async (mappedPartidas) => {
+    const withImage = (mappedPartidas || []).filter(
+      (p) => p.id && (p.image_original_name || p.image_mime_type || p.image_size_bytes)
+    );
+    if (!withImage.length) {
+      setPartidaPhotoDrafts({});
+      return;
+    }
+
+    const entries = await Promise.all(
+      withImage.map(async (p) => {
+        try {
+          const resp = await fetch(partidaImageEndpoint(p.id), { headers: getAuthHeaders() });
+          if (!resp.ok) return null;
+          const blob = await resp.blob();
+          const fallbackName =
+            p.image_original_name ||
+            `partida-${p.id}.${String(blob.type || "").includes("png") ? "png" : "jpg"}`;
+          const previewUrl = URL.createObjectURL(blob);
+          return [
+            p.unique_key,
+            {
+              file: { name: fallbackName, size: Number(p.image_size_bytes || blob.size || 0) },
+              previewUrl,
+              fromServer: true,
+              isLocalFile: false,
+              lineItemId: p.id,
+            },
+          ];
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    const nextDrafts = {};
+    entries.filter(Boolean).forEach(([key, value]) => {
+      nextDrafts[key] = value;
+    });
+    setPartidaPhotoDrafts(nextDrafts);
   };
 
   /* ===== FETCH ===== */
@@ -234,16 +279,19 @@ export default function EditarRequisicion() {
           setAdjustmentMessage("");
         }
 
-        setPartidas(
-          (dataReq.partidas || []).map((p) => ({
-            ...p,
-            unique_key: p.id || safeUUID(),
-            quantity: p.quantity ?? "",
-            units_id: p.units_id ?? "",
-            product_name: p.product_name ?? "",
-            description: p.description ?? "",
-          }))
-        );
+        const mappedPartidas = (dataReq.partidas || []).map((p) => ({
+          ...p,
+          unique_key: p.id || safeUUID(),
+          quantity: p.quantity ?? "",
+          units_id: p.units_id ?? "",
+          product_name: p.product_name ?? "",
+          description: p.description ?? "",
+          image_original_name: p.image_original_name ?? null,
+          image_mime_type: p.image_mime_type ?? null,
+          image_size_bytes: p.image_size_bytes ?? null,
+        }));
+        setPartidas(mappedPartidas);
+        await hydratePartidaImages(mappedPartidas);
         setAttachments(Array.isArray(dataReq.attachments) ? dataReq.attachments : []);
 
         if (Array.isArray(dataUnits)) setUnits(dataUnits);
@@ -356,9 +404,17 @@ export default function EditarRequisicion() {
 
   const eliminarPartida = (index) => {
     if (!isBorrador) return;
+    const key = partidas[index]?.unique_key;
     const copia = [...partidas];
     copia.splice(index, 1);
     setPartidas(copia);
+    if (key) {
+      setPartidaPhotoDrafts((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
   };
 
   const actualizarPartida = (index, field, value) => {
@@ -367,6 +423,83 @@ export default function EditarRequisicion() {
     copia[index][field] = value;
     setPartidas(copia);
   };
+
+  const onPartidaPhotoPick = (uniqueKey, filesRaw) => {
+    const file = Array.from(filesRaw || [])[0];
+    if (!file || !uniqueKey) return;
+    const type = String(file.type || "").toLowerCase();
+    const isImage = type.startsWith("image/");
+    if (!isImage) {
+      toast.warning("Solo se permiten imágenes por partida");
+      return;
+    }
+    const previewUrl = URL.createObjectURL(file);
+    setPartidaPhotoDrafts((prev) => {
+      const old = prev[uniqueKey];
+      if (old?.previewUrl) URL.revokeObjectURL(old.previewUrl);
+      return {
+        ...prev,
+        [uniqueKey]: {
+          file,
+          previewUrl,
+          fromServer: false,
+          isLocalFile: true,
+        },
+      };
+    });
+  };
+
+  const clearPartidaPhoto = async (partida) => {
+    const uniqueKey = partida?.unique_key;
+    if (!uniqueKey) return;
+    const lineItemId = Number(partida?.id || 0);
+    const entry = partidaPhotoDrafts[uniqueKey];
+
+    setPartidaPhotoDrafts((prev) => {
+      const old = prev[uniqueKey];
+      if (old?.previewUrl) URL.revokeObjectURL(old.previewUrl);
+      const next = { ...prev };
+      delete next[uniqueKey];
+      return next;
+    });
+
+    if (!lineItemId || !entry?.fromServer) return;
+    try {
+      const resp = await fetch(partidaImageEndpoint(lineItemId), {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data?.ok === false) {
+        throw new Error(data?.message || "No se pudo eliminar la imagen");
+      }
+    } catch (e) {
+      toast.error(e?.message || "No se pudo eliminar la imagen");
+    }
+  };
+
+  const uploadPartidaImage = async (lineItemId, file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const resp = await fetch(partidaImageEndpoint(lineItemId), {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: fd,
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || data?.ok === false) {
+      throw new Error(data?.message || "No se pudo guardar imagen de la partida");
+    }
+    return data;
+  };
+
+  useEffect(() => {
+    return () => {
+      Object.values(partidaPhotoDrafts).forEach((entry) => {
+        if (entry?.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+      });
+    };
+  }, [partidaPhotoDrafts]);
 
   const validate = () => {
     if (!requestName.trim()) {
@@ -395,7 +528,7 @@ export default function EditarRequisicion() {
     return true;
   };
 
-  const guardarCambios = async ({ silent = false } = {}) => {
+  const guardarCambios = async ({ silent = false, navigateOnSuccess = true } = {}) => {
     if (!isBorrador) {
       toast.warning("No editable");
       return false;
@@ -433,8 +566,59 @@ export default function EditarRequisicion() {
         throw new Error(data?.message || "No se pudieron guardar los cambios");
       }
 
+      const savedPartidas = Array.isArray(data?.partidas) ? data.partidas : [];
+      if (savedPartidas.length) {
+        const prevPartidas = [...partidas];
+        const remappedPartidas = savedPartidas.map((sp, idx) => {
+          const prev = prevPartidas[idx];
+          return {
+            ...sp,
+            unique_key: sp.id || prev?.unique_key || safeUUID(),
+            quantity: sp.quantity ?? "",
+            units_id: sp.units_id ?? "",
+            product_name: sp.product_name ?? "",
+            description: sp.description ?? "",
+            image_original_name: sp.image_original_name ?? null,
+            image_mime_type: sp.image_mime_type ?? null,
+            image_size_bytes: sp.image_size_bytes ?? null,
+          };
+        });
+
+        const nextDrafts = {};
+        remappedPartidas.forEach((rp, idx) => {
+          const prevKey = prevPartidas[idx]?.unique_key;
+          if (prevKey && partidaPhotoDrafts[prevKey]) {
+            nextDrafts[rp.unique_key] = {
+              ...partidaPhotoDrafts[prevKey],
+              lineItemId: rp.id || null,
+            };
+          }
+        });
+        setPartidas(remappedPartidas);
+        setPartidaPhotoDrafts(nextDrafts);
+
+        const uploads = remappedPartidas
+          .map((rp) => {
+            const entry = nextDrafts[rp.unique_key];
+            if (!rp.id || !entry?.isLocalFile || !(entry.file instanceof File)) return null;
+            return { lineItemId: rp.id, file: entry.file };
+          })
+          .filter(Boolean);
+
+        if (uploads.length) {
+          for (const up of uploads) {
+            await uploadPartidaImage(up.lineItemId, up.file);
+          }
+          await hydratePartidaImages(remappedPartidas);
+        }
+      }
+
       if (!silent) {
-        toast.success("Cambios guardados");
+        toast.success("Cambios guardados. La requisición quedó en borrador.");
+      }
+
+      if (navigateOnSuccess) {
+        navigate("/unidad/dashboard");
       }
 
       return true;
@@ -463,7 +647,7 @@ export default function EditarRequisicion() {
 
     setConfirmSendOpen(false);
 
-    const ok = await guardarCambios({ silent: true });
+    const ok = await guardarCambios({ silent: true, navigateOnSuccess: false });
     if (!ok) return;
 
     try {
@@ -523,7 +707,7 @@ export default function EditarRequisicion() {
       />
 
       <div className="w-full min-h-screen bg-[#F3F4F6] p-6 md:p-10">
-        <div className="max-w-7xl mx-auto bg-white rounded-lg shadow-sm border border-gray-200 flex flex-col lg:flex-row overflow-hidden">
+        <div className="max-w-[1500px] mx-auto bg-white rounded-lg shadow-sm border border-gray-200 flex flex-col lg:flex-row overflow-hidden">
 
           {/* ===== FORMULARIO ===== */}
           <div className="flex-1 p-8 border-r border-gray-100">
@@ -605,122 +789,13 @@ export default function EditarRequisicion() {
                   </button>
                 </div>
               )}
-            </div>
-          </div>
 
-          {/* ===== PARTIDAS ===== */}
-          <div className="w-full lg:w-[400px] bg-[#F9FAFB] flex flex-col border-l border-gray-200 lg:h-[calc(100vh-140px)] overflow-hidden">
-
-            <div className="p-6 border-b border-gray-200">
-              <h3 className="text-xs font-bold text-gray-500 uppercase">
-                Resumen de Requisición
-              </h3>
-              <p className="text-xl font-bold text-gray-800 mt-1">
-                Lista de Artículos
-              </p>
-            </div>
-
-            {/* SCROLL SOLO AQUÍ */}
-            <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
-              <AnimatePresence>
-                {partidas.map((p, index) => (
-                  <Motion.div
-                    key={p.unique_key}
-                    layout
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-white p-4 rounded-lg border border-gray-200 relative"
-                  >
-                    {isBorrador && (
-                      <button
-                        onClick={() => eliminarPartida(index)}
-                        className="absolute top-2 right-2 text-gray-300 hover:text-red-500"
-                        title="Eliminar"
-                      >
-                        <IconTrash />
-                      </button>
-                    )}
-
-                    <input
-                      className="w-full font-semibold border-b border-gray-200 focus:outline-none focus:border-gray-400"
-                      placeholder="Producto"
-                      value={p.product_name}
-                      disabled={!isBorrador}
-                      onChange={(e) =>
-                        actualizarPartida(index, "product_name", e.target.value)
-                      }
-                    />
-
-                    <textarea
-                      className="w-full mt-2 p-2 text-sm border border-gray-200 rounded resize-none focus:outline-none focus:border-gray-400"
-                      rows="2"
-                      placeholder="Descripción"
-                      value={p.description}
-                      disabled={!isBorrador}
-                      onChange={(e) =>
-                        actualizarPartida(index, "description", e.target.value)
-                      }
-                    />
-
-                    <div className="flex gap-2 mt-2">
-                      <input
-                        type="number"
-                        className="w-1/2 p-2 border border-gray-300 rounded focus:outline-none focus:border-gray-400"
-                        value={p.quantity}
-                        disabled={!isBorrador}
-                        onChange={(e) =>
-                          actualizarPartida(index, "quantity", e.target.value)
-                        }
-                      />
-                      <select
-                        className="w-1/2 p-2 border border-gray-300 rounded bg-white focus:outline-none focus:border-gray-400"
-                        value={p.units_id}
-                        disabled={!isBorrador}
-                        onChange={(e) =>
-                          actualizarPartida(index, "units_id", e.target.value)
-                        }
-                      >
-                        <option value="">U. Medida</option>
-                        {units.length ? (
-                          units.map((u) => (
-                            <option key={u.id} value={u.id}>
-                              {u.name}
-                            </option>
-                          ))
-                        ) : (
-                          <>
-                            {/* fallback visual si no cargó units */}
-                            <option value="1">PZA</option>
-                            <option value="2">CJA</option>
-                          </>
-                        )}
-                      </select>
-                    </div>
-                  </Motion.div>
-                ))}
-              </AnimatePresence>
-
-              <button
-                onClick={agregarPartida}
-                disabled={!isBorrador || saving || sending}
-                className="w-full py-3 text-sm font-semibold border border-gray-300 rounded bg-white hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                + Agregar Artículo
-              </button>
-            </div>
-
-            {/* ✅ Manteniendo tu diseño: footer con botón grande */}
-            <div className="p-6 border-t border-gray-200 bg-white space-y-3">
-              <div className="border border-gray-200 rounded-md p-3 bg-gray-50">
-                <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-2">
-                  Adjuntos de la requisición
-                </p>
-                <p className="text-[11px] text-gray-500 mb-2">
-                  Puedes adjuntar imágenes o PDF como referencia.
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <p className="text-[11px] font-bold text-gray-600 uppercase tracking-wide mb-1.5">
+                  Adjuntos de la requisición (opcional)
                 </p>
 
-                <div className="space-y-2 max-h-32 overflow-y-auto">
+                <div className="space-y-1.5 max-h-28 overflow-y-auto">
                   {attachments.map((a) => (
                     <button
                       type="button"
@@ -738,7 +813,7 @@ export default function EditarRequisicion() {
                 </div>
 
                 {isBorrador && (
-                  <div className="mt-3 border-t border-gray-200 pt-3">
+                  <div className="mt-2">
                     <input
                       id="adjuntos-editar-requisicion"
                       type="file"
@@ -749,32 +824,11 @@ export default function EditarRequisicion() {
                     />
                     <label
                       htmlFor="adjuntos-editar-requisicion"
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        setDragActive(true);
-                      }}
-                      onDragLeave={(e) => {
-                        e.preventDefault();
-                        setDragActive(false);
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        setDragActive(false);
-                        processPickedAttachments(e.dataTransfer.files);
-                      }}
-                      className={`block w-full rounded-lg border-2 border-dashed p-3 text-center cursor-pointer transition-all ${
-                        dragActive
-                          ? "border-secundario bg-red-50"
-                          : "border-gray-300 bg-white hover:bg-gray-50"
-                      }`}
+                      className="inline-flex text-xs font-semibold px-2.5 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer"
                     >
-                      <p className="text-xs font-semibold text-gray-700">
-                        Haz clic para seleccionar archivos
-                      </p>
-                      <p className="text-[11px] text-gray-500 mt-1">
-                        o arrástralos aquí (imagen o PDF)
-                      </p>
+                      Seleccionar adjuntos
                     </label>
+
                     {pendingAttachments.length > 0 && (
                       <div className="mt-2 space-y-1">
                         {pendingAttachments.map((f, idx) => (
@@ -791,6 +845,7 @@ export default function EditarRequisicion() {
                         ))}
                       </div>
                     )}
+
                     <button
                       type="button"
                       onClick={uploadAttachments}
@@ -802,7 +857,191 @@ export default function EditarRequisicion() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
 
+          {/* ===== PARTIDAS ===== */}
+          <div className="w-full lg:w-[560px] xl:w-[620px] bg-[#F9FAFB] flex flex-col border-l border-gray-200 lg:h-[calc(100vh-140px)] overflow-hidden">
+
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">
+                Partidas de la requisición
+              </h3>
+              <p className="text-lg font-bold text-gray-800 mt-1">
+                Edición de artículos (vista laptop)
+              </p>
+            </div>
+
+            {/* SCROLL SOLO AQUÍ */}
+            <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
+              <AnimatePresence>
+                {partidas.map((p, index) => (
+                  <Motion.div
+                    key={p.unique_key}
+                    layout
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="bg-white p-2.5 rounded-lg border border-gray-200 relative"
+                  >
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1.5">
+                      Partida #{index + 1}
+                    </p>
+                    {isBorrador && (
+                      <button
+                        onClick={() => eliminarPartida(index)}
+                        className="absolute top-2 right-2 text-gray-300 hover:text-red-500"
+                        title="Eliminar"
+                      >
+                        <IconTrash />
+                      </button>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-1">
+                      <div className="md:col-span-7">
+                        <label className="text-[11px] font-semibold text-gray-600">Producto</label>
+                        <input
+                          className="mt-1 w-full font-semibold border border-gray-300 rounded p-1.5 focus:outline-none focus:border-gray-400"
+                          placeholder="Producto"
+                          value={p.product_name}
+                          disabled={!isBorrador}
+                          onChange={(e) =>
+                            actualizarPartida(index, "product_name", e.target.value)
+                          }
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="text-[11px] font-semibold text-gray-600">Cantidad</label>
+                        <input
+                          type="number"
+                          className="mt-1 w-full p-2 border border-gray-300 rounded focus:outline-none focus:border-gray-400"
+                          value={p.quantity}
+                          disabled={!isBorrador}
+                          onChange={(e) =>
+                            actualizarPartida(index, "quantity", e.target.value)
+                          }
+                        />
+                      </div>
+                      <div className="md:col-span-3">
+                        <label className="text-[11px] font-semibold text-gray-600">Unidad</label>
+                        <select
+                          className="mt-1 w-full p-2 border border-gray-300 rounded bg-white focus:outline-none focus:border-gray-400"
+                          value={p.units_id}
+                          disabled={!isBorrador}
+                          onChange={(e) =>
+                            actualizarPartida(index, "units_id", e.target.value)
+                          }
+                        >
+                          <option value="">U. Medida</option>
+                          {units.length ? (
+                            units.map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.name}
+                              </option>
+                            ))
+                          ) : (
+                            <>
+                              <option value="1">PZA</option>
+                              <option value="2">CJA</option>
+                            </>
+                          )}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="mt-1">
+                      <label className="text-[11px] font-semibold text-gray-600">Descripción / Especificaciones</label>
+                      <textarea
+                        className="mt-1 w-full p-2 text-sm border border-gray-200 rounded resize-none focus:outline-none focus:border-gray-400"
+                        rows="2"
+                        placeholder="Descripción"
+                        value={p.description}
+                        disabled={!isBorrador}
+                        onChange={(e) =>
+                          actualizarPartida(index, "description", e.target.value)
+                        }
+                      />
+                    </div>
+
+                    <div className="mt-1 rounded-md border border-dashed border-[#8B1D35]/25 p-1.5 bg-[#8B1D35]/[0.06]">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-[11px] font-semibold text-[#6F152B] uppercase tracking-wide">
+                            Archivo por partida
+                          </p>
+                          <p className="text-[11px] text-gray-600">
+                            Solo imagen (clic para vista previa).
+                          </p>
+                        </div>
+                        {isBorrador && (
+                          <label className="text-[10px] font-semibold px-1.5 py-0.5 rounded border border-[#8B1D35]/30 bg-white hover:bg-[#8B1D35]/[0.08] text-[#6F152B] cursor-pointer">
+                            Seleccionar
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                onPartidaPhotoPick(p.unique_key, e.target.files);
+                                e.target.value = "";
+                              }}
+                            />
+                          </label>
+                        )}
+                      </div>
+                      {partidaPhotoDrafts[p.unique_key]?.previewUrl && (
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              window.open(
+                                partidaPhotoDrafts[p.unique_key].previewUrl,
+                                "_blank",
+                                "noopener,noreferrer"
+                              )
+                            }
+                            title="Abrir vista previa"
+                            className="h-14 w-14 shrink-0 rounded border border-[#8B1D35]/20 shadow-sm overflow-hidden bg-white cursor-pointer"
+                          >
+                            <img
+                              src={partidaPhotoDrafts[p.unique_key].previewUrl}
+                              alt="Vista previa de partida"
+                              className="h-full w-full object-cover"
+                            />
+                          </button>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] text-gray-700 truncate">
+                              {partidaPhotoDrafts[p.unique_key].file?.name || "Adjunto"}
+                            </p>
+                            <div className="mt-1 flex items-center gap-1">
+                              {isBorrador && (
+                                <button
+                                  type="button"
+                                  onClick={() => clearPartidaPhoto(p)}
+                                  className="text-[10px] px-1.5 py-0.5 rounded border border-[#8B1D35]/30 bg-white text-[#6F152B] hover:bg-[#8B1D35]/[0.08]"
+                                >
+                                  Quitar
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </Motion.div>
+                ))}
+              </AnimatePresence>
+
+              <button
+                onClick={agregarPartida}
+                disabled={!isBorrador || saving || sending}
+                className="w-full py-3 text-sm font-semibold border border-gray-300 rounded bg-white hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                + Agregar Artículo
+              </button>
+            </div>
+
+            {/* ✅ Manteniendo tu diseño: footer con botón grande */}
+            <div className="p-6 border-t border-gray-200 bg-white space-y-3">
               <button
                 onClick={() => guardarCambios()}
                 disabled={!isBorrador || saving || sending}

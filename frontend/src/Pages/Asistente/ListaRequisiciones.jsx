@@ -266,8 +266,61 @@ export default function ListaRequisiciones() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detail, setDetail] = useState(null);
   const [timelineOpen, setTimelineOpen] = useState(false);
+  const [partidaImagePreviews, setPartidaImagePreviews] = useState({});
 
   const [rejectedPreview, setRejectedPreview] = useState({}); // { [id]: { notes, rejected_by_name } }
+
+  const revokePreviewUrls = (map) => {
+    Object.values(map || {}).forEach((url) => {
+      if (url) URL.revokeObjectURL(url);
+    });
+  };
+
+  const clearPartidaImagePreviews = () => {
+    setPartidaImagePreviews((prev) => {
+      revokePreviewUrls(prev);
+      return {};
+    });
+  };
+
+  const loadPartidaImagePreviews = async (reqId, partidas = []) => {
+    const validPartidas = (partidas || []).filter(
+      (p) =>
+        p?.id &&
+        (p?.image_original_name || p?.image_mime_type || Number(p?.image_size_bytes || 0) > 0)
+    );
+
+    if (!validPartidas.length) {
+      clearPartidaImagePreviews();
+      return;
+    }
+
+    const entries = await Promise.all(
+      validPartidas.map(async (p) => {
+        try {
+          const resp = await fetch(`${API}/requisiciones/${reqId}/partidas/${p.id}/image`, {
+            headers: getAuthHeaders(),
+          });
+          if (!resp.ok) return null;
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          return [String(p.id), url];
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    const nextMap = {};
+    entries.filter(Boolean).forEach(([id, url]) => {
+      nextMap[id] = url;
+    });
+
+    setPartidaImagePreviews((prev) => {
+      revokePreviewUrls(prev);
+      return nextMap;
+    });
+  };
 
   const fetchRequisiciones = async ({ showRefresh = false } = {}) => {
     const MIN_MS = 1200;
@@ -381,6 +434,7 @@ export default function ListaRequisiciones() {
     setSelected(null);
     setDetail(null);
     setDetailLoading(false);
+    clearPartidaImagePreviews();
   };
 
   useEscapeKey(open, closeModal, detailLoading);
@@ -398,6 +452,7 @@ export default function ListaRequisiciones() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || "No se pudo cargar el detalle");
       setDetail(data);
+      await loadPartidaImagePreviews(row.id, data?.partidas || []);
     } catch (e) {
       console.error(e);
       toast.error("No se pudo abrir");
@@ -446,6 +501,12 @@ export default function ListaRequisiciones() {
     }
   };
 
+  useEffect(() => {
+    return () => {
+      revokePreviewUrls(partidaImagePreviews);
+    };
+  }, [partidaImagePreviews]);
+
   return (
     <div className="relative bg-white p-5 md:p-6 rounded-xl shadow-lg border border-gray-200">
       {refreshing && (
@@ -463,7 +524,7 @@ export default function ListaRequisiciones() {
           />
           <div className="absolute inset-0 bg-black/40" onClick={closeModal} />
           <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+            <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
               <div className="p-5 border-b border-gray-100 flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -558,15 +619,16 @@ export default function ListaRequisiciones() {
                     )}
 
                     {(detail?.partidas?.length ?? 0) > 0 ? (
-                      <div className="border border-gray-200 rounded-xl overflow-hidden">
+                      <div className="border border-[#8B1D35]/20 rounded-xl overflow-hidden">
                         {/* ✅ Scroll interno para que no se aplaste */}
                         <div className="max-h-[260px] overflow-auto">
                           <table className="w-full text-sm">
-                            <thead className="text-xs uppercase text-gray-500 bg-gray-50">
+                            <thead className="text-xs uppercase text-[#6F152B] bg-[#8B1D35]/[0.08]">
                               <tr>
                                 <th className="text-left px-4 py-3">Producto</th>
                                 <th className="text-left px-4 py-3">Descripción</th>
                                 <th className="text-right px-4 py-3">Cant.</th>
+                                <th className="text-center px-4 py-3">Img</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
@@ -580,6 +642,30 @@ export default function ListaRequisiciones() {
                                   </td>
                                   <td className="px-4 py-3 text-right font-bold text-gray-900">
                                     {p.quantity ?? "—"}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    {partidaImagePreviews[String(p.id)] ? (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          window.open(
+                                            partidaImagePreviews[String(p.id)],
+                                            "_blank",
+                                            "noopener,noreferrer"
+                                          )
+                                        }
+                                        className="h-11 w-11 rounded border border-[#8B1D35]/20 overflow-hidden inline-flex"
+                                        title="Abrir imagen"
+                                      >
+                                        <img
+                                          src={partidaImagePreviews[String(p.id)]}
+                                          alt={`Imagen partida ${p.id}`}
+                                          className="h-full w-full object-cover"
+                                        />
+                                      </button>
+                                    ) : (
+                                      <span className="text-xs text-gray-400">—</span>
+                                    )}
                                   </td>
                                 </tr>
                               ))}
