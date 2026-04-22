@@ -442,7 +442,7 @@ export default function ListaRequisiciones() {
     });
 
     return list;
-  }, [requisiciones, q, statusFilter, sort]);
+  }, [requisiciones, q, statusFilter, sort, unitLabel]);
 
   const totalPaginas = useMemo(
     () => Math.max(1, Math.ceil(filtered.length / POR_PAGINA)),

@@ -181,7 +181,11 @@ export default function RequisicionesUre() {
             return;
         }
 
-        const articulosPayload = articulos.map(({ foto_partida, ...art }) => art);
+        const articulosPayload = articulos.map((art) => {
+            const cleanArt = { ...art };
+            delete cleanArt.foto_partida;
+            return cleanArt;
+        });
         const body = {
             users_id: user.id,
             categoria: Number(categoria),

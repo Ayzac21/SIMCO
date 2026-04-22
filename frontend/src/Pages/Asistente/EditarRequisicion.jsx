@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { motion as Motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -197,10 +197,12 @@ export default function EditarRequisicion() {
     return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const partidaImageEndpoint = (lineItemId) =>
-    `${API}/requisiciones/${id}/partidas/${lineItemId}/image`;
+  const partidaImageEndpoint = useCallback(
+    (lineItemId) => `${API}/requisiciones/${id}/partidas/${lineItemId}/image`,
+    [id]
+  );
 
-  const hydratePartidaImages = async (mappedPartidas) => {
+  const hydratePartidaImages = useCallback(async (mappedPartidas) => {
     const withImage = (mappedPartidas || []).filter(
       (p) => p.id && (p.image_original_name || p.image_mime_type || p.image_size_bytes)
     );
@@ -240,7 +242,7 @@ export default function EditarRequisicion() {
       nextDrafts[key] = value;
     });
     setPartidaPhotoDrafts(nextDrafts);
-  };
+  }, [partidaImageEndpoint]);
 
   /* ===== FETCH ===== */
   useEffect(() => {
@@ -307,7 +309,7 @@ export default function EditarRequisicion() {
     };
 
     fetchAll();
-  }, [id]);
+  }, [id, hydratePartidaImages, isSecretariaView]);
 
   /* ===== ACCIONES ===== */
   const agregarPartida = () => {
@@ -507,6 +509,14 @@ export default function EditarRequisicion() {
   const validate = () => {
     if (!requestName.trim()) {
       toast.warning("Falta el nombre");
+      return false;
+    }
+    if (!justification.trim()) {
+      toast.warning("La justificación es obligatoria");
+      return false;
+    }
+    if (!observation.trim()) {
+      toast.warning("Las observaciones son obligatorias");
       return false;
     }
     if (!partidas.length) {

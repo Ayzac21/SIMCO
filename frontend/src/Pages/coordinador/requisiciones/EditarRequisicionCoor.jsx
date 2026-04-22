@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion as Motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -174,10 +174,12 @@ export default function EditarRequisicionCoor() {
   const isBorrador = Number(estatusId) === 7;
   const currentStatusMeta = statusMeta(estatusId);
 
-  const partidaImageEndpoint = (lineItemId) =>
-    `${API}/requisiciones/${id}/partidas/${lineItemId}/image`;
+  const partidaImageEndpoint = useCallback(
+    (lineItemId) => `${API}/requisiciones/${id}/partidas/${lineItemId}/image`,
+    [id]
+  );
 
-  const hydratePartidaImages = async (mappedPartidas) => {
+  const hydratePartidaImages = useCallback(async (mappedPartidas) => {
     const withImage = (mappedPartidas || []).filter(
       (p) => p.id && (p.image_original_name || p.image_mime_type || p.image_size_bytes)
     );
@@ -217,7 +219,7 @@ export default function EditarRequisicionCoor() {
       nextDrafts[key] = value;
     });
     setPartidaPhotoDrafts(nextDrafts);
-  };
+  }, [partidaImageEndpoint]);
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -278,7 +280,7 @@ export default function EditarRequisicionCoor() {
     };
 
     fetchAll();
-  }, [id]);
+  }, [id, hydratePartidaImages]);
 
   const agregarPartida = () => {
     if (!isBorrador) return;
@@ -397,6 +399,14 @@ export default function EditarRequisicionCoor() {
   const validate = () => {
     if (!requestName.trim()) {
       toast.warning("Falta el nombre");
+      return false;
+    }
+    if (!justification.trim()) {
+      toast.warning("La justificación es obligatoria");
+      return false;
+    }
+    if (!observation.trim()) {
+      toast.warning("Las observaciones son obligatorias");
       return false;
     }
     if (!partidas.length) {

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import ConfirmModal from "../../../components/ConfirmModal";
-import { ChevronDown, FileText, Pencil, ShieldCheck, Power, CheckCircle, Upload } from "lucide-react";
+import { ChevronDown, FileText, Pencil, ShieldCheck, Power, Upload } from "lucide-react";
 import { API_BASE_URL } from "../../../api/config";
 import useEscapeKey from "../../../hooks/useEscapeKey";
 import { useSearchParams } from "react-router-dom";
@@ -18,7 +18,12 @@ const STATUS_OPTIONS = [
 ];
 
 const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/i;
-const PHONE_REGEX = /^[0-9+()\\-\\s]{7,20}$/;
+const PHONE_REGEX = /^[0-9+()\-\s]{7,20}$/;
+const normalizeRfc = (value = "") =>
+  String(value)
+    .toUpperCase()
+    .replace(/[\s-]+/g, "")
+    .replace(/[^A-Z0-9Ñ&]/g, "");
 
 export default function ComprasProveedores() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -56,6 +61,9 @@ export default function ComprasProveedores() {
 
   const isAdmin = user?.role === "compras_admin";
   const isExportOnlyMode = false;
+  const labelClass = "text-[11px] font-bold uppercase tracking-wide text-slate-600";
+  const inputClass =
+    "w-full mt-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition focus:border-[#8B1D35] focus:ring-2 focus:ring-[#8B1D35]/20";
 
   const [form, setForm] = useState({
     name: "",
@@ -69,6 +77,7 @@ export default function ComprasProveedores() {
   });
 
   const setField = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+  const setRfcField = (value) => setField("rfc", normalizeRfc(value));
   const uploadHeaders = useMemo(
     () => ({
       "x-user-id": String(user?.id || ""),
@@ -169,14 +178,10 @@ export default function ComprasProveedores() {
       toast.error("Falta nombre");
       return false;
     }
-    if (!form.rfc.trim()) {
-      toast.error("Falta RFC");
-      return false;
-    }
-    const currentRfc = form.rfc.trim().toUpperCase();
+    const currentRfc = normalizeRfc(form.rfc);
     if (editing?.id && editingOriginalRfc && currentRfc === editingOriginalRfc) {
       // RFC legacy: permitir si no cambió
-    } else if (!RFC_REGEX.test(currentRfc)) {
+    } else if (currentRfc && !RFC_REGEX.test(currentRfc)) {
       toast.error("RFC inválido");
       return false;
     }
@@ -185,7 +190,7 @@ export default function ComprasProveedores() {
       return false;
     }
 
-    const cleanRfc = form.rfc.trim().toUpperCase();
+    const cleanRfc = currentRfc;
     const cleanEmail = form.email.trim().toLowerCase();
     const dup = providers.find((p) => {
       if (editing?.id && Number(p.id) === Number(editing.id)) return false;
@@ -233,10 +238,10 @@ export default function ComprasProveedores() {
       const payload = {
         name: form.name.trim(),
         razon_social: form.razon_social.trim() || null,
-        email: form.email.trim() || null,
-        rfc: form.rfc.trim().toUpperCase(),
+        email: form.email.trim() || "",
+        rfc: normalizeRfc(form.rfc) || null,
         address: form.address.trim() || null,
-        statuses_id: Number(form.statuses_id),
+        statuses_id: isEdit ? Number(editing?.statuses_id || 6) : 6,
         categories: form.categories.map((c) => Number(c)),
         phones: form.phones.map((p) => p.trim()).filter(Boolean),
       };
@@ -278,12 +283,12 @@ export default function ComprasProveedores() {
       return;
     }
     setEditing(p);
-    setEditingOriginalRfc(String(p.rfc || "").trim().toUpperCase());
+    setEditingOriginalRfc(normalizeRfc(p.rfc || ""));
     setForm({
       name: p.name || "",
       razon_social: p.razon_social || "",
       email: p.email || "",
-      rfc: p.rfc || "",
+      rfc: normalizeRfc(p.rfc || ""),
       address: p.address || "",
       statuses_id: Number(p.statuses_id || 6),
       categories: (p.categories || []).map((c) => c.id),
@@ -461,31 +466,31 @@ export default function ComprasProveedores() {
   return (
     <div className="space-y-8">
       {isAdmin && !isExportOnlyMode && (
-      <section className="bg-white rounded-xl shadow-md border border-gray-200 p-6" ref={formRef}>
-        <div className="flex items-center justify-between gap-4">
+      <section className="rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-6 shadow-md" ref={formRef}>
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
           <div>
-            <h2 className="text-lg font-bold text-gray-800">Registro de Proveedores</h2>
-            <p className="text-xs text-gray-500">
-              Captura datos básicos, categorías y teléfonos.
+            <h2 className="text-xl font-bold text-slate-800">Registro de Proveedores</h2>
+            <p className="text-sm text-slate-500">
+              Alta rápida con datos mínimos y actualización progresiva de la ficha.
             </p>
           </div>
           {editing && (
             <button
               onClick={cancelEdit}
-              className="px-3 py-2 text-sm rounded-md border border-gray-300 hover:bg-gray-50"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
             >
               Cancelar edición
             </button>
           )}
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="text-[11px] font-bold text-gray-500">Nombre</label>
+            <label className={labelClass}>Nombre</label>
             <input
               ref={nameInputRef}
               type="text"
-              className="w-full mt-1 p-2 border rounded-md text-sm border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
+              className={inputClass}
               value={form.name}
               onChange={(e) => setField("name", e.target.value)}
               placeholder="Nombre comercial"
@@ -493,58 +498,46 @@ export default function ComprasProveedores() {
           </div>
 
           <div>
-            <label className="text-[11px] font-bold text-gray-500">Razón social</label>
+            <label className={labelClass}>Razón social</label>
             <input
               type="text"
-              className="w-full mt-1 p-2 border rounded-md text-sm border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
+              className={inputClass}
               value={form.razon_social}
               onChange={(e) => setField("razon_social", e.target.value)}
-              placeholder="Razón social (opcional)"
+              placeholder="Opcional"
             />
           </div>
 
           <div>
-            <label className="text-[11px] font-bold text-gray-500">RFC</label>
+            <label className={labelClass}>RFC</label>
             <input
               type="text"
-              className="w-full mt-1 p-2 border rounded-md text-sm border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
+              className={inputClass}
               value={form.rfc}
-              onChange={(e) => setField("rfc", e.target.value)}
-              placeholder="RFC"
+              onChange={(e) => setRfcField(e.target.value)}
+              onBlur={(e) => setRfcField(e.target.value)}
+              placeholder="XAXX010101000"
+              maxLength={13}
             />
+            <p className="mt-1 text-[11px] text-slate-500">Opcional por ahora. Si se captura: 12 o 13 caracteres, sin espacios ni guiones.</p>
           </div>
 
           <div>
-            <label className="text-[11px] font-bold text-gray-500">Email</label>
+            <label className={labelClass}>Email</label>
             <input
               type="email"
-              className="w-full mt-1 p-2 border rounded-md text-sm border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
+              className={inputClass}
               value={form.email}
               onChange={(e) => setField("email", e.target.value)}
-              placeholder="correo@dominio.com"
+              placeholder="Opcional"
             />
-          </div>
-
-          <div>
-            <label className="text-[11px] font-bold text-gray-500">Estatus</label>
-            <select
-              className="w-full mt-1 p-2 border rounded-md text-sm border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
-              value={form.statuses_id}
-              onChange={(e) => setField("statuses_id", Number(e.target.value))}
-            >
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
           </div>
 
           <div className="md:col-span-2">
-            <label className="text-[11px] font-bold text-gray-500">Dirección</label>
+            <label className={labelClass}>Dirección</label>
             <input
               type="text"
-              className="w-full mt-1 p-2 border rounded-md text-sm border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
+              className={inputClass}
               value={form.address}
               onChange={(e) => setField("address", e.target.value)}
               placeholder="Dirección completa"
@@ -552,13 +545,13 @@ export default function ComprasProveedores() {
           </div>
 
           <div className="md:col-span-2">
-            <label className="text-[11px] font-bold text-gray-500">Teléfonos</label>
-            <div className="space-y-2 mt-2">
+            <label className={labelClass}>Teléfonos</label>
+            <div className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-white p-3">
               {form.phones.map((p, idx) => (
                 <div key={idx} className="flex items-center gap-2">
                   <input
                     type="text"
-                    className="flex-1 p-2 border rounded-md text-sm border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
+                    className={`${inputClass} mt-0 flex-1`}
                     value={p}
                     onChange={(e) => updatePhone(idx, e.target.value)}
                     placeholder="Teléfono"
@@ -567,7 +560,7 @@ export default function ComprasProveedores() {
                     <button
                       type="button"
                       onClick={() => removePhone(idx)}
-                      className="px-2 py-1 text-xs border rounded-md hover:bg-gray-50"
+                      className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
                     >
                       Quitar
                     </button>
@@ -577,7 +570,7 @@ export default function ComprasProveedores() {
               <button
                 type="button"
                 onClick={addPhone}
-                className="text-xs text-secundario font-semibold"
+                className="text-xs font-semibold text-secundario hover:underline"
               >
                 + Agregar teléfono
               </button>
@@ -585,23 +578,32 @@ export default function ComprasProveedores() {
           </div>
 
           <div className="md:col-span-2">
-            <label className="text-[11px] font-bold text-gray-500">Categorías</label>
-            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-40 overflow-auto border rounded-md p-2">
+            <label className={labelClass}>Categorías</label>
+            <div className="mt-2 rounded-xl border border-slate-200 bg-white p-3">
               {loadingCategories ? (
-                <div className="text-sm text-gray-500">Cargando categorías...</div>
+                <div className="text-sm text-slate-500">Cargando categorías...</div>
               ) : categories.length === 0 ? (
-                <div className="text-sm text-gray-500">No hay categorías</div>
+                <div className="text-sm text-slate-500">No hay categorías</div>
               ) : (
-                categories.map((c) => (
-                  <label key={c.id} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={form.categories.includes(c.id)}
-                      onChange={() => toggleCategory(c.id)}
-                    />
-                    <span>{c.name}</span>
-                  </label>
-                ))
+                <div className="flex max-h-44 flex-wrap gap-2 overflow-auto pr-1">
+                  {categories.map((c) => {
+                    const selected = form.categories.includes(c.id);
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => toggleCategory(c.id)}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                          selected
+                            ? "border-[#8B1D35] bg-[#8B1D35] text-white shadow-sm"
+                            : "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        {c.name}
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </div>
@@ -610,7 +612,7 @@ export default function ComprasProveedores() {
             <button
               type="submit"
               disabled={saving}
-              className="bg-secundario text-white px-4 py-2 rounded-md text-sm font-semibold shadow-md hover:opacity-90 disabled:opacity-50"
+              className="rounded-lg bg-secundario px-5 py-2.5 text-sm font-semibold text-white shadow-md transition hover:opacity-90 disabled:opacity-50"
             >
               {saving ? "Guardando..." : editing ? "Actualizar proveedor" : "Crear proveedor"}
             </button>
@@ -619,11 +621,11 @@ export default function ComprasProveedores() {
       </section>
       )}
 
-      <section className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+      <section className="relative overflow-visible rounded-2xl border border-slate-200 bg-white p-6 shadow-md">
         <div className="flex flex-col md:flex-row md:items-end gap-4 md:justify-between">
           <div>
-            <h3 className="text-lg font-bold text-gray-800">Proveedores</h3>
-            <p className="text-xs text-gray-500">Consulta y exportación de datos básicos.</p>
+            <h3 className="text-xl font-bold text-slate-800">Directorio de Proveedores</h3>
+            <p className="text-sm text-slate-500">Consulta rápida de proveedores, estatus y acciones disponibles.</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
             {isAdmin && !isExportOnlyMode && (
@@ -639,8 +641,8 @@ export default function ComprasProveedores() {
                   type="button"
                   onClick={() => importInputRef.current?.click()}
                   disabled={importing}
-                  className={`inline-flex items-center justify-center gap-2 p-2 border rounded-md text-sm ${
-                    importing ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-50"
+                  className={`inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 ${
+                    importing ? "cursor-not-allowed opacity-60" : "hover:bg-slate-100"
                   }`}
                   title="Importar archivo Excel con columnas Nombre, Razón social y RFC"
                 >
@@ -651,13 +653,13 @@ export default function ComprasProveedores() {
             )}
             <input
               type="text"
-              className="p-2 border rounded-md text-sm"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#8B1D35] focus:ring-2 focus:ring-[#8B1D35]/20"
               placeholder="Buscar por nombre, RFC o email"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
             <select
-              className="p-2 border rounded-md text-sm"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#8B1D35] focus:ring-2 focus:ring-[#8B1D35]/20"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
             >
@@ -669,7 +671,7 @@ export default function ComprasProveedores() {
               ))}
             </select>
             <select
-              className="p-2 border rounded-md text-sm"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#8B1D35] focus:ring-2 focus:ring-[#8B1D35]/20"
               value={pageSize}
               onChange={(e) => setPageSize(Number(e.target.value))}
             >
@@ -682,132 +684,116 @@ export default function ComprasProveedores() {
           </div>
         </div>
 
-        <div className="mt-4 rounded-2xl border border-gray-200 overflow-hidden bg-gradient-to-b from-slate-50 to-white shadow-sm">
-          <div className="grid grid-cols-8 bg-slate-100/80 text-[11px] font-bold text-slate-700 px-4 py-3 uppercase tracking-wide">
-            <div className="col-span-3">Proveedor</div>
-            <div className="col-span-2">Email</div>
-            <div className="col-span-1">Estatus</div>
-            {isAdmin && !isExportOnlyMode && <div className="col-span-2 text-right">Acciones</div>}
-          </div>
-
-        </div>
-
-        <div className="border-x border-b rounded-b-2xl overflow-visible bg-white/60 backdrop-blur">
+        <div className="mt-4 overflow-visible rounded-2xl border border-slate-200 bg-white shadow-sm">
           {loadingProviders ? (
             <div className="p-4 text-sm text-gray-500">Cargando proveedores...</div>
           ) : pagedProviders.length === 0 ? (
             <div className="p-4 text-sm text-gray-500">Sin resultados</div>
           ) : (
-            pagedProviders.map((p, idx) => (
-              <div
-                key={p.id}
-                className={`relative grid grid-cols-8 px-4 py-3 text-sm border-t items-center ${
-                  idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"
-                } hover:bg-secundario/5 transition`}
-              >
-                <div
-                  className={`absolute left-0 top-0 h-full w-1 ${
-                    Number(p.statuses_id) === 5
-                      ? "bg-green-500"
-                      : Number(p.statuses_id) === 3
-                      ? "bg-blue-500"
-                      : Number(p.statuses_id) === 4
-                      ? "bg-red-500"
-                      : "bg-slate-300"
-                  }`}
-                />
-                <div className="col-span-3">
-                  <div className="font-semibold text-gray-800">{p.name}</div>
-                  <div className="text-xs text-gray-500">
-                    {(p.phones || []).map((ph) => ph.phone).join(", ") || "—"}
-                  </div>
-                </div>
-                <div className="col-span-2 text-gray-700">{p.email || "—"}</div>
-                <div className="col-span-1">
-                  <span
-                    className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold border shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] ${
-                      Number(p.statuses_id) === 5
-                        ? "bg-green-500/15 text-green-700 border-green-300/60"
-                        : Number(p.statuses_id) === 3
-                        ? "bg-blue-500/15 text-blue-700 border-blue-300/60"
-                        : Number(p.statuses_id) === 4
-                        ? "bg-red-500/15 text-red-700 border-red-300/60"
-                        : "bg-slate-500/10 text-slate-700 border-slate-300/60"
-                    }`}
-                  >
-                    {STATUS_OPTIONS.find((s) => s.id === Number(p.statuses_id))?.label || p.statuses_id}
-                  </span>
-                </div>
-                {isAdmin && !isExportOnlyMode && (
-                <div className="col-span-2 text-right">
-                  <div className="relative inline-flex justify-end" data-actions-menu>
-                    <button
-                      onClick={() => setOpenActionsId(openActionsId === p.id ? null : p.id)}
-                      className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-full bg-secundario text-white shadow-md hover:opacity-90"
-                    >
-                      Acciones
-                      <ChevronDown size={14} />
-                    </button>
-                    {openActionsId === p.id && (
-                      <div className="absolute right-0 mt-2 w-52 rounded-xl border border-gray-200 bg-white shadow-lg z-[9999] overflow-hidden">
-                        <button
-                          onClick={() => {
-                            setOpenActionsId(null);
-                            startEdit(p);
-                          }}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-100/80 text-[11px] uppercase tracking-wide text-slate-600">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-bold">Proveedor</th>
+                    <th className="px-4 py-3 text-left font-bold">Contacto</th>
+                    <th className="px-4 py-3 text-left font-bold">Estatus</th>
+                    {isAdmin && !isExportOnlyMode && <th className="px-4 py-3 text-right font-bold">Acciones</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedProviders.map((p, idx) => (
+                    <tr key={p.id} className="border-t border-slate-200 hover:bg-slate-50/70">
+                      <td className="px-4 py-3 align-top">
+                        <div className="font-semibold text-slate-800">{p.name}</div>
+                        <div className="mt-1 text-xs text-slate-500">RFC: {p.rfc || "Pendiente"}</div>
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <div className="text-slate-700">{p.email || "Sin correo"}</div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {(p.phones || []).map((ph) => ph.phone).join(", ") || "Sin teléfonos"}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                            Number(p.statuses_id) === 5
+                              ? "border-green-300/60 bg-green-500/15 text-green-700"
+                              : Number(p.statuses_id) === 3
+                              ? "border-blue-300/60 bg-blue-500/15 text-blue-700"
+                              : Number(p.statuses_id) === 4
+                              ? "border-red-300/60 bg-red-500/15 text-red-700"
+                              : "border-slate-300/60 bg-slate-500/10 text-slate-700"
+                          }`}
                         >
-                          <Pencil size={14} /> Editar proveedor
-                        </button>
-                        <button
-                          onClick={() => {
-                            setOpenActionsId(null);
-                            setDetailProvider(p);
-                          }}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
-                        >
-                          <FileText size={14} /> Ver detalle
-                        </button>
-                        {Number(p.statuses_id) !== 5 && (
-                          <button
-                            onClick={() => {
-                              setOpenActionsId(null);
-                              updateStatus(p, 5);
-                            }}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-green-700 hover:bg-green-50"
-                          >
-                            <ShieldCheck size={14} /> Marcar verificado
-                          </button>
-                        )}
-                        {Number(p.statuses_id) !== 3 && (
-                          <button
-                            onClick={() => {
-                              setOpenActionsId(null);
-                              updateStatus(p, 3);
-                            }}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-blue-700 hover:bg-blue-50"
-                          >
-                            <CheckCircle size={14} /> Activar
-                          </button>
-                        )}
-                        {Number(p.statuses_id) !== 4 && (
-                          <button
-                            onClick={() => {
-                              setOpenActionsId(null);
-                              updateStatus(p, 4);
-                            }}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-700 hover:bg-red-50"
-                          >
-                            <Power size={14} /> Desactivar
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                )}
-              </div>
-            ))
+                          {STATUS_OPTIONS.find((s) => s.id === Number(p.statuses_id))?.label || p.statuses_id}
+                        </span>
+                      </td>
+                      {isAdmin && !isExportOnlyMode && (
+                        <td className="px-4 py-3 text-right align-top">
+                          <div className="relative inline-flex justify-end" data-actions-menu>
+                            <button
+                              onClick={() => setOpenActionsId(openActionsId === p.id ? null : p.id)}
+                              className="inline-flex items-center gap-2 rounded-full bg-secundario px-3 py-1.5 text-xs text-white shadow-md hover:opacity-90"
+                            >
+                              Acciones
+                              <ChevronDown size={14} />
+                            </button>
+                            {openActionsId === p.id && (
+                              <div
+                                className={`absolute right-0 z-[9999] w-56 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg ${
+                                  idx >= pagedProviders.length - 2 ? "bottom-full mb-2" : "mt-2"
+                                }`}
+                              >
+                                <button
+                                  onClick={() => {
+                                    setOpenActionsId(null);
+                                    startEdit(p);
+                                  }}
+                                  className="flex w-full items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
+                                >
+                                  <Pencil size={14} /> Editar proveedor
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setOpenActionsId(null);
+                                    setDetailProvider(p);
+                                  }}
+                                  className="flex w-full items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
+                                >
+                                  <FileText size={14} /> Ver detalle
+                                </button>
+                                {Number(p.statuses_id) !== 5 && (
+                                  <button
+                                    onClick={() => {
+                                      setOpenActionsId(null);
+                                      updateStatus(p, 5);
+                                    }}
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-xs text-green-700 hover:bg-green-50"
+                                  >
+                                    <ShieldCheck size={14} /> Marcar verificado
+                                  </button>
+                                )}
+                                {Number(p.statuses_id) !== 4 && (
+                                  <button
+                                    onClick={() => {
+                                      setOpenActionsId(null);
+                                      updateStatus(p, 4);
+                                    }}
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-xs text-red-700 hover:bg-red-50"
+                                  >
+                                    <Power size={14} /> Desactivar
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 

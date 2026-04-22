@@ -20,6 +20,73 @@ const __dirname = path.dirname(__filename);
 const templatesDir = path.resolve(__dirname, "..", "templates");
 const requisitionUploadsDir = path.resolve(__dirname, "..", "uploads", "requisiciones");
 const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
+const normalizeRfc = (value) =>
+  String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "");
+const normalizeProviderStatus = (value) => {
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && [3, 4, 5, 6].includes(parsed)) return parsed;
+  return 6;
+};
+const normalizeProviderCategories = (values) =>
+  Array.from(
+    new Set(
+      (Array.isArray(values) ? values : [])
+        .map((v) => Number(v))
+        .filter((v) => Number.isFinite(v) && v > 0)
+    )
+  );
+const normalizeProviderPhones = (values) =>
+  Array.from(
+    new Set(
+      (Array.isArray(values) ? values : [])
+        .map((v) => String(v || "").trim())
+        .filter(Boolean)
+    )
+  );
+const generateDraftRfc = async (conn) => {
+  const d = new Date();
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const baseDate = `${yy}${mm}${dd}`;
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789";
+
+  const pick = () =>
+    Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+
+  for (let i = 0; i < 30; i += 1) {
+    const candidate = `BORR${baseDate}${pick()}`;
+    const [dup] = await conn.query(`SELECT id FROM provider WHERE rfc = ? LIMIT 1`, [candidate]);
+    if (!dup.length) return candidate;
+  }
+
+  return `BORR${baseDate}${String(Date.now()).slice(-3)}`;
+};
+const mapProviderMutationError = (error) => {
+  const code = String(error?.code || "");
+  const detail = String(error?.sqlMessage || error?.message || "").toLowerCase();
+
+  if (code === "ER_DUP_ENTRY") {
+    if (detail.includes("rfc")) return { status: 409, message: "RFC ya registrado" };
+    if (detail.includes("email")) return { status: 409, message: "Email ya registrado" };
+    return { status: 409, message: "Registro duplicado" };
+  }
+  if (code === "ER_NO_REFERENCED_ROW_2") {
+    if (detail.includes("category")) return { status: 400, message: "Categoría inválida" };
+    if (detail.includes("status")) return { status: 400, message: "Estatus inválido" };
+    return { status: 400, message: "Referencia inválida en los datos enviados" };
+  }
+  if (code === "ER_BAD_NULL_ERROR") {
+    return { status: 400, message: "Faltan campos requeridos" };
+  }
+  if (code === "ER_TRUNCATED_WRONG_VALUE" || code === "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD") {
+    return { status: 400, message: "Hay datos con formato inválido" };
+  }
+  return { status: 500, message: "Error interno" };
+};
 
 const normalizeHeader = (value) =>
   String(value || "")
@@ -348,7 +415,8 @@ export const getComprasDashboard = async (req, res) => {
 
 /* =============================
    PREPARACION COMPRAS (ADMIN)
-   Vista temprana de requisiciones en borrador (7)
+   Vista previa solo de etapas previas a Compras:
+   7 (URE), 8 (Coordinación), 9 (Secretaría)
 ============================= */
 export const getComprasPreparation = async (req, res) => {
   try {
@@ -362,7 +430,7 @@ export const getComprasPreparation = async (req, res) => {
     const q = String(req.query.q || "").trim();
 
     const status = String(req.query.status || "all");
-    const visibleStatuses = [7, 8, 9, 11, 12, 13, 14];
+    const visibleStatuses = [7, 8, 9];
     const whereParts = [`r.statuses_id IN (${visibleStatuses.join(",")})`];
     const params = [];
 
@@ -383,12 +451,14 @@ export const getComprasPreparation = async (req, res) => {
           OR u.name LIKE ?
           OR u.ure LIKE ?
           OR ho.name LIKE ?
+          OR sec.name LIKE ?
           OR c.name LIKE ?
+          OR csec.name LIKE ?
           OR c2.name LIKE ?
         )
       `);
       const like = `%${q}%`;
-      params.push(like, like, like, like, like, like, like);
+      params.push(like, like, like, like, like, like, like, like, like);
     }
 
     const whereClause = `WHERE ${whereParts.join(" AND ")}`;
@@ -405,7 +475,23 @@ export const getComprasPreparation = async (req, res) => {
           ORDER BY LENGTH(TRIM(ho2.ure)) DESC
           LIMIT 1
         )
+      LEFT JOIN secretary sec
+        ON sec.id = (
+          SELECT s2.id
+          FROM secretary s2
+          WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+          ORDER BY LENGTH(TRIM(s2.ure)) DESC
+          LIMIT 1
+        )
       LEFT JOIN coordination c ON ho.coordination_id = c.id
+      LEFT JOIN coordination csec
+        ON csec.id = (
+          SELECT c4.id
+          FROM coordination c4
+          WHERE TRIM(UPPER(sec.ure)) LIKE CONCAT(TRIM(UPPER(c4.ure)), '%')
+          ORDER BY LENGTH(TRIM(c4.ure)) DESC
+          LIMIT 1
+        )
       LEFT JOIN coordination c2
         ON c2.id = (
           SELECT c3.id
@@ -450,8 +536,18 @@ export const getComprasPreparation = async (req, res) => {
         u.name AS solicitante,
         u.role AS created_by_role,
         u.ure AS ure_solicitante,
-        COALESCE(NULLIF(TRIM(ho.name), ''), NULLIF(TRIM(c2.name), ''), u.ure) AS nombre_unidad,
-        COALESCE(NULLIF(TRIM(c.name), ''), NULLIF(TRIM(c2.name), ''), 'General') AS coordinacion
+        COALESCE(
+          NULLIF(TRIM(ho.name), ''),
+          NULLIF(TRIM(sec.name), ''),
+          NULLIF(TRIM(c2.name), ''),
+          u.ure
+        ) AS nombre_unidad,
+        COALESCE(
+          NULLIF(TRIM(c.name), ''),
+          NULLIF(TRIM(csec.name), ''),
+          NULLIF(TRIM(c2.name), ''),
+          'General'
+        ) AS coordinacion
       FROM requisition r
       LEFT JOIN statuses s ON r.statuses_id = s.id
       LEFT JOIN users u ON r.users_id = u.id
@@ -463,7 +559,23 @@ export const getComprasPreparation = async (req, res) => {
           ORDER BY LENGTH(TRIM(ho2.ure)) DESC
           LIMIT 1
         )
+      LEFT JOIN secretary sec
+        ON sec.id = (
+          SELECT s2.id
+          FROM secretary s2
+          WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+          ORDER BY LENGTH(TRIM(s2.ure)) DESC
+          LIMIT 1
+        )
       LEFT JOIN coordination c ON ho.coordination_id = c.id
+      LEFT JOIN coordination csec
+        ON csec.id = (
+          SELECT c4.id
+          FROM coordination c4
+          WHERE TRIM(UPPER(sec.ure)) LIKE CONCAT(TRIM(UPPER(c4.ure)), '%')
+          ORDER BY LENGTH(TRIM(c4.ure)) DESC
+          LIMIT 1
+        )
       LEFT JOIN coordination c2
         ON c2.id = (
           SELECT c3.id
@@ -3190,7 +3302,7 @@ export const createProvider = async (req, res) => {
     const {
       name,
       razon_social = null,
-      email = null,
+      email = "",
       rfc,
       address = null,
       statuses_id = 6,
@@ -3200,22 +3312,26 @@ export const createProvider = async (req, res) => {
 
     const cleanName = String(name || "").trim();
     const cleanRazon = razon_social ? String(razon_social).trim() : null;
-    const cleanEmail = email ? String(email).trim() : null;
+    const cleanEmail = email ? String(email).trim() : "";
     const cleanAddress = address ? String(address).trim() : null;
-    const cleanRfc = String(rfc || "").trim().toUpperCase();
-    const rfcRegex = /^[A-ZÑ&]{3,4}\\d{6}[A-Z0-9]{3}$/;
+    let cleanRfc = normalizeRfc(rfc);
 
     if (!cleanName) {
       return res.status(400).json({ message: "name es requerido" });
     }
-    if (!cleanRfc) {
-      return res.status(400).json({ message: "rfc es requerido" });
-    }
-    if (!rfcRegex.test(cleanRfc)) {
+    if (cleanRfc && !RFC_REGEX.test(cleanRfc)) {
       return res.status(400).json({ message: "RFC inválido" });
     }
 
+    const cleanStatus = normalizeProviderStatus(statuses_id);
+    const cleanCategories = normalizeProviderCategories(categories);
+    const cleanPhones = normalizeProviderPhones(phones);
+
     await conn.beginTransaction();
+
+    if (!cleanRfc) {
+      cleanRfc = await generateDraftRfc(conn);
+    }
 
     const [dupRfc] = await conn.query(
       `SELECT id FROM provider WHERE rfc = ? LIMIT 1`,
@@ -3242,23 +3358,21 @@ export const createProvider = async (req, res) => {
       INSERT INTO provider (name, razon_social, email, rfc, statuses_id, address)
       VALUES (?, ?, ?, ?, ?, ?)
       `,
-      [cleanName, cleanRazon, cleanEmail, cleanRfc, Number(statuses_id), cleanAddress]
+      [cleanName, cleanRazon, cleanEmail, cleanRfc, cleanStatus, cleanAddress]
     );
 
     const providerId = insert.insertId;
 
-    if (Array.isArray(categories) && categories.length > 0) {
-      const values = categories.map((catId) => [providerId, Number(catId)]);
+    if (cleanCategories.length > 0) {
+      const values = cleanCategories.map((catId) => [providerId, catId]);
       await conn.query(
         `INSERT INTO provider_has_category (provider_id, categories_id) VALUES ?`,
         [values]
       );
     }
 
-    if (Array.isArray(phones) && phones.length > 0) {
-      for (const phone of phones) {
-        const value = String(phone || "").trim();
-        if (!value) continue;
+    if (cleanPhones.length > 0) {
+      for (const value of cleanPhones) {
         const [phoneInsert] = await conn.query(
           `INSERT INTO phones (phone) VALUES (?)`,
           [value]
@@ -3275,7 +3389,8 @@ export const createProvider = async (req, res) => {
   } catch (error) {
     await conn.rollback();
     console.error("Error createProvider:", error);
-    res.status(500).json({ message: "Error interno" });
+    const mapped = mapProviderMutationError(error);
+    res.status(mapped.status).json({ message: mapped.message });
   } finally {
     conn.release();
   }
@@ -3291,7 +3406,7 @@ export const updateProvider = async (req, res) => {
     const {
       name,
       razon_social = null,
-      email = null,
+      email = "",
       rfc,
       address = null,
       statuses_id,
@@ -3301,17 +3416,16 @@ export const updateProvider = async (req, res) => {
 
     const cleanName = String(name || "").trim();
     const cleanRazon = razon_social ? String(razon_social).trim() : null;
-    const cleanEmail = email ? String(email).trim() : null;
+    const cleanEmail = email ? String(email).trim() : "";
     const cleanAddress = address ? String(address).trim() : null;
-    const cleanRfc = String(rfc || "").trim().toUpperCase();
-    const rfcRegex = /^[A-ZÑ&]{3,4}\\d{6}[A-Z0-9]{3}$/;
+    let cleanRfc = normalizeRfc(rfc);
 
     if (!cleanName) {
       return res.status(400).json({ message: "name es requerido" });
     }
-    if (!cleanRfc) {
-      return res.status(400).json({ message: "rfc es requerido" });
-    }
+    const cleanStatus = normalizeProviderStatus(statuses_id);
+    const cleanCategories = normalizeProviderCategories(categories);
+    const cleanPhones = normalizeProviderPhones(phones);
 
     await conn.beginTransaction();
 
@@ -3325,8 +3439,9 @@ export const updateProvider = async (req, res) => {
     }
 
     const currentRfc = String(current.rfc || "").trim().toUpperCase();
+    if (!cleanRfc) cleanRfc = currentRfc;
     const rfcChanged = currentRfc !== cleanRfc;
-    if (rfcChanged && !rfcRegex.test(cleanRfc)) {
+    if (rfcChanged && !RFC_REGEX.test(cleanRfc)) {
       await conn.rollback();
       return res.status(400).json({ message: "RFC inválido" });
     }
@@ -3362,15 +3477,15 @@ export const updateProvider = async (req, res) => {
         cleanRazon,
         cleanEmail,
         cleanRfc,
-        Number(statuses_id),
+        cleanStatus,
         cleanAddress,
         providerId,
       ]
     );
 
     await conn.query(`DELETE FROM provider_has_category WHERE provider_id = ?`, [providerId]);
-    if (Array.isArray(categories) && categories.length > 0) {
-      const values = categories.map((catId) => [providerId, Number(catId)]);
+    if (cleanCategories.length > 0) {
+      const values = cleanCategories.map((catId) => [providerId, catId]);
       await conn.query(
         `INSERT INTO provider_has_category (provider_id, categories_id) VALUES ?`,
         [values]
@@ -3378,10 +3493,8 @@ export const updateProvider = async (req, res) => {
     }
 
     await conn.query(`DELETE FROM provider_has_phones WHERE provider_id = ?`, [providerId]);
-    if (Array.isArray(phones) && phones.length > 0) {
-      for (const phone of phones) {
-        const value = String(phone || "").trim();
-        if (!value) continue;
+    if (cleanPhones.length > 0) {
+      for (const value of cleanPhones) {
         const [phoneInsert] = await conn.query(`INSERT INTO phones (phone) VALUES (?)`, [value]);
         await conn.query(
           `INSERT INTO provider_has_phones (provider_id, phones_id) VALUES (?, ?)`,
@@ -3395,7 +3508,8 @@ export const updateProvider = async (req, res) => {
   } catch (error) {
     await conn.rollback();
     console.error("Error updateProvider:", error);
-    res.status(500).json({ message: "Error interno" });
+    const mapped = mapProviderMutationError(error);
+    res.status(mapped.status).json({ message: mapped.message });
   } finally {
     conn.release();
   }

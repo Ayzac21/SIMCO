@@ -1135,6 +1135,7 @@ router.get("/:id/pdf-firma", async (req, res) => {
         c.name AS categoria,
         s.name AS estatus,
         u.name AS solicitante,
+        u.role AS solicitante_role,
         u.ure AS ure_solicitante,
         COALESCE(NULLIF(TRIM(ho.name), ''), u.ure, 'URE') AS dependencia_solicitante,
         COALESCE(NULLIF(TRIM(c2.name), ''), NULLIF(TRIM(c2.ure), ''), 'Área ejecutora') AS coordinacion_dependencia,
@@ -1541,20 +1542,48 @@ router.get("/:id/pdf-firma", async (req, res) => {
     const secretariaFirma =
       safe(reqRow.secretaria_dependencia) || "Secretaría Administrativa";
 
-    const signatures = [
-      {
-        name: safe(reqRow.solicitante) || "Solicitante",
-        role: `Jefe de Unidad (${dependenciaSolicitanteFirma})`,
-      },
-      {
-        name: safe(reqRow.coordinador_firma) || "Coordinador",
-        role: `Coordinador (${coordinacionFirma})`,
-      },
-      {
-        name: safe(reqRow.secretaria_firma) || "Secretario Académico",
-        role: "Secretario Académico",
-      },
-    ];
+    const requesterRole = safe(reqRow.solicitante_role).toLowerCase();
+    const signatures = [];
+    const addSignature = (name, role) => {
+      const cleanName = safe(name);
+      const cleanRole = safe(role);
+      if (!cleanName || !cleanRole) return;
+      const exists = signatures.some(
+        (sig) =>
+          safe(sig.name).toLowerCase() === cleanName.toLowerCase() &&
+          safe(sig.role).toLowerCase() === cleanRole.toLowerCase()
+      );
+      if (!exists) signatures.push({ name: cleanName, role: cleanRole });
+    };
+
+    if (requesterRole === "coordinador") {
+      addSignature(
+        safe(reqRow.solicitante) || safe(reqRow.coordinador_firma) || "Coordinador",
+        `Coordinador (${coordinacionFirma})`
+      );
+      addSignature(
+        safe(reqRow.secretaria_firma) || "Secretario Académico",
+        "Secretario Académico"
+      );
+    } else if (requesterRole === "secretaria") {
+      addSignature(
+        safe(reqRow.solicitante) || safe(reqRow.secretaria_firma) || "Secretario Académico",
+        "Secretario Académico"
+      );
+    } else {
+      addSignature(
+        safe(reqRow.solicitante) || "Solicitante",
+        `Jefe de Unidad (${dependenciaSolicitanteFirma})`
+      );
+      addSignature(
+        safe(reqRow.coordinador_firma) || "Coordinador",
+        `Coordinador (${coordinacionFirma})`
+      );
+      addSignature(
+        safe(reqRow.secretaria_firma) || "Secretario Académico",
+        "Secretario Académico"
+      );
+    }
     const fixedSignatures = [
       {
         name: "Mtro. Juan Jerónimo Centeno Quevedo",

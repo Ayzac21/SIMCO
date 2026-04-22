@@ -46,6 +46,7 @@ export default function OrdenCompra() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [downloadingExcel, setDownloadingExcel] = useState(false);
   const [metaByProvider, setMetaByProvider] = useState({});
   const [orderType, setOrderType] = useState("compra");
   const [orderNumber, setOrderNumber] = useState("");
@@ -309,6 +310,44 @@ export default function OrdenCompra() {
     }
   };
 
+  const handleDownloadExcel = async () => {
+    if (downloadingExcel) return;
+    try {
+      setDownloadingExcel(true);
+      const resp = await fetch(`${API_URL}/cotizacion/${id}/excel`, {
+        headers: getAuthHeaders(),
+      });
+
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data?.message || "No se pudo generar el Excel");
+      }
+
+      const blob = await resp.blob();
+      const disposition = resp.headers.get("content-disposition") || "";
+      const match =
+        disposition.match(/filename\*=UTF-8''([^;]+)/i) ||
+        disposition.match(/filename="?([^"]+)"?/i);
+      const filename = decodeURIComponent(
+        (match?.[1] || `Cotizacion_${id}.xlsx`).replace(/["']/g, "")
+      );
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      console.error(e);
+      toast.error(e?.message || "No se pudo generar el Excel");
+    } finally {
+      setDownloadingExcel(false);
+    }
+  };
+
   if (loading) {
     return <div className="p-10 text-center text-sm text-gray-500">Cargando orden...</div>;
   }
@@ -370,6 +409,19 @@ export default function OrdenCompra() {
           >
             <FileText size={12} />
             VER COMPARATIVO
+          </button>
+          <button
+            onClick={handleDownloadExcel}
+            disabled={downloadingExcel}
+            className={`px-3 py-1.5 rounded-md text-[11px] font-semibold flex items-center gap-1.5 border ${
+              downloadingExcel
+                ? "bg-gray-200 text-gray-500 cursor-not-allowed border-gray-200"
+                : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+            }`}
+            title="Descargar Excel de cotización"
+          >
+            <FileText size={12} />
+            {downloadingExcel ? "GENERANDO EXCEL..." : "VER EXCEL"}
           </button>
           {providersList.length <= 1 ? (
             <button
