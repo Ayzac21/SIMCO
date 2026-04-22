@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, FileText, CheckCircle2, Briefcase, Building2, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import ConfirmModal from "../../../components/ConfirmModal";
@@ -28,9 +28,11 @@ const money = (v) => {
 export default function OrdenCompra() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const userStr = localStorage.getItem("usuario");
   const user = userStr ? JSON.parse(userStr) : null;
   const isAdmin = user?.role === "compras_admin";
+  const isExcelPreviewMode = searchParams.get("vista") === "excel";
 
   const [loading, setLoading] = useState(true);
   const [requisition, setRequisition] = useState(null);
@@ -348,8 +350,102 @@ export default function OrdenCompra() {
     }
   };
 
+  const openExcelPreviewPage = () => {
+    const next = new URLSearchParams(searchParams);
+    next.set("vista", "excel");
+    setSearchParams(next);
+  };
+
+  const closeExcelPreviewPage = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("vista");
+    setSearchParams(next);
+  };
+
   if (loading) {
     return <div className="p-10 text-center text-sm text-gray-500">Cargando orden...</div>;
+  }
+
+  if (isExcelPreviewMode) {
+    return (
+      <div className="p-6 bg-[#F3F4F6] min-h-[calc(100vh-24px)]">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={closeExcelPreviewPage}
+              className="px-3 py-1.5 rounded-md text-xs font-semibold border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+            >
+              ← Volver a proceso
+            </button>
+            <h1 className="text-lg font-bold text-gray-800">Vista previa de Excel #{id}</h1>
+          </div>
+          <button
+            onClick={handleDownloadExcel}
+            disabled={downloadingExcel}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold border ${
+              downloadingExcel
+                ? "bg-gray-200 text-gray-500 cursor-not-allowed border-gray-200"
+                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+            }`}
+          >
+            {downloadingExcel ? "GENERANDO..." : "DESCARGAR EXCEL"}
+          </button>
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
+            <div className="text-sm font-semibold text-gray-800">Previsualización del contenido</div>
+            <div className="text-xs text-gray-500">Revisa datos antes de descargar e imprimir.</div>
+          </div>
+          <div className="overflow-auto max-h-[75vh]">
+            {rows.length === 0 ? (
+              <div className="p-6 text-sm text-gray-500">No hay partidas para previsualizar.</div>
+            ) : (
+              <table className="w-full text-xs">
+                <thead className="bg-gray-100 text-gray-600 uppercase tracking-wide border-b border-gray-200">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Partida</th>
+                    <th className="px-3 py-2 text-center">Cant.</th>
+                    <th className="px-3 py-2 text-left">Proveedor</th>
+                    <th className="px-3 py-2 text-right">P. Unitario</th>
+                    <th className="px-3 py-2 text-right">Subtotal</th>
+                    <th className="px-3 py-2 text-right">IVA</th>
+                    <th className="px-3 py-2 text-right">ISR</th>
+                    <th className="px-3 py-2 text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((item) => (
+                    <tr key={item.id} className="border-b border-gray-100">
+                      <td className="px-3 py-2 text-gray-700">{item.description || item.selected_description || "—"}</td>
+                      <td className="px-3 py-2 text-center text-gray-700">{item.quantity || "—"}</td>
+                      <td className="px-3 py-2 text-gray-700">{item.provider_name || "—"}</td>
+                      <td className="px-3 py-2 text-right text-gray-700">{money(item.selected_unit_price)}</td>
+                      <td className="px-3 py-2 text-right text-gray-700">{money(item.subtotal)}</td>
+                      <td className="px-3 py-2 text-right text-gray-700">
+                        {item.vatPct ? `${item.vatPct}% (${money(item.vatAmount)})` : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right text-gray-700">
+                        {item.isrPct ? `${item.isrPct}% (${money(item.isrAmount)})` : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold text-gray-900">{money(item.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+                  <tr>
+                    <td className="px-3 py-2 font-bold text-gray-800" colSpan={7}>
+                      Total general
+                    </td>
+                    <td className="px-3 py-2 text-right font-bold text-gray-900">{money(totalGeneral)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -402,27 +498,25 @@ export default function OrdenCompra() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => navigate(`/compras/cotizar/${id}`)}
-            className="px-3 py-1.5 rounded-md text-[11px] font-semibold flex items-center gap-1.5 border bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-            title="Ver cuadro comparativo"
+          <div
+            className="inline-flex items-center rounded-md border border-gray-200 bg-white overflow-hidden"
+            title="Cuadro comparativo y Excel"
           >
-            <FileText size={12} />
-            VER COMPARATIVO
-          </button>
-          <button
-            onClick={handleDownloadExcel}
-            disabled={downloadingExcel}
-            className={`px-3 py-1.5 rounded-md text-[11px] font-semibold flex items-center gap-1.5 border ${
-              downloadingExcel
-                ? "bg-gray-200 text-gray-500 cursor-not-allowed border-gray-200"
-                : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-            }`}
-            title="Descargar Excel de cotización"
-          >
-            <FileText size={12} />
-            {downloadingExcel ? "GENERANDO EXCEL..." : "VER EXCEL"}
-          </button>
+            <button
+              onClick={() => navigate(`/compras/cotizar/${id}`)}
+              className="px-3 py-1.5 text-[11px] font-semibold flex items-center gap-1.5 text-gray-700 hover:bg-gray-50"
+            >
+              <FileText size={12} />
+              VER COMPARATIVO
+            </button>
+            <div className="h-5 w-px bg-gray-200" />
+            <button
+              onClick={openExcelPreviewPage}
+              className="px-3 py-1.5 text-[11px] font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              EXCEL
+            </button>
+          </div>
           {providersList.length <= 1 ? (
             <button
               onClick={() => handleDownloadPdf(providersList[0]?.id)}

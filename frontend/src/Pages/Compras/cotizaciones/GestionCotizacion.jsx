@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
     ArrowLeft,
     CheckCircle2,
+    FileText,
     Search,
     Save,
     Users,
@@ -741,6 +742,10 @@ export default function GestionCotizacion() {
         }
     };
 
+    const openExcelPreview = () => {
+        navigate(`/compras/orden/${id}?vista=excel`);
+    };
+
     if (loading) {
         return <div className="p-10 text-center text-sm text-gray-500">Cargando gestión...</div>;
     }
@@ -862,6 +867,14 @@ export default function GestionCotizacion() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                <button
+                    onClick={openExcelPreview}
+                    className="inline-flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
+                    title="Vista previa y descarga del Excel"
+                >
+                    <FileText size={13} />
+                    EXCEL
+                </button>
                 {!isClosed && !isReader && (
                     <button
                     onClick={handleCloseInvites}
