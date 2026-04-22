@@ -79,7 +79,7 @@ export default function ComprasLayout() {
     }, [headers, pathname]);
 
     const isWideContentRoute = pathname.startsWith("/compras/cotizar/");
-    const contentMaxWidthClass = isWideContentRoute ? "max-w-[2000px]" : "max-w-7xl";
+    const contentMaxWidthClass = isWideContentRoute ? "max-w-[1800px]" : "max-w-[1280px]";
 
     // --- Cerrar sidebar al cambiar de ruta (mejor UX móvil) ---
     useEffect(() => {
@@ -136,7 +136,7 @@ export default function ComprasLayout() {
         {/* ================= SIDEBAR ================= */}
         <aside
             className={`
-            bg-secundario text-white w-64 flex flex-col
+            bg-secundario text-white w-[15rem] xl:w-64 flex flex-col
             fixed md:static inset-y-0 left-0 z-40
             transform transition-transform duration-300
             ${open ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
@@ -220,13 +220,13 @@ export default function ComprasLayout() {
         {/* ================= CONTENIDO PRINCIPAL ================= */}
         <main className="flex-1 flex flex-col overflow-hidden relative">
             {/* Header */}
-            <header className="bg-white border-b border-gray-200 py-4 md:py-5 px-4 md:px-10 shadow-sm flex justify-between items-center sticky top-0 z-20">
+            <header className="bg-white border-b border-gray-200 py-3.5 sm:py-4 lg:py-5 px-4 sm:px-6 lg:px-8 xl:px-10 shadow-sm flex justify-between items-center sticky top-0 z-20">
                 {/* Izquierda */}
                 <div className="pl-12 md:pl-0">
-                    <h1 className="text-lg md:text-2xl font-bold text-gray-800 leading-tight">
+                    <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-800 leading-tight">
                     {headerInfo.title}
                     </h1>
-                    <p className="text-[11px] md:text-sm text-gray-500">
+                    <p className="text-[11px] sm:text-xs lg:text-sm text-gray-500">
                     {headerInfo.subtitle}
                     </p>
                 </div>
@@ -251,7 +251,7 @@ export default function ComprasLayout() {
             </header>
 
             {/* Outlet */}
-            <div className="flex-1 overflow-y-auto px-4 md:px-10 py-6 bg-gray-100">
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-5 lg:py-6 bg-gray-100">
                 <div className={`${contentMaxWidthClass} mx-auto animate-in fade-in duration-500`}>
                     <Outlet />
                 </div>

@@ -3,11 +3,9 @@ import Hero from "../components/Hero";
 
 export default function Home() {
     return (
-        <>
-            <div className="h-screen overflow-hidden flex flex-col">
-                <Navbar />
-                <Hero />
-            </div>
-        </>
+        <div className="min-h-dvh flex flex-col bg-[#f4f1ee]">
+            <Navbar />
+            <Hero />
+        </div>
     );
 }

@@ -32,15 +32,15 @@ const flow = [
 
 export default function Hero() {
   return (
-    <div className="relative h-[calc(100vh-82px)] overflow-hidden bg-[#f4f1ee]">
+    <div className="relative flex-1 bg-[#f4f1ee]">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-x-0 top-0 h-72 bg-gradient-to-b from-[#7a1f32]/12 via-[#7a1f32]/6 to-transparent" />
         <div className="absolute -left-24 top-16 h-72 w-72 rounded-full bg-[#b37c44]/10 blur-3xl" />
         <div className="absolute right-0 top-28 h-80 w-80 rounded-full bg-[#7a1f32]/10 blur-3xl" />
       </div>
 
-      <main className="relative mx-auto h-full w-full max-w-[90rem] px-4 py-2 sm:px-6 md:py-3 lg:px-8">
-        <section className="flex h-full w-full flex-col gap-3 rounded-3xl border border-[#7a1f32]/15 bg-white/95 p-4 shadow-[0_16px_40px_rgba(53,24,30,0.1)] sm:p-5">
+      <main className="relative mx-auto w-full max-w-[90rem] px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+        <section className="flex w-full flex-col gap-3 rounded-3xl border border-[#7a1f32]/15 bg-white/95 p-4 shadow-[0_16px_40px_rgba(53,24,30,0.1)] sm:p-5">
           <div className="mb-3 inline-flex w-fit items-center gap-2 whitespace-nowrap rounded-full border border-[#7a1f32]/20 bg-[#7a1f32]/5 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[#7a1f32]">
             <Landmark size={14} />
             Sistema Institucional CUAltos

@@ -451,7 +451,7 @@ export default function RevisionCotizacion() {
   }
 
   return (
-    <div className="p-6 bg-[#F3F4F6] min-h-[calc(100vh-24px)]">
+    <div className="p-3 sm:p-5 lg:p-6 bg-[#F3F4F6] min-h-full">
       <ConfirmModal
         open={confirmOpen}
         loading={saving}

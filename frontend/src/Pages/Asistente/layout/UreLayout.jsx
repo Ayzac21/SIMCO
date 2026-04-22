@@ -58,7 +58,7 @@ export default function UreLayout() {
         {/* ================= SIDEBAR ================= */}
         <aside
             className={`
-            bg-secundario text-white w-64 flex flex-col
+            bg-secundario text-white w-[15rem] xl:w-64 flex flex-col
             fixed md:static inset-y-0 z-40
             transform transition-transform duration-300
             ${open ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
@@ -154,7 +154,7 @@ export default function UreLayout() {
             )}
 
             {/* CONTENIDO CON SCROLL */}
-            <div className="flex-1 overflow-y-auto px-6 md:px-10 py-6 animate-fade-in">
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-5 lg:py-6 animate-fade-in">
             <div className="max-w-7xl mx-auto">
                 <Outlet />
             </div>

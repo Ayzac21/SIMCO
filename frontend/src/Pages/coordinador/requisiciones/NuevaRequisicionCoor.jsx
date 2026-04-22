@@ -263,11 +263,7 @@ export default function RequisicionesUre() {
     };
 
     return (
-        /* BLOQUEO DE SCROLL GENERAL:
-        h-[calc(100vh-80px)]: Altura exacta de la pantalla menos el header.
-        overflow-hidden: IMPIDE que la página se mueva.
-        */
-        <div className="w-full h-[calc(100vh-90px)]  flex justify-center items-center p-4 overflow-hidden">
+        <div className="w-full min-h-full flex justify-center items-start lg:items-stretch p-3 sm:p-4 lg:p-5">
 
             {/* NOTIFICACIÓN */}
             {notification.show && (
@@ -279,18 +275,13 @@ export default function RequisicionesUre() {
                 </div>
             )}
 
-            {/* TARJETA FLOTANTE CENTRAL:
-                h-[85vh]: Altura FIJA. No crece ni se encoge.
-                flex: Para organizar columnas.
-                overflow-hidden: Corta cualquier hijo que intente salirse.
-            */}
-            <div className="w-full max-w-6xl h-[85vh] bg-white shadow-2xl rounded-xl border border-gray-200 overflow-hidden flex flex-col lg:flex-row">
+            <div className="w-full max-w-6xl bg-white shadow-2xl rounded-xl border border-gray-200 overflow-hidden flex flex-col lg:flex-row lg:min-h-[38rem]">
 
                 {/* ==================== IZQUIERDA (FORMULARIO) ==================== */}
-                <div className="flex-1 flex flex-col h-full relative border-r border-gray-100 overflow-hidden">
+                <div className="flex-1 flex flex-col min-h-0 relative border-r border-gray-100 overflow-hidden">
                     
                     {/* Header Izquierdo (Fijo) */}
-                    <div className="px-8 py-5 border-b border-gray-100 flex justify-between items-center bg-white z-10 flex-none">
+                    <div className="px-4 sm:px-6 lg:px-8 py-4 sm:py-5 border-b border-gray-100 flex justify-between items-center bg-white z-10 flex-none">
                         <div>
                             <h2 className="text-xl font-bold text-gray-800">
                                 {step === 1 ? "Datos de la Solicitud" : "Agregar Artículos (Partidas)"}
@@ -304,7 +295,7 @@ export default function RequisicionesUre() {
                     </div>
 
                     {/* Cuerpo del Formulario (Scroll Interno) */}
-                    <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-white">
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 custom-scrollbar bg-white">
                         
                         {/* --- PASO 1 --- */}
                         {step === 1 && (
@@ -455,7 +446,7 @@ export default function RequisicionesUre() {
 
                     {/* Footer Izquierdo (Fijo) */}
                     {step === 1 && (
-                        <div className="p-6 border-t border-gray-50 bg-white flex-none">
+                        <div className="p-4 sm:p-5 lg:p-6 border-t border-gray-50 bg-white flex-none">
                             <button onClick={irAlPaso2} className="w-full max-w-lg mx-auto block bg-secundario text-white py-3.5 rounded-lg font-bold hover:opacity-90 transition-all flex items-center justify-center text-base shadow-sm">
                                 Continuar <IconArrowRight />
                             </button>
@@ -463,15 +454,10 @@ export default function RequisicionesUre() {
                     )}
                 </div>
 
-                {/* ==================== DERECHA (RESUMEN FIJO) ==================== */}
-                {/* h-full: Ocupa toda la altura del padre.
-                    flex flex-col: Estructura vertical.
-                    overflow-hidden: Corta lo que sobre.
-                */}
-                <div className="w-full lg:w-[350px] bg-gray-50 flex flex-col border-t lg:border-t-0 lg:border-l border-gray-200 h-auto lg:h-full overflow-hidden">
+                <div className="w-full lg:w-[350px] xl:w-[360px] bg-gray-50 flex flex-col border-t lg:border-t-0 lg:border-l border-gray-200 min-h-[18rem] lg:min-h-0 overflow-hidden">
                     
                     {/* Header Resumen (Fijo) */}
-                    <div className="p-6 border-b border-gray-200 bg-white flex-none">
+                    <div className="p-4 sm:p-5 lg:p-6 border-b border-gray-200 bg-white flex-none">
                         <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Resumen de Requisición</h2>
                         <div className="mt-3">
                             <p className="font-bold text-gray-800 text-lg truncate leading-tight">
@@ -485,7 +471,7 @@ export default function RequisicionesUre() {
                         overflow-y-auto: Si hay muchos items, el scroll sale AQUÍ, no en la página.
                         min-h-0: Truco de CSS para que el scroll funcione bien en flexbox anidados.
                     */}
-                    <div className="flex-1 overflow-y-auto p-5 space-y-3 custom-scrollbar min-h-0">
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3 custom-scrollbar min-h-0">
                         {articulos.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 rounded-lg m-2 opacity-70 min-h-[200px]">
                                 <p className="text-sm font-medium">Lista vacía</p>
@@ -531,7 +517,7 @@ export default function RequisicionesUre() {
                     </div>
 
                     {/* Footer Resumen (Fijo) */}
-                    <div className="p-6 border-t border-gray-200 bg-white flex-none">
+                    <div className="p-4 sm:p-5 lg:p-6 border-t border-gray-200 bg-white flex-none">
                         <button
                             onClick={enviarRequisicion}
                             disabled={articulos.length === 0 || step === 1}

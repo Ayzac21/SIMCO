@@ -719,11 +719,11 @@ export default function EditarRequisicion() {
         onConfirm={guardarYEnviar}
       />
 
-      <div className="w-full min-h-screen bg-[#F3F4F6] p-6 md:p-10">
+      <div className="w-full bg-[#F3F4F6] p-3 sm:p-5 lg:p-6">
         <div className="max-w-[1500px] mx-auto bg-white rounded-lg shadow-sm border border-gray-200 flex flex-col lg:flex-row overflow-hidden">
 
           {/* ===== FORMULARIO ===== */}
-          <div className="flex-1 p-8 border-r border-gray-100">
+          <div className="flex-1 p-4 sm:p-6 lg:p-7 border-r border-gray-100">
             <div className="flex justify-between items-center mb-8 border-b border-gray-100 pb-4">
               <h2 className="text-lg font-bold text-gray-800">
                 Datos de la Solicitud
@@ -874,9 +874,9 @@ export default function EditarRequisicion() {
           </div>
 
           {/* ===== PARTIDAS ===== */}
-          <div className="w-full lg:w-[560px] xl:w-[620px] bg-[#F9FAFB] flex flex-col border-l border-gray-200 lg:h-[calc(100vh-140px)] overflow-hidden">
+          <div className="w-full lg:w-[560px] xl:w-[620px] bg-[#F9FAFB] flex flex-col border-l border-gray-200 lg:min-h-[40rem] min-h-0 overflow-hidden">
 
-            <div className="p-6 border-b border-gray-200">
+            <div className="p-4 sm:p-5 lg:p-6 border-b border-gray-200">
               <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">
                 Partidas de la requisición
               </h3>
@@ -886,7 +886,7 @@ export default function EditarRequisicion() {
             </div>
 
             {/* SCROLL SOLO AQUÍ */}
-            <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
+            <div className="p-4 sm:p-5 lg:p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
               <AnimatePresence>
                 {partidas.map((p, index) => (
                   <Motion.div
@@ -1054,7 +1054,7 @@ export default function EditarRequisicion() {
             </div>
 
             {/* ✅ Manteniendo tu diseño: footer con botón grande */}
-            <div className="p-6 border-t border-gray-200 bg-white space-y-3">
+            <div className="p-4 sm:p-5 lg:p-6 border-t border-gray-200 bg-white space-y-3">
               <button
                 onClick={() => guardarCambios()}
                 disabled={!isBorrador || saving || sending}

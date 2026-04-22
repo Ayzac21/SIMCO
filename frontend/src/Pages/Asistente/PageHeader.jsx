@@ -27,7 +27,7 @@ export default function PageHeader({ title, subtitle }) {
 
     return (
         <div className="sticky top-0 z-30 bg-white border-b backdrop-blur-sm">
-            <div className="px-6 md:px-10 py-4 flex flex-col gap-1">
+            <div className="px-4 sm:px-6 lg:px-8 xl:px-10 py-3.5 sm:py-4 flex flex-col gap-1">
 
                 {/* Breadcrumbs */}
                 <div className="text-xs text-gray-400 flex items-center gap-2">
@@ -47,17 +47,17 @@ export default function PageHeader({ title, subtitle }) {
                     <div className="flex items-start gap-4">
                         <button
                             onClick={() => navigate(-1)}
-                            className="text-2xl text-gray-500 hover:text-gray-800 transition"
+                            className="text-xl sm:text-2xl text-gray-500 hover:text-gray-800 transition"
                         >
                             ←
                         </button>
 
                         <div>
-                            <h1 className="text-2xl font-bold text-gray-800">
+                            <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-800">
                                 {title}
                             </h1>
                             {subtitle && (
-                                <p className="text-sm text-gray-500 mt-1">
+                                <p className="text-xs lg:text-sm text-gray-500 mt-1">
                                     {subtitle}
                                 </p>
                             )}

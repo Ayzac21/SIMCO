@@ -368,7 +368,7 @@ export default function OrdenCompra() {
 
   if (isExcelPreviewMode) {
     return (
-      <div className="p-6 bg-[#F3F4F6] min-h-[calc(100vh-24px)]">
+      <div className="p-3 sm:p-5 lg:p-6 bg-[#F3F4F6] min-h-full">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <button
@@ -449,7 +449,7 @@ export default function OrdenCompra() {
   }
 
   return (
-    <div className="p-6 bg-[#F3F4F6] min-h-[calc(100vh-24px)]">
+    <div className="p-3 sm:p-5 lg:p-6 bg-[#F3F4F6] min-h-full">
       <ConfirmModal
         open={confirmOpen}
         title="Marcar como comprada"

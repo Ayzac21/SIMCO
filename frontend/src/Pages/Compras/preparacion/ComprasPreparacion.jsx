@@ -123,7 +123,7 @@ export default function ComprasPreparacion() {
   };
 
   return (
-    <div className="relative p-6 min-h-screen bg-[#F3F4F6]">
+    <div className="relative p-3 sm:p-5 lg:p-6 min-h-full bg-[#F3F4F6]">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between">
           <div>

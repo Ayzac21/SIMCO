@@ -59,7 +59,7 @@ export default function SecretariaLayout() {
             {/* ================= SIDEBAR ================= */}
             <aside
                 className={`
-                    bg-secundario text-white w-64 flex flex-col
+                    bg-secundario text-white w-[15rem] xl:w-64 flex flex-col
                     fixed md:static inset-y-0 z-40
                     transform transition-transform duration-300 shadow-xl
                     ${open ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
@@ -158,14 +158,14 @@ export default function SecretariaLayout() {
             <main className="flex-1 flex flex-col overflow-hidden relative">
 
                 {/* --- HEADER INTEGRADO --- */}
-                <header className="bg-white border-b border-gray-200 py-4 px-6 md:px-8 shadow-sm flex justify-between items-center sticky top-0 z-30 h-16">
+                <header className="bg-white border-b border-gray-200 py-3.5 sm:py-4 px-4 sm:px-6 lg:px-8 shadow-sm flex justify-between items-center sticky top-0 z-30 min-h-16">
                     
                     {/* IZQUIERDA: TÍTULO Y SUBTÍTULO */}
                     <div className="ml-10 md:ml-0"> 
-                        <h1 className="text-lg md:text-xl font-bold text-gray-800">
+                        <h1 className="text-lg sm:text-xl font-bold text-gray-800">
                             {headerInfo.title}
                         </h1>
-                        <p className="text-xs md:text-sm text-gray-500">
+                        <p className="text-[11px] sm:text-xs lg:text-sm text-gray-500">
                             {headerInfo.subtitle}
                         </p>
                     </div>
@@ -189,7 +189,7 @@ export default function SecretariaLayout() {
                 </header>
 
                 {/* --- ÁREA DE CONTENIDO (OUTLET) --- */}
-                <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-[#F3F4F6]">
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-[#F3F4F6]">
                     <div className="max-w-7xl mx-auto animate-in fade-in duration-500">
                         <Outlet />
                     </div>

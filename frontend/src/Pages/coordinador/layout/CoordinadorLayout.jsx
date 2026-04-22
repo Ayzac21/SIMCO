@@ -69,7 +69,7 @@ export default function CoordinadorLayout() {
             {/* ================= SIDEBAR ================= */}
             <aside
                 className={`
-                    bg-secundario text-white w-64 flex flex-col
+                    bg-secundario text-white w-[15rem] xl:w-64 flex flex-col
                     fixed md:static inset-y-0 z-40
                     transform transition-transform duration-300
                     ${open ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
@@ -150,14 +150,14 @@ export default function CoordinadorLayout() {
             <main className="flex-1 flex flex-col overflow-hidden relative">
 
                 {/* --- NUEVO HEADER INTEGRADO --- */}
-                <header className="bg-white border-b border-gray-200 py-5 px-6 md:px-10 shadow-sm flex justify-between items-center sticky top-0 z-30">
+                <header className="bg-white border-b border-gray-200 py-3.5 sm:py-4 px-4 sm:px-6 lg:px-8 xl:px-10 shadow-sm flex justify-between items-center sticky top-0 z-30">
                     
                     {/* IZQUIERDA: TÍTULO Y SUBTÍTULO (Dinámicos) */}
                     <div className="ml-10 md:ml-0"> {/* Margin left para no tapar el botón hamburguesa en móvil */}
-                        <h1 className="text-xl md:text-2xl font-bold text-gray-800">
+                        <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-800">
                             {headerInfo.title}
                         </h1>
-                        <p className="text-xs md:text-sm text-gray-500">
+                        <p className="text-[11px] sm:text-xs lg:text-sm text-gray-500">
                             {headerInfo.subtitle}
                         </p>
                     </div>
@@ -182,7 +182,7 @@ export default function CoordinadorLayout() {
                 </header>
 
                 {/* --- ÁREA DE CONTENIDO (OUTLET) --- */}
-                <div className="flex-1 overflow-y-auto px-6 md:px-10 py-6 bg-gray-100">
+                <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-5 lg:py-6 bg-gray-100">
                     <div className="max-w-7xl mx-auto animate-fade-in">
                         <Outlet />
                     </div>

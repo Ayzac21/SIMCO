@@ -753,7 +753,7 @@ export default function GestionCotizacion() {
     const modalList = providerTab === "suggested" ? providersSuggested : allProviders;
 
     return (
-        <div className="p-6 bg-[#F3F4F6] min-h-[calc(100vh-24px)] font-sans">
+        <div className="p-3 sm:p-5 lg:p-6 bg-[#F3F4F6] min-h-full font-sans">
         <ConfirmModal
             open={confirmCloseOpen}
             title="Cerrar recepción de cotización"

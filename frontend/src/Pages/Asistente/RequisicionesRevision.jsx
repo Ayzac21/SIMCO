@@ -62,7 +62,7 @@ export default function RequisicionesRevision() {
     }, [q, requisitions]);
 
     return (
-        <div className="p-6 min-h-[calc(100vh-24px)] bg-[#F3F4F6]">
+        <div className="p-3 sm:p-5 lg:p-6 min-h-full bg-[#F3F4F6]">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">
             <div>
             <h2 className="text-lg font-bold text-gray-800">En revisión</h2>

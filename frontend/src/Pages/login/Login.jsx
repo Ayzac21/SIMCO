@@ -132,11 +132,11 @@ export default function Login() {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 relative overflow-hidden">
+        <div className="min-h-dvh bg-gray-50 relative overflow-hidden">
             <Navbar actionButton={{ to: "/", label: "Volver", mobileLabel: "Volver", icon: ArrowLeft }} />
             <div className="absolute inset-x-0 top-0 h-52 bg-gradient-to-b from-red-100/75 to-transparent pointer-events-none"></div>
 
-            <div className="relative z-10 min-h-[calc(100vh-76px)] lg:h-[calc(100vh-76px)] w-full px-4 sm:px-6 lg:px-10 py-6 sm:py-8 lg:py-6 flex items-center justify-center">
+            <div className="relative z-10 min-h-[calc(100dvh-76px)] w-full px-4 sm:px-6 lg:px-10 py-6 sm:py-8 lg:py-6 flex items-center justify-center">
                 <section className="w-full max-w-5xl rounded-3xl border border-white/20 bg-white shadow-[0_20px_55px_rgba(15,23,42,0.12)] overflow-hidden">
                     <div className="grid grid-cols-1 lg:grid-cols-12">
                         <aside className="relative lg:col-span-5 bg-principal border-b lg:border-b-0 lg:border-r border-white/15 p-6 sm:p-8 lg:p-9 overflow-hidden">
