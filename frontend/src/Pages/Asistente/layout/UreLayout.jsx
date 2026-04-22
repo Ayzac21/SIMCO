@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 import PageHeader from "../PageHeader";
 import escudoCualtos from "../../../assets/escudo-cualtos-02_0_1.png";
+import { getUserUnitLabel } from "../../../utils/unitDisplay";
 
 export default function UreLayout() {
     const [open, setOpen] = useState(false);
@@ -11,6 +12,7 @@ export default function UreLayout() {
     const user = userStr ? JSON.parse(userStr) : null;
     const userName = user ? (user.name || user.user_name || "Asistente") : "Asistente";
     const userInitial = (userName?.[0] || "A").toUpperCase();
+    const userUnitLabel = getUserUnitLabel(user, "Unidad Responsable");
 
     /* ===== CONFIG HEADER SEGÚN RUTA ===== */
     const headers = useMemo(
@@ -70,7 +72,7 @@ export default function UreLayout() {
                 </div>
                 <div className="min-w-0">
                     <p className="text-sm font-semibold text-white truncate">{userName}</p>
-                    <p className="text-[11px] text-white/80 truncate">{user?.ure || "Unidad Responsable"}</p>
+                    <p className="text-[11px] text-white/80 truncate">{userUnitLabel}</p>
                 </div>
                 </div>
             </div>

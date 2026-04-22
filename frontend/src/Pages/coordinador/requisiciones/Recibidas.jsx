@@ -6,6 +6,7 @@ import ConfirmModal from "../../../components/ConfirmModal";
 import { toast } from "sonner";
 import { getAuthHeaders } from "../../../api/auth";
 import { API_BASE_URL } from "../../../api/config";
+import { getRequisitionUnitLabel } from "../../../utils/unitDisplay";
 
 const API = API_BASE_URL;
 
@@ -217,7 +218,7 @@ export default function Recibidas() {
         list = list.filter((r) => {
             const a = String(r.solicitante || "").toLowerCase();
             const b = String(r.request_name || "").toLowerCase();
-            const c = String(r.ure_solicitante || "").toLowerCase();
+            const c = String(getRequisitionUnitLabel(r, "unidad solicitante") || "").toLowerCase();
             const d = String(r.id || "").toLowerCase();
             return a.includes(qq) || b.includes(qq) || c.includes(qq) || d.includes(qq);
         });
@@ -577,7 +578,7 @@ export default function Recibidas() {
 
                                     <div className="text-xs text-gray-500 mt-1">
                                         Folio: <b>#{req.id}</b> • <b>{req.solicitante}</b>
-                                        {req.ure_solicitante ? ` • ${req.ure_solicitante}` : ""}
+                                        {` • ${getRequisitionUnitLabel(req, "Unidad solicitante")}`}
                                     </div>
 
                                     <div className="mt-2">

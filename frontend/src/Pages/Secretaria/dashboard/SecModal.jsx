@@ -2,6 +2,7 @@ import React from "react";
 import { X, User, FileText, CheckCircle, XCircle, Briefcase, Building2 } from "lucide-react";
 import useEscapeKey from "../../../hooks/useEscapeKey";
 import RequisitionTimelineModal from "../../../components/RequisitionTimelineModal";
+import { getRequisitionUnitLabel } from "../../../utils/unitDisplay";
 import { getAuthHeaders } from "../../../api/auth";
 import { API_BASE_URL } from "../../../api/config";
 
@@ -87,9 +88,8 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
 
     if (!req) return null;
 
-    const jefatura = req.nombre_unidad;
+    const jefatura = getRequisitionUnitLabel(req, "Unidad solicitante");
     const coordinacion = req.coordinacion;
-    const codigoUre = req.ure_solicitante;
     
     const esRechazo = req.statuses_id === 10;
     const justificacion = req.justificacion || "Sin información";
@@ -211,12 +211,12 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
                                 <User size={12} /> Solicitante
                             </div>
                             <div className="font-bold text-gray-800 text-base">{req.solicitante}</div>
-                            <div className="text-xs text-gray-500 font-mono mb-3">{codigoUre}</div>
+                            <div className="text-xs text-gray-500 mb-3">{coordinacion || "—"}</div>
 
                             <div className="pt-3 border-t border-gray-200 flex flex-col items-start gap-1.5">
                                 <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold bg-white border border-gray-200 text-[#8B1D35] shadow-sm">
                                     <Building2 size={10} /> 
-                                    {jefatura || codigoUre}
+                                    {jefatura}
                                 </span>
                                 {coordinacion && coordinacion !== 'General' && (
                                     <span className="text-[10px] text-gray-500 font-medium flex items-center gap-1 ml-1">

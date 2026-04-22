@@ -3,9 +3,9 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
     ArrowLeft,
     CheckCircle2,
-    Download,
     Search,
     Save,
+    Users,
     X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -113,7 +113,6 @@ export default function GestionCotizacion() {
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [downloadingExcel, setDownloadingExcel] = useState(false);
     const [applyingProviders, setApplyingProviders] = useState(false);
     const [closing, setClosing] = useState(false);
     const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
@@ -742,35 +741,6 @@ export default function GestionCotizacion() {
         }
     };
 
-    const handleDownloadExcel = async () => {
-        if (downloadingExcel) return;
-        try {
-        setDownloadingExcel(true);
-        const response = await fetch(`${API_URL}/cotizacion/${id}/excel`, {
-            headers: getAuthHeaders(),
-        });
-        if (!response.ok) {
-            const data = await response.json().catch(() => ({}));
-            throw new Error(data?.message || "No se pudo descargar el Excel");
-        }
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `cuadro_comparativo_req_${id}.xlsx`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(url);
-        toast.success("Excel descargado");
-        } catch (e) {
-        console.error(e);
-        toast.error(e?.message || "No se pudo descargar el Excel");
-        } finally {
-        setDownloadingExcel(false);
-        }
-    };
-
     if (loading) {
         return <div className="p-10 text-center text-sm text-gray-500">Cargando gestión...</div>;
     }
@@ -892,18 +862,6 @@ export default function GestionCotizacion() {
                 </div>
 
                 <div className="flex items-center gap-3">
-                <button
-                    onClick={handleDownloadExcel}
-                    disabled={downloadingExcel}
-                    className={`text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 flex items-center gap-1.5 ${
-                    downloadingExcel ? "opacity-60 cursor-not-allowed" : ""
-                    }`}
-                    title="Descargar cuadro comparativo en Excel"
-                >
-                    <Download size={13} />
-                    {downloadingExcel ? "DESCARGANDO..." : "DESCARGAR EXCEL"}
-                </button>
-
                 {!isClosed && !isReader && (
                     <button
                     onClick={handleCloseInvites}
@@ -943,11 +901,23 @@ export default function GestionCotizacion() {
                 <button
                     onClick={openModal}
                     disabled={isClosed || isReader}
-                    className={`text-xs font-bold ${
-                    isClosed || isReader ? "text-gray-400 cursor-not-allowed" : "text-[#8B1D35] hover:underline"
+                    className={`inline-flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-lg border transition ${
+                    isClosed || isReader
+                        ? "text-gray-400 border-gray-200 bg-gray-100 cursor-not-allowed"
+                        : "text-white border-[#8B1D35] bg-[#8B1D35] hover:bg-[#72182b] shadow-sm"
                     }`}
+                    title={
+                        isReader
+                            ? "Solo lectura"
+                            : isClosed
+                            ? "Recepción finalizada"
+                            : "Agregar o quitar proveedores para el comparativo"
+                    }
                 >
-                    Seleccionar proveedores
+                    <Users size={13} />
+                    {providerCountForFlow > 0
+                        ? `EDITAR PROVEEDORES (${providerCountForFlow})`
+                        : "AGREGAR PROVEEDORES"}
                 </button>
                 </div>
             </div>
@@ -957,22 +927,22 @@ export default function GestionCotizacion() {
                 onScroll={handleTableScroll}
                 className="overflow-auto max-h-[calc(100vh-240px)]"
             >
-                <table className="min-w-max w-full text-sm text-left border-collapse">
+                <table className="min-w-max w-full text-xs text-left border-collapse">
                 <thead className="text-xs text-gray-500 uppercase bg-gray-50 sticky top-0 z-20 shadow-sm">
                     <tr>
-                    <th className="sticky left-0 z-30 bg-gray-50 px-1.5 py-3 min-w-[42px] border-r border-gray-300 text-gray-700 font-bold text-center">
+                    <th className="sticky left-0 z-30 bg-gray-50 px-1 py-2 min-w-[34px] border-r border-gray-300 text-gray-700 font-bold text-center">
                         Partida
                     </th>
-                    <th className="sticky left-[42px] z-30 bg-gray-50 px-1.5 py-3 min-w-[54px] border-r border-gray-300 text-gray-700 font-bold text-center">
+                    <th className="sticky left-[34px] z-30 bg-gray-50 px-1 py-2 min-w-[44px] border-r border-gray-300 text-gray-700 font-bold text-center">
                         Cantidad
                     </th>
-                    <th className="sticky left-[96px] z-30 bg-gray-50 px-1.5 py-3 min-w-[62px] border-r border-gray-300 text-gray-700 font-bold text-center">
+                    <th className="sticky left-[78px] z-30 bg-gray-50 px-1 py-2 min-w-[52px] border-r border-gray-300 text-gray-700 font-bold text-center">
                         Unidad
                     </th>
-                    <th className="sticky left-[158px] z-30 bg-gray-50 px-3 py-3 w-[210px] min-w-[210px] max-w-[210px] border-r border-gray-300 text-gray-700 font-bold">
+                    <th className="sticky left-[130px] z-30 bg-gray-50 px-2 py-2 w-[170px] min-w-[170px] max-w-[170px] border-r border-gray-300 text-gray-700 font-bold">
                         Descripción ({items.length})
                     </th>
-                    <th className="sticky left-[368px] z-30 bg-gray-50 px-2 py-3 w-[84px] min-w-[84px] max-w-[84px] border-r border-gray-300 text-gray-700 font-bold text-center">
+                    <th className="sticky left-[300px] z-30 bg-gray-50 px-1 py-2 w-[68px] min-w-[68px] max-w-[68px] border-r border-gray-300 text-gray-700 font-bold text-center">
                         Img
                     </th>
 
@@ -984,10 +954,12 @@ export default function GestionCotizacion() {
                     {visibleProviders.map((prov) => (
                         <th
                         key={prov.id}
-                        className="px-2 py-3 min-w-[220px] border-r border-gray-200 text-center font-semibold text-gray-600 bg-gray-50"
+                        className="px-1.5 py-2 min-w-[170px] border-r border-gray-200 text-center font-semibold text-gray-600 bg-gray-50"
                         title={prov.status ? `Status: ${statusLabel(prov.status)}` : prov.name}
                         >
-                        <div className="truncate max-w-[200px] mx-auto">{prov.name}</div>
+                        <div className="max-w-[148px] mx-auto text-[11px] leading-tight line-clamp-2 break-words">
+                            {prov.name}
+                        </div>
                         {prov.status && (
                             <div className="text-[10px] mt-1 text-gray-400 capitalize">
                             {statusLabel(prov.status)}
@@ -1006,16 +978,16 @@ export default function GestionCotizacion() {
                 <tbody className="divide-y divide-gray-100">
                     {renderedItems.map((item, idx) => (
                     <tr key={item.id} className="hover:bg-gray-50 transition-colors group">
-                        <td className="sticky left-0 z-20 bg-white group-hover:bg-gray-50 px-1.5 py-3 border-r border-gray-200 text-center">
+                        <td className="sticky left-0 z-20 bg-white group-hover:bg-gray-50 px-1 py-2 border-r border-gray-200 text-center">
                         <div className="font-bold text-gray-700 text-xs">{idx + 1}</div>
                         </td>
-                        <td className="sticky left-[42px] z-20 bg-white group-hover:bg-gray-50 px-1.5 py-3 border-r border-gray-200 text-center">
+                        <td className="sticky left-[34px] z-20 bg-white group-hover:bg-gray-50 px-1 py-2 border-r border-gray-200 text-center">
                         <div className="font-semibold text-gray-700 text-xs">{item.quantity}</div>
                         </td>
-                        <td className="sticky left-[96px] z-20 bg-white group-hover:bg-gray-50 px-1.5 py-3 border-r border-gray-200 text-center">
+                        <td className="sticky left-[78px] z-20 bg-white group-hover:bg-gray-50 px-1 py-2 border-r border-gray-200 text-center">
                         <div className="font-semibold text-gray-700 text-xs">{item.unidad_medida || "—"}</div>
                         </td>
-                        <td className="sticky left-[158px] z-20 bg-white group-hover:bg-gray-50 px-3 py-3 border-r border-gray-200 w-[210px] min-w-[210px] max-w-[210px]">
+                        <td className="sticky left-[130px] z-20 bg-white group-hover:bg-gray-50 px-2 py-2 border-r border-gray-200 w-[170px] min-w-[170px] max-w-[170px]">
                         <div
                             className="font-bold text-gray-700 text-xs leading-tight line-clamp-3 break-words"
                             title={item.description || ""}
@@ -1023,11 +995,11 @@ export default function GestionCotizacion() {
                             {item.description}
                         </div>
                         </td>
-                        <td className="sticky left-[368px] z-20 bg-white group-hover:bg-gray-50 px-2 py-3 border-r border-gray-200 w-[84px] min-w-[84px] max-w-[84px] text-center">
+                        <td className="sticky left-[300px] z-20 bg-white group-hover:bg-gray-50 px-1 py-2 border-r border-gray-200 w-[68px] min-w-[68px] max-w-[68px] text-center">
                         {itemImagePreviews[String(item.id)] ? (
                             <button
                                 type="button"
-                                className="h-11 w-11 rounded border border-[#8B1D35]/20 overflow-hidden inline-flex"
+                                className="h-9 w-9 rounded border border-[#8B1D35]/20 overflow-hidden inline-flex"
                                 title="Abrir imagen"
                                 onClick={() =>
                                     window.open(
@@ -1064,95 +1036,93 @@ export default function GestionCotizacion() {
                                     : "bg-white group-hover:bg-gray-50"
                             }`}
                             >
-                            <div className={`relative mx-2 mt-2 rounded-md border ${
-                                isSelectedFinal ? "border-[#8B1D35]/40 bg-[#8B1D35]/10" : "border-gray-200 bg-white"
-                            } focus-within:ring-2 focus-within:ring-[#8B1D35]/20 focus-within:border-[#8B1D35]`}>
-                                <div className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-[11px] pointer-events-none">$</div>
-                                <input
-                                type="text"
-                                inputMode="decimal"
-                                pattern="[0-9]*[.]?[0-9]*"
-                                placeholder="0.00"
-                                disabled={isClosed}
-                                value={
-                                    editingPriceKey === k
-                                        ? prices[k] ?? ""
-                                        : formatPriceInput(prices[k] ?? "")
-                                }
-                                className={`w-full text-right text-sm py-1.5 pr-2 bg-transparent outline-none font-semibold text-gray-700 pl-5 ${
-                                    isClosed ? "opacity-60 cursor-not-allowed" : ""
-                                }`}
-                                onFocus={(e) => {
-                                    setEditingPriceKey(k);
-                                    e.currentTarget.select();
-                                }}
-                                onBlur={() => handlePriceBlur(item.id, prov.id)}
-                                onChange={(e) => handlePriceChange(item.id, prov.id, e.target.value)}
-                                />
-                            </div>
-
-                            {isSelectedFinal && (
-                                <div className="px-2 pt-1 text-[10px] font-bold text-[#8B1D35]">
-                                Seleccionado por Compras Admin
+                            <div
+                                className={`mx-1.5 my-1.5 rounded-md border px-1.5 py-1.5 ${
+                                    isSelectedFinal ? "border-[#8B1D35]/40 bg-[#8B1D35]/10" : "border-gray-200 bg-white"
+                                } focus-within:ring-2 focus-within:ring-[#8B1D35]/20 focus-within:border-[#8B1D35]`}
+                            >
+                                <div className="relative">
+                                    <div className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-[10px] pointer-events-none">$</div>
+                                    <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        pattern="[0-9]*[.]?[0-9]*"
+                                        placeholder="0.00"
+                                        disabled={isClosed}
+                                        value={
+                                            editingPriceKey === k
+                                                ? prices[k] ?? ""
+                                                : formatPriceInput(prices[k] ?? "")
+                                        }
+                                        className={`w-full text-right text-[11px] py-0.5 pr-1 bg-transparent outline-none font-semibold text-gray-700 pl-4 ${
+                                            isClosed ? "opacity-60 cursor-not-allowed" : ""
+                                        }`}
+                                        onFocus={(e) => {
+                                            setEditingPriceKey(k);
+                                            e.currentTarget.select();
+                                        }}
+                                        onBlur={() => handlePriceBlur(item.id, prov.id)}
+                                        onChange={(e) => handlePriceChange(item.id, prov.id, e.target.value)}
+                                    />
                                 </div>
-                            )}
 
-                            <div className="px-2 pb-2 pt-1 flex items-center gap-2 flex-wrap">
-                                <button
-                                type="button"
-                                disabled={isClosed}
-                                onClick={() => toggleVatForKey(item.id, prov.id)}
-                                className={`text-[10px] font-bold px-2 py-1 rounded border ${
-                                hasVat
-                                    ? "bg-[#8B1D35]/10 text-[#8B1D35] border-[#8B1D35]/30"
-                                    : "bg-gray-50 text-gray-500 border-gray-200"
-                                } ${isClosed ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-100"}`}
-                                >
-                                IVA
-                                </button>
+                                <div className="mt-1 flex items-center gap-1">
+                                    <button
+                                        type="button"
+                                        disabled={isClosed}
+                                        onClick={() => toggleVatForKey(item.id, prov.id)}
+                                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                            hasVat
+                                                ? "bg-[#8B1D35]/10 text-[#8B1D35] border-[#8B1D35]/30"
+                                                : "bg-gray-50 text-gray-500 border-gray-200"
+                                        } ${isClosed ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-100"}`}
+                                    >
+                                        IVA
+                                    </button>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        step="0.01"
+                                        placeholder="16"
+                                        disabled={isClosed || !hasVat}
+                                        value={vatValue}
+                                        onChange={(e) => handleVatChange(item.id, prov.id, e.target.value)}
+                                        className={`w-12 text-[10px] px-1 py-0.5 border rounded outline-none ${
+                                            isClosed ? "opacity-60 cursor-not-allowed" : ""
+                                        } ${!hasVat ? "bg-gray-50 text-gray-400 border-gray-200" : "bg-white border-gray-300 text-gray-700"}`}
+                                    />
+                                    <span className="text-[10px] text-gray-500">%</span>
+                                </div>
 
-                                <input
-                                type="number"
-                                min="0"
-                                max="100"
-                                step="0.01"
-                                placeholder="16"
-                                disabled={isClosed || !hasVat}
-                                value={vatValue}
-                                onChange={(e) => handleVatChange(item.id, prov.id, e.target.value)}
-                                className={`w-20 text-[10px] px-2 py-1 border rounded outline-none ${
-                                isClosed ? "opacity-60 cursor-not-allowed" : ""
-                                } ${!hasVat ? "bg-gray-50 text-gray-400 border-gray-200" : "bg-white border-gray-300 text-gray-700"}`}
-                                />
-                                <span className="text-[10px] text-gray-500">%</span>
-
-                                <button
-                                type="button"
-                                disabled={isClosed}
-                                onClick={() => toggleIsrForKey(item.id, prov.id)}
-                                className={`text-[10px] font-bold px-2 py-1 rounded border ${
-                                hasIsr
-                                    ? "bg-blue-100 text-blue-700 border-blue-300"
-                                    : "bg-gray-50 text-gray-500 border-gray-200"
-                                } ${isClosed ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-100"}`}
-                                >
-                                ISR
-                                </button>
-
-                                <input
-                                type="number"
-                                min="0"
-                                max="100"
-                                step="0.01"
-                                placeholder="1.25"
-                                disabled={isClosed || !hasIsr}
-                                value={isrValue}
-                                onChange={(e) => handleIsrChange(item.id, prov.id, e.target.value)}
-                                className={`w-20 text-[10px] px-2 py-1 border rounded outline-none ${
-                                isClosed ? "opacity-60 cursor-not-allowed" : ""
-                                } ${!hasIsr ? "bg-gray-50 text-gray-400 border-gray-200" : "bg-white border-gray-300 text-gray-700"}`}
-                                />
-                                <span className="text-[10px] text-gray-500">%</span>
+                                <div className="mt-1 flex items-center gap-1">
+                                    <button
+                                        type="button"
+                                        disabled={isClosed}
+                                        onClick={() => toggleIsrForKey(item.id, prov.id)}
+                                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                            hasIsr
+                                                ? "bg-blue-100 text-blue-700 border-blue-300"
+                                                : "bg-gray-50 text-gray-500 border-gray-200"
+                                        } ${isClosed ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-100"}`}
+                                    >
+                                        ISR
+                                    </button>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        step="0.01"
+                                        placeholder="1.25"
+                                        disabled={isClosed || !hasIsr}
+                                        value={isrValue}
+                                        onChange={(e) => handleIsrChange(item.id, prov.id, e.target.value)}
+                                        className={`w-12 text-[10px] px-1 py-0.5 border rounded outline-none ${
+                                            isClosed ? "opacity-60 cursor-not-allowed" : ""
+                                        } ${!hasIsr ? "bg-gray-50 text-gray-400 border-gray-200" : "bg-white border-gray-300 text-gray-700"}`}
+                                    />
+                                    <span className="text-[10px] text-gray-500">%</span>
+                                </div>
                             </div>
                             </td>
                         );
@@ -1173,12 +1143,12 @@ export default function GestionCotizacion() {
 
                     <tr className="bg-gray-100 font-bold text-xs border-t border-gray-300">
                     <td className="sticky left-0 z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[42px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[96px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[158px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
+                    <td className="sticky left-[34px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[78px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[130px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
                         Sub Total:
                     </td>
-                    <td className="sticky left-[368px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[300px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
 
                     {visibleProviders.map((prov) => {
                         const subtotal = Number(providerBreakdownMap[prov.id]?.subtotal || 0);
@@ -1199,12 +1169,12 @@ export default function GestionCotizacion() {
 
                     <tr className="bg-gray-100 font-bold text-xs border-t border-gray-300">
                     <td className="sticky left-0 z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[42px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[96px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[158px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
+                    <td className="sticky left-[34px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[78px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[130px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
                         I.V.A:
                     </td>
-                    <td className="sticky left-[368px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[300px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
 
                     {visibleProviders.map((prov) => {
                         const iva = Number(providerBreakdownMap[prov.id]?.iva || 0);
@@ -1225,12 +1195,12 @@ export default function GestionCotizacion() {
 
                     <tr className="bg-gray-100 font-bold text-xs border-t border-gray-300">
                     <td className="sticky left-0 z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[42px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[96px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[158px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
+                    <td className="sticky left-[34px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[78px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[130px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
                         I.S.R. (-):
                     </td>
-                    <td className="sticky left-[368px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[300px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
 
                     {visibleProviders.map((prov) => {
                         const isr = Number(providerBreakdownMap[prov.id]?.isr || 0);
@@ -1251,12 +1221,12 @@ export default function GestionCotizacion() {
 
                     <tr className="bg-gray-100 font-bold text-xs border-t border-gray-300">
                     <td className="sticky left-0 z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[42px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[96px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
-                    <td className="sticky left-[158px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
+                    <td className="sticky left-[34px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[78px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[130px] z-30 bg-gray-100 px-4 py-3 border-r border-gray-300 text-right uppercase text-gray-600">
                         Total Cotización:
                     </td>
-                    <td className="sticky left-[368px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
+                    <td className="sticky left-[300px] z-30 bg-gray-100 px-2 py-3 border-r border-gray-300" />
 
                     {visibleProviders.map((prov) => {
                         const total = Number(providerBreakdownMap[prov.id]?.total || 0);

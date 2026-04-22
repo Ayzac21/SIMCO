@@ -6,10 +6,12 @@ import { getAuthHeaders } from "../../api/auth";
 import { API_BASE_URL } from "../../api/config";
 import useEscapeKey from "../../hooks/useEscapeKey";
 import RequisitionTimelineModal from "../../components/RequisitionTimelineModal";
+import { getRequisitionUnitLabel, getUserUnitLabel } from "../../utils/unitDisplay";
 
 const API = API_BASE_URL;
 
 const STATUS_FLOW = [7, 8, 9, 12, 14, 13, 11];
+const STATUS_FLOW_SECRETARIA = [7, 9, 12, 14, 13, 11];
 
 const STATUS_LABELS = {
   7: "Borrador",
@@ -42,6 +44,15 @@ function getUserId() {
   }
 }
 
+function getUserRole() {
+  try {
+    const usuario = JSON.parse(localStorage.getItem("usuario"));
+    return String(usuario?.role || "");
+  } catch {
+    return "";
+  }
+}
+
 function safeDate(d) {
   if (!d) return "—";
   try {
@@ -68,14 +79,14 @@ function canDownloadSignaturePdf(statusId) {
   return [12, 13, 14].includes(Number(statusId));
 }
 
-function actionConfigByStatus(statusId, id) {
+function actionConfigByStatus(statusId, id, basePath = "/unidad") {
   const st = Number(statusId);
   if (st === 7) {
     return {
       enabled: true,
       label: "Editar borrador",
       hint: "Puedes retomar y enviar tu requisición.",
-      to: `/unidad/requisiciones/editar/${id}`,
+      to: `${basePath}/requisiciones/editar/${id}`,
     };
   }
   if (st === 14) {
@@ -176,20 +187,23 @@ function statusBadgeClasses(statusId) {
   return "bg-gray-100 text-gray-700 border-gray-200";
 }
 
-/** ✅ Barra completa (para LISTA si quieres mantenerla ahí) */
-const ProgressBar = ({ statusId }) => {
-  const index = STATUS_FLOW.indexOf(Number(statusId));
+/** Barra de progreso por estatus */
+const ProgressBar = ({ statusId, trimPast = false, flow = STATUS_FLOW }) => {
+  const activeFlow = Array.isArray(flow) && flow.length ? flow : STATUS_FLOW;
+  const index = activeFlow.indexOf(Number(statusId));
   if (index === -1) return null;
 
-  const pct = ((index + 1) / STATUS_FLOW.length) * 100;
+  const visibleFlow = trimPast ? activeFlow.slice(index) : activeFlow;
+  const currentIndex = trimPast ? 0 : index;
+  const pct = ((currentIndex + 1) / visibleFlow.length) * 100;
 
   return (
     <div className="mt-2">
       <div className="flex justify-between text-[11px] font-medium text-gray-500">
-        {STATUS_FLOW.map((id, i) => (
+        {visibleFlow.map((id, i) => (
           <span
             key={id}
-            className={i <= index ? "text-secundario font-semibold" : ""}
+            className={i <= currentIndex ? "text-secundario font-semibold" : ""}
           >
             {STATUS_LABELS[id]}
           </span>
@@ -249,6 +263,17 @@ const CurrentStatus = ({ statusId, statusName }) => {
 export default function ListaRequisiciones() {
   const navigate = useNavigate();
   const location = useLocation();
+  const userRole = getUserRole();
+  const currentUser = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("usuario") || "null");
+    } catch {
+      return null;
+    }
+  }, []);
+  const unitLabel = getUserUnitLabel(currentUser, "Unidad solicitante");
+  const basePath = userRole === "secretaria" ? "/secretaria" : "/unidad";
+  const isSecretariaView = location.pathname.startsWith("/secretaria");
 
   const [requisiciones, setRequisiciones] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -399,7 +424,7 @@ export default function ListaRequisiciones() {
       list = list.filter((r) => {
         const a = String(r.categoria || "").toLowerCase();
         const b = String(r.estatus || "").toLowerCase();
-        const c = String(r.area_folio || "").toLowerCase();
+        const c = String(getRequisitionUnitLabel(r, unitLabel) || "").toLowerCase();
         const d = String(r.id || "").toLowerCase();
         return a.includes(qq) || b.includes(qq) || c.includes(qq) || d.includes(qq);
       });
@@ -471,13 +496,13 @@ export default function ListaRequisiciones() {
     if (!row) return;
 
     openModal(row);
-    navigate("/unidad/mi-requisiciones", { replace: true });
+    navigate(`${basePath}/mi-requisiciones`, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.search, requisiciones]);
+  }, [location.search, requisiciones, basePath]);
 
   const continuar = () => {
     if (!selected) return;
-    const action = actionConfigByStatus(selected.statuses_id, selected.id);
+    const action = actionConfigByStatus(selected.statuses_id, selected.id, basePath);
     if (!action.enabled || !action.to) return;
     closeModal();
     navigate(action.to);
@@ -536,7 +561,7 @@ export default function ListaRequisiciones() {
 
                   <div className="text-xs text-gray-500 mt-1">
                     Folio: <b>#{selected.id}</b>{" "}
-                    {selected.area_folio ? `• ${selected.area_folio}` : ""} •{" "}
+                    {`• ${unitLabel}`} •{" "}
                     {safeDate(selected.created_at)}
                   </div>
 
@@ -682,7 +707,7 @@ export default function ListaRequisiciones() {
 
               <div className="p-5 border-t border-gray-100 flex items-center justify-between gap-3">
                 {(() => {
-                  const action = actionConfigByStatus(selected.statuses_id, selected.id);
+                  const action = actionConfigByStatus(selected.statuses_id, selected.id, basePath);
                   const emphasis = emphasisByStatus(selected.statuses_id);
                   return (
                     <div className={`text-xs ${emphasis.hint}`}>
@@ -724,7 +749,7 @@ export default function ListaRequisiciones() {
                 </button>
 
                 {(() => {
-                  const action = actionConfigByStatus(selected.statuses_id, selected.id);
+                  const action = actionConfigByStatus(selected.statuses_id, selected.id, basePath);
                   return (
                     <button
                       onClick={continuar}
@@ -847,12 +872,16 @@ export default function ListaRequisiciones() {
                       </div>
                       <div className="text-xs text-gray-500 mt-1">
                         Folio: <b>#{req.id}</b>{" "}
-                        {req.area_folio ? `• ${req.area_folio}` : ""}
+                        {`• ${unitLabel}`}
                       </div>
 
                       {/* (Dejé tu barra completa aquí porque dijiste que te gusta en la lista) */}
                       <div className="mt-2">
-                        <ProgressBar statusId={st} />
+                        <ProgressBar
+                          statusId={st}
+                          trimPast={isSecretariaView}
+                          flow={isSecretariaView ? STATUS_FLOW_SECRETARIA : STATUS_FLOW}
+                        />
                       </div>
 
                       {st === 10 && (

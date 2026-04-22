@@ -4,6 +4,7 @@ import ConfirmModal from "../../../components/ConfirmModal";
 import { ChevronDown, FileText, Pencil, ShieldCheck, Power, CheckCircle, Upload } from "lucide-react";
 import { API_BASE_URL } from "../../../api/config";
 import useEscapeKey from "../../../hooks/useEscapeKey";
+import { useSearchParams } from "react-router-dom";
 
 const API_CATEGORIES = `${API_BASE_URL}/categories`;
 const API_PROVIDERS_ADMIN = `${API_BASE_URL}/compras/providers/admin`;
@@ -20,6 +21,7 @@ const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/i;
 const PHONE_REGEX = /^[0-9+()\\-\\s]{7,20}$/;
 
 export default function ComprasProveedores() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const userStr = localStorage.getItem("usuario");
   const user = userStr ? JSON.parse(userStr) : null;
   const token = localStorage.getItem("token");
@@ -40,6 +42,7 @@ export default function ComprasProveedores() {
   const [detailProvider, setDetailProvider] = useState(null);
   const [confirmAction, setConfirmAction] = useState({ open: false, provider: null, nextStatus: null });
   const [openActionsId, setOpenActionsId] = useState(null);
+  const [autoOpenedProviderId, setAutoOpenedProviderId] = useState(null);
   useEscapeKey(Boolean(detailProvider), () => setDetailProvider(null));
 
   const [q, setQ] = useState("");
@@ -51,7 +54,7 @@ export default function ComprasProveedores() {
   const nameInputRef = useRef(null);
   const importInputRef = useRef(null);
 
-  const isReader = user?.role === "compras_lector";
+  const isAdmin = user?.role === "compras_admin";
   const isExportOnlyMode = false;
 
   const [form, setForm] = useState({
@@ -115,8 +118,8 @@ export default function ComprasProveedores() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (isReader) {
-      toast.warning("Solo lectura");
+    if (!isAdmin) {
+      toast.warning("Solo Compras Admin puede importar proveedores");
       event.target.value = "";
       return;
     }
@@ -217,6 +220,10 @@ export default function ComprasProveedores() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (saving) return;
+    if (!isAdmin) {
+      toast.error("Solo Compras Admin puede guardar proveedores");
+      return;
+    }
     if (!validate()) return;
     const toastId = toast.loading("Procesando...");
 
@@ -265,7 +272,11 @@ export default function ComprasProveedores() {
     }
   };
 
-  const startEdit = (p) => {
+  const startEdit = useCallback((p) => {
+    if (!isAdmin) {
+      toast.error("Solo Compras Admin puede editar proveedores");
+      return;
+    }
     setEditing(p);
     setEditingOriginalRfc(String(p.rfc || "").trim().toUpperCase());
     setForm({
@@ -283,10 +294,44 @@ export default function ComprasProveedores() {
       formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       nameInputRef.current?.focus();
     });
-  };
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin || loadingProviders) return;
+    const rawProviderId = String(searchParams.get("editProviderId") || "").trim();
+    if (!rawProviderId) return;
+    const providerId = Number(rawProviderId);
+    if (!Number.isFinite(providerId)) return;
+    if (autoOpenedProviderId === providerId) return;
+
+    const target = providers.find((p) => Number(p.id) === providerId);
+    if (!target) {
+      toast.error("No se encontró el proveedor para editar");
+      setAutoOpenedProviderId(providerId);
+      return;
+    }
+
+    startEdit(target);
+    setAutoOpenedProviderId(providerId);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("editProviderId");
+    setSearchParams(nextParams, { replace: true });
+  }, [
+    autoOpenedProviderId,
+    isAdmin,
+    loadingProviders,
+    providers,
+    startEdit,
+    searchParams,
+    setSearchParams,
+  ]);
 
   const updateStatus = async (provider, nextStatus) => {
     if (!provider?.id) return;
+    if (!isAdmin) {
+      toast.error("Solo Compras Admin puede cambiar estatus");
+      return;
+    }
     if (Number(nextStatus) === 4) {
       setConfirmAction({ open: true, provider, nextStatus });
       return;
@@ -311,6 +356,11 @@ export default function ComprasProveedores() {
   const confirmDeactivate = async () => {
     const provider = confirmAction.provider;
     if (!provider?.id) {
+      setConfirmAction({ open: false, provider: null, nextStatus: null });
+      return;
+    }
+    if (!isAdmin) {
+      toast.error("Solo Compras Admin puede cambiar estatus");
       setConfirmAction({ open: false, provider: null, nextStatus: null });
       return;
     }
@@ -410,7 +460,7 @@ export default function ComprasProveedores() {
 
   return (
     <div className="space-y-8">
-      {!isReader && !isExportOnlyMode && (
+      {isAdmin && !isExportOnlyMode && (
       <section className="bg-white rounded-xl shadow-md border border-gray-200 p-6" ref={formRef}>
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -576,7 +626,7 @@ export default function ComprasProveedores() {
             <p className="text-xs text-gray-500">Consulta y exportación de datos básicos.</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
-            {!isReader && !isExportOnlyMode && (
+            {isAdmin && !isExportOnlyMode && (
               <>
                 <input
                   ref={importInputRef}
@@ -637,7 +687,7 @@ export default function ComprasProveedores() {
             <div className="col-span-3">Proveedor</div>
             <div className="col-span-2">Email</div>
             <div className="col-span-1">Estatus</div>
-            {!isReader && !isExportOnlyMode && <div className="col-span-2 text-right">Acciones</div>}
+            {isAdmin && !isExportOnlyMode && <div className="col-span-2 text-right">Acciones</div>}
           </div>
 
         </div>
@@ -688,7 +738,7 @@ export default function ComprasProveedores() {
                     {STATUS_OPTIONS.find((s) => s.id === Number(p.statuses_id))?.label || p.statuses_id}
                   </span>
                 </div>
-                {!isReader && !isExportOnlyMode && (
+                {isAdmin && !isExportOnlyMode && (
                 <div className="col-span-2 text-right">
                   <div className="relative inline-flex justify-end" data-actions-menu>
                     <button

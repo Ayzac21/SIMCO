@@ -2,6 +2,7 @@ import React from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import NotificationBell from "../../components/NotificationBell";
 import UserMenu from "../../components/UserMenu";
+import { getUserUnitLabel } from "../../utils/unitDisplay";
 
 export default function PageHeader({ title, subtitle }) {
     const navigate = useNavigate();
@@ -10,6 +11,7 @@ export default function PageHeader({ title, subtitle }) {
     const user = userStr ? JSON.parse(userStr) : null;
     const userName = user ? (user.name || user.user_name || "Usuario") : "Usuario";
     const userInitial = (userName?.[0] || "U").toUpperCase();
+    const userUnitLabel = getUserUnitLabel(user, "Unidad Responsable");
 
     const crumbs = location.pathname
         .split("/")
@@ -65,12 +67,12 @@ export default function PageHeader({ title, subtitle }) {
                         <NotificationBell />
                         <div className="text-right hidden md:block">
                             <p className="text-sm font-bold text-gray-800">Bienvenido, {userName}</p>
-                            <p className="text-xs text-gray-500">{user?.ure || "Unidad Responsable"}</p>
+                            <p className="text-xs text-gray-500">{userUnitLabel}</p>
                         </div>
                         <UserMenu
                             userName={userName}
                             userInitial={userInitial}
-                            subtitle={user?.ure || "Unidad Responsable"}
+                            subtitle={userUnitLabel}
                             onLogout={handleLogout}
                         />
                     </div>

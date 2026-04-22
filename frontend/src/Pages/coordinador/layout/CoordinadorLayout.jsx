@@ -4,6 +4,7 @@ import { Menu, X } from "lucide-react";
 import NotificationBell from "../../../components/NotificationBell";
 import escudoCualtos from "../../../assets/escudo-cualtos-02_0_1.png";
 import UserMenu from "../../../components/UserMenu";
+import { getUserUnitLabel } from "../../../utils/unitDisplay";
 // Ya no necesitamos importar PageHeader porque lo integraremos directamente para tener el layout de dos columnas
 // import PageHeader from "../../Asistente/PageHeader"; 
 
@@ -17,6 +18,7 @@ export default function CoordinadorLayout() {
     // Helper para obtener el nombre o usar un default
     const userName = user ? (user.name || user.user_name) : "Coordinador";
     const userInitial = userName.charAt(0).toUpperCase();
+    const userUnitLabel = getUserUnitLabel(user, "Coordinación");
 
     /* ===== CONFIG HEADER SEGÚN RUTA ===== */
     const headers = {
@@ -81,7 +83,7 @@ export default function CoordinadorLayout() {
                             </div>
                             <div className="min-w-0">
                                 <p className="text-sm font-semibold text-white truncate">{userName}</p>
-                                <p className="text-[11px] text-white/80 truncate">{user?.ure || "Coordinación"}</p>
+                                <p className="text-[11px] text-white/80 truncate">{userUnitLabel}</p>
                             </div>
                         </div>
                     </div>
@@ -166,14 +168,14 @@ export default function CoordinadorLayout() {
                         <div className="text-right hidden md:block">
                             <p className="text-sm font-bold text-gray-800">Bienvenido, {userName}</p>
                             <p className="text-xs text-gray-500">
-                                {user?.ure || "Coordinación"}
+                                {userUnitLabel}
                             </p>
                         </div>
                         
                         <UserMenu
                             userName={userName}
                             userInitial={userInitial}
-                            subtitle={user?.ure || "Coordinación"}
+                            subtitle={userUnitLabel}
                             onLogout={handleLogout}
                         />
                     </div>

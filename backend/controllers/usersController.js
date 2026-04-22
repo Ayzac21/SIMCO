@@ -7,8 +7,35 @@ export const listUsers = async (req, res) => {
   try {
     const [rows] = await pool.query(
       `
-      SELECT id, name, user_name, ure, statuses_id, email, role
-      FROM users
+      SELECT
+        u.id,
+        u.name,
+        u.user_name,
+        u.ure,
+        u.statuses_id,
+        u.email,
+        u.role,
+        COALESCE(
+          NULLIF(TRIM(
+            CASE
+              WHEN u.role = 'head_office' THEN ho.name
+              WHEN u.role = 'secretaria' THEN sec.name
+              WHEN u.role = 'coordinador' THEN co.name
+              ELSE NULL
+            END
+          ), ''),
+          NULLIF(TRIM(ho.name), ''),
+          NULLIF(TRIM(sec.name), ''),
+          NULLIF(TRIM(co.name), ''),
+          NULLIF(TRIM(u.ure), '')
+        ) AS ure_name
+      FROM users u
+      LEFT JOIN head_offices ho
+        ON TRIM(UPPER(ho.ure)) = TRIM(UPPER(u.ure))
+      LEFT JOIN secretary sec
+        ON TRIM(UPPER(sec.ure)) = TRIM(UPPER(u.ure))
+      LEFT JOIN coordination co
+        ON TRIM(UPPER(co.ure)) = TRIM(UPPER(u.ure))
       ORDER BY id DESC
       `
     );

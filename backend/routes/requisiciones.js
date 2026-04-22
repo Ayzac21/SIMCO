@@ -222,7 +222,7 @@ const ensureOwnsRequisition = async (req, res, requisitionId, connOrPool = pool)
 
 const ensureCanDownloadSignaturePdf = async (req, res, requisitionId, connOrPool = pool) => {
   const role = String(req.user?.role || "");
-  if (role === "head_office") {
+  if (role === "head_office" || role === "secretaria") {
     const ownsReq = await ensureOwnsRequisition(req, res, requisitionId, connOrPool);
     if (!ownsReq) return false;
 
@@ -301,7 +301,7 @@ const ensureCanDownloadSignaturePdf = async (req, res, requisitionId, connOrPool
 
 router.use((req, res, next) => {
   const role = String(req.user?.role || "");
-  if (role === "head_office" || role === "coordinador") {
+  if (role === "head_office" || role === "coordinador" || role === "secretaria") {
     return next();
   }
   return res.status(403).json({ ok: false, message: "Acceso denegado" });
@@ -1027,11 +1027,23 @@ router.patch("/:id/enviar", async (req, res) => {
     );
     const currentNote = String(row?.notes || "");
     const requestedResume = Number(req.body?.resume_to || 0);
+    const actorRole = String(req.user?.role || "");
 
     let resumeTo = 8;
-    if (currentNote.startsWith("AJUSTE_SECRETARIA:")) resumeTo = 8;
-    if (currentNote.startsWith("AJUSTE_COMPRAS:")) resumeTo = 12;
-    if (requestedResume === 8 && !currentNote.startsWith("AJUSTE_")) resumeTo = 8;
+    if (actorRole === "secretaria") {
+      // Flujo de Secretaría: sale de borrador directo a Compras.
+      resumeTo = 12;
+    } else if (currentNote.startsWith("AJUSTE_COORDINACION:")) {
+      resumeTo = 8;
+    } else if (currentNote.startsWith("AJUSTE_SECRETARIA:")) {
+      resumeTo = 9;
+    } else if (currentNote.startsWith("AJUSTE_COMPRAS:")) {
+      resumeTo = 12;
+    } else if (!currentNote.startsWith("AJUSTE_")) {
+      if (requestedResume === 12) resumeTo = 12;
+      else if (requestedResume === 9) resumeTo = 9;
+      else resumeTo = 8;
+    }
 
     const [result] = await pool.query(
       `
@@ -1288,7 +1300,7 @@ router.get("/:id/pdf-firma", async (req, res) => {
         .fontSize(requisitionPrintLayout.header.titleFontSize)
         .fillColor(text)
         .font(fontBold)
-        .text("REQUISICION DE ARTICULOS Y/O SERVICIOS", headerX + 6, mainTitleY, {
+        .text("REQUISICIÓN DE ARTÍCULOS Y/O SERVICIOS", headerX + 6, mainTitleY, {
           width: headerW - (requisitionPrintLayout.header.logoWidth + 18),
           align: "center",
         });
@@ -1364,12 +1376,12 @@ router.get("/:id/pdf-firma", async (req, res) => {
       align: "center",
       fontSize: 8,
     });
-    drawCell(contentX, y + 18, leftW, 18, safeUpper(reqRow.secretaria_dependencia || "SECRETARIA ADMINISTRATIVA"), {
+    drawCell(contentX, y + 18, leftW, 18, safeUpper(reqRow.secretaria_dependencia || "SECRETARÍA ADMINISTRATIVA"), {
       bold: true,
       align: "center",
       fontSize: 8,
     });
-    drawCell(contentX, y + 36, leftW, 18, safeUpper(reqRow.coordinacion_dependencia || "AREA EJECUTORA"), {
+    drawCell(contentX, y + 36, leftW, 18, safeUpper(reqRow.coordinacion_dependencia || "ÁREA EJECUTORA"), {
       fill: headerFill,
       bold: true,
       align: "center",
@@ -1381,7 +1393,7 @@ router.get("/:id/pdf-firma", async (req, res) => {
       align: "center",
       fontSize: 9,
     });
-    drawCell(rightX, y + 18, rightW, 18, `No. ${Number(reqRow.id)}`, {
+    drawCell(rightX, y + 18, rightW, 18, "", {
       bold: true,
       align: "center",
       fontSize: 8,
@@ -1416,7 +1428,7 @@ router.get("/:id/pdf-firma", async (req, res) => {
         align: "center",
         fontSize: 8,
       });
-      drawCell(contentX + colPartida, topY, colDesc, 30, "DESCRIPCION", {
+      drawCell(contentX + colPartida, topY, colDesc, 30, "DESCRIPCIÓN", {
         fill: headerFill,
         bold: true,
         align: "center",
@@ -1428,7 +1440,7 @@ router.get("/:id/pdf-firma", async (req, res) => {
         align: "center",
         fontSize: 8,
       });
-      drawCell(contentX + colPartida + colDesc + colCant, topY, colObs, 30, "OBSERVACION", {
+      drawCell(contentX + colPartida + colDesc + colCant, topY, colObs, 30, "OBSERVACIÓN", {
         fill: headerFill,
         bold: true,
         align: "center",
@@ -1466,7 +1478,7 @@ router.get("/:id/pdf-firma", async (req, res) => {
       y += rowH;
     }
 
-    const requiredAfterTable = 200;
+    const requiredAfterTable = 280;
     if (y + requiredAfterTable > pageBottomLimit) {
       doc.addPage();
       y = requisitionPrintLayout.contentStartY;
@@ -1476,7 +1488,7 @@ router.get("/:id/pdf-firma", async (req, res) => {
     const reasonText = safe(reqRow.observation) || safe(reqRow.justification) || "—";
 
     y += 18;
-    drawCell(contentX, y, contentW, 18, "JUSTIFICACION", {
+    drawCell(contentX, y, contentW, 18, "JUSTIFICACIÓN", {
       fill: headerFill,
       bold: true,
       align: "center",
@@ -1499,6 +1511,28 @@ router.get("/:id/pdf-firma", async (req, res) => {
       fontSize: 9,
     });
     y += 42;
+
+    const drawLabeledValueRow = (topY, label, opts = {}) => {
+      const leftW = opts.leftW || 92;
+      const rowH = opts.rowH || 22;
+      const labelFont = opts.labelFont || 9;
+      drawCell(contentX, topY, leftW, rowH, label, {
+        fill: headerFill,
+        bold: true,
+        align: "center",
+        fontSize: labelFont,
+      });
+      drawCell(contentX + leftW, topY, contentW - leftW, rowH, "", {
+        fontSize: 9,
+      });
+      return topY + rowH;
+    };
+
+    y += 8;
+    y = drawLabeledValueRow(y, "PROYECTO");
+    y = drawLabeledValueRow(y, "FONDO");
+    y = drawLabeledValueRow(y, "PROGRAMA\nESTRATÉGICO", { rowH: 30, labelFont: 8 });
+    y += 8;
 
     const dependenciaSolicitanteFirma =
       safe(reqRow.dependencia_solicitante) || "Unidad Solicitante";

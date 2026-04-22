@@ -25,6 +25,8 @@ export default function RequisicionesUre() {
     const [producto, setProducto] = useState("");
     const [cantidad, setCantidad] = useState("");
     const [especificaciones, setEspecificaciones] = useState("");
+    const [partidaFoto, setPartidaFoto] = useState(null);
+    const [partidaFotoPreviewUrl, setPartidaFotoPreviewUrl] = useState("");
     const [articulos, setArticulos] = useState([]);
 
     const [errors, setErrors] = useState({ 
@@ -37,6 +39,18 @@ export default function RequisicionesUre() {
     });
 
     const [notification, setNotification] = useState({ show: false, message: "", type: "success" });
+
+    const normalizeText = (value) => String(value || "").trim().toLowerCase();
+
+    useEffect(() => {
+        if (!(partidaFoto instanceof File)) {
+            setPartidaFotoPreviewUrl("");
+            return;
+        }
+        const url = URL.createObjectURL(partidaFoto);
+        setPartidaFotoPreviewUrl(url);
+        return () => URL.revokeObjectURL(url);
+    }, [partidaFoto]);
 
     // --- ALERTA ---
     const showAlert = (message, type = "success") => {
@@ -113,15 +127,43 @@ export default function RequisicionesUre() {
         }
 
         const unidadNombre = unidades.find(u => u.id == unidad)?.name || "";
+        const fotoPreviewUrl = partidaFoto instanceof File ? URL.createObjectURL(partidaFoto) : null;
         setArticulos([...articulos, {
-            id: Date.now(), producto, cantidad, unidad: unidadNombre, units_id: Number(unidad), especificaciones
+            id: Date.now(),
+            producto,
+            cantidad,
+            unidad: unidadNombre,
+            units_id: Number(unidad),
+            especificaciones,
+            foto_partida: partidaFoto instanceof File ? partidaFoto : null,
+            foto_preview_url: fotoPreviewUrl,
         }]);
 
-        setProducto(""); setCantidad(""); setUnidad(""); setEspecificaciones("");
+        setProducto(""); setCantidad(""); setUnidad(""); setEspecificaciones(""); setPartidaFoto(null);
         setErrors({ producto: false, cantidad: false, unidad: false, nombreReq: false });
     };
 
-    const eliminarArticulo = (id) => setArticulos(articulos.filter(a => a.id !== id));
+    const eliminarArticulo = (id) => {
+        setArticulos((prev) => {
+            const current = prev.find((a) => a.id === id);
+            if (current?.foto_preview_url) URL.revokeObjectURL(current.foto_preview_url);
+            return prev.filter((a) => a.id !== id);
+        });
+    };
+
+    const uploadPartidaImage = async (requisitionId, lineItemId, file) => {
+        const fd = new FormData();
+        fd.append("file", file);
+        const resp = await fetch(`${API_BASE_URL}/requisiciones/${requisitionId}/partidas/${lineItemId}/image`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: fd,
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || data?.ok === false) {
+            throw new Error(data?.message || "No se pudo guardar la foto de la partida");
+        }
+    };
 
     // --- ENVIAR ---
     const enviarRequisicion = async () => {
@@ -139,6 +181,7 @@ export default function RequisicionesUre() {
             return;
         }
 
+        const articulosPayload = articulos.map(({ foto_partida, ...art }) => art);
         const body = {
             users_id: user.id,
             categoria: Number(categoria),
@@ -146,7 +189,7 @@ export default function RequisicionesUre() {
             request_name: nombreReq,
             justification: justificacion,
             observation: observacion,
-            articulos,
+            articulos: articulosPayload,
             notes: ""
         };
 
@@ -159,11 +202,55 @@ export default function RequisicionesUre() {
             const data = await res.json();
 
             if (res.ok && data.ok) {
+                const fotosPendientes = articulos.filter((a) => a.foto_partida instanceof File);
+                if (fotosPendientes.length && data.id) {
+                    const detailRes = await fetch(`${API_BASE_URL}/requisiciones/${data.id}`, {
+                        headers: getAuthHeaders(),
+                    });
+                    const detailData = await detailRes.json().catch(() => ({}));
+                    if (!detailRes.ok) {
+                        throw new Error(detailData?.message || "No se pudieron vincular fotos de partidas");
+                    }
+
+                    const createdItems = Array.isArray(detailData?.partidas) ? detailData.partidas : [];
+                    const usedIndexes = new Set();
+                    const uploads = [];
+
+                    fotosPendientes.forEach((art) => {
+                        let idx = createdItems.findIndex((item, i) =>
+                            !usedIndexes.has(i) &&
+                            normalizeText(item.product_name) === normalizeText(art.producto) &&
+                            normalizeText(item.description) === normalizeText(art.especificaciones) &&
+                            Number(item.quantity || 0) === Number(art.cantidad || 0) &&
+                            Number(item.units_id || 0) === Number(art.units_id || 0)
+                        );
+
+                        if (idx === -1) {
+                            idx = createdItems.findIndex((_, i) => !usedIndexes.has(i));
+                        }
+                        if (idx === -1) return;
+
+                        usedIndexes.add(idx);
+                        uploads.push({
+                            lineItemId: createdItems[idx]?.id,
+                            file: art.foto_partida,
+                        });
+                    });
+
+                    for (const up of uploads) {
+                        if (!up?.lineItemId || !(up.file instanceof File)) continue;
+                        await uploadPartidaImage(data.id, up.lineItemId, up.file);
+                    }
+                }
+
                 showAlert(
                     `Borrador guardado (${data.folio}). Puedes revisarlo y enviarlo después desde recibidas.`,
                     "success"
                 );
-                setArticulos([]); setNombreReq(""); setObservacion(""); setJustificacion("");
+                articulos.forEach((a) => {
+                    if (a?.foto_preview_url) URL.revokeObjectURL(a.foto_preview_url);
+                });
+                setArticulos([]); setNombreReq(""); setObservacion(""); setJustificacion(""); setPartidaFoto(null);
                 setStep(1); 
             } else {
                 showAlert(data.message || "Error", "error");
@@ -324,6 +411,35 @@ export default function RequisicionesUre() {
                                                 className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-red-100 focus:border-principal transition-all h-24 resize-none"
                                             />
                                         </div>
+                                        <div className="md:col-span-12">
+                                            <label className="font-semibold block mb-2 text-gray-700">Foto de referencia de la partida (Opcional)</label>
+                                            <input
+                                                type="file"
+                                                accept="image/png,image/jpeg,image/jpg,image/webp"
+                                                onChange={(e) => setPartidaFoto(e.target.files?.[0] || null)}
+                                                className="w-full p-2.5 border border-gray-300 rounded-lg outline-none bg-white focus:ring-2 focus:ring-red-100 focus:border-principal transition-all text-sm"
+                                            />
+                                            <p className="text-[11px] text-gray-500 mt-1">
+                                                Solo imágenes (PNG/JPG/WEBP).
+                                                {partidaFoto ? ` Seleccionada: ${partidaFoto.name}` : ""}
+                                            </p>
+                                            {partidaFotoPreviewUrl && (
+                                                <div className="mt-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => window.open(partidaFotoPreviewUrl, "_blank", "noopener,noreferrer")}
+                                                        className="h-16 w-16 rounded border border-[#8B1D35]/20 shadow-sm overflow-hidden bg-white"
+                                                        title="Abrir vista previa"
+                                                    >
+                                                        <img
+                                                            src={partidaFotoPreviewUrl}
+                                                            alt="Vista previa de foto de partida"
+                                                            className="h-full w-full object-cover"
+                                                        />
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                     <button onClick={agregarArticulo} className="w-full bg-principal text-white py-3 rounded-lg font-bold hover:opacity-90 transition-all shadow-md mt-4">
                                         + Agregar a la lista
@@ -382,6 +498,25 @@ export default function RequisicionesUre() {
                                             </span>
                                         </div>
                                         {a.especificaciones && <p className="text-xs text-gray-500 mt-2 italic border-l-2 border-principal pl-2 line-clamp-2">"{a.especificaciones}"</p>}
+                                        {a.foto_partida && (
+                                            <div className="mt-2 flex items-center gap-2">
+                                                <p className="text-[11px] text-emerald-700 font-semibold">Con foto de referencia</p>
+                                                {a.foto_preview_url && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => window.open(a.foto_preview_url, "_blank", "noopener,noreferrer")}
+                                                        className="h-10 w-10 rounded border border-[#8B1D35]/20 overflow-hidden bg-white"
+                                                        title="Abrir vista previa"
+                                                    >
+                                                        <img
+                                                            src={a.foto_preview_url}
+                                                            alt="Vista previa de foto por partida"
+                                                            className="h-full w-full object-cover"
+                                                        />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                     <button onClick={() => eliminarArticulo(a.id)} className="text-gray-300 hover:text-red-600 transition-colors p-1 self-start">
                                         <IconTrash />

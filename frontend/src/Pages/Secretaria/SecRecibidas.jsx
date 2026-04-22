@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { 
-    Search, Filter, ChevronLeft, ChevronRight, 
-    FileText, User, Calendar, Briefcase, 
+    Search, ChevronLeft, ChevronRight,
+    User,
     CheckCircle, XCircle, Clock, Truck, Building2, RefreshCw
 } from "lucide-react";
 import { toast } from 'sonner';
@@ -10,6 +10,7 @@ import SecModal from "./dashboard/SecModal"; // Usamos tu mismo modal
 import { getAuthHeaders } from "../../api/auth";
 import { API_BASE_URL } from "../../api/config";
 import useEscapeKey from "../../hooks/useEscapeKey";
+import { getRequisitionUnitLabel } from "../../utils/unitDisplay";
 
 function AppLoader({ label = "Cargando..." }) {
     return (
@@ -87,14 +88,9 @@ export default function SecRecibidas() {
     }, [userId, currentPage, statusFilter, searchTerm]);
 
     // --- FILTROS Y BÚSQUEDA ---
-    const filteredReqs = useMemo(() => allReqs, [allReqs]);
-
-    // --- PAGINACIÓN ---
     const totalPages = Math.max(1, Math.ceil(total / itemsPerPage));
-    const paginatedReqs = filteredReqs.slice(
-        0,
-        filteredReqs.length
-    );
+    const startItem = total === 0 ? 0 : ((currentPage - 1) * itemsPerPage) + 1;
+    const endItem = Math.min(currentPage * itemsPerPage, total);
 
     // --- LOGICA DEL MODAL (Abrir detalles) ---
     const handleRowClick = async (req) => {
@@ -271,17 +267,17 @@ export default function SecRecibidas() {
                         <tbody className="divide-y divide-gray-50">
                     {loading ? (
                         <tr><td colSpan="6"><AppLoader label="Cargando..." /></td></tr>
-                            ) : paginatedReqs.length === 0 ? (
+                            ) : allReqs.length === 0 ? (
                                 <tr><td colSpan="6" className="p-12 text-center text-gray-400">No se encontraron resultados</td></tr>
                             ) : (
-                                paginatedReqs.map((req) => (
+                                allReqs.map((req) => (
                                     <tr key={req.id} onClick={() => handleRowClick(req)} className="hover:bg-gray-50 cursor-pointer group transition-colors">
                                         <td className="px-6 py-4 font-bold text-gray-700">#{req.id}</td>
                                         <td className="px-6 py-4">
                                             <div className="font-bold text-gray-800 text-sm mb-1">{req.request_name}</div>
                                             <div className="flex items-center gap-1.5">
                                                 <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-[#8B1D35]/10 text-[#8B1D35] border border-[#8B1D35]/10 flex items-center gap-1">
-                                                    <Building2 size={10} /> {req.nombre_unidad || req.ure_solicitante}
+                                                    <Building2 size={10} /> {getRequisitionUnitLabel(req, "Unidad solicitante")}
                                                 </span>
                                                 {req.coordinacion && req.coordinacion !== "General" && (
                                                     <span className="text-[10px] text-gray-500 font-semibold">
@@ -324,10 +320,10 @@ export default function SecRecibidas() {
                 </div>
 
                 {/* PAGINACIÓN FOOTER */}
-                {paginatedReqs.length > 0 && (
+                {!loading && allReqs.length > 0 && (
                     <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between bg-gray-50/50">
                         <span className="text-xs text-gray-500 font-medium">
-                            Mostrando {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, filteredReqs.length)} de {filteredReqs.length}
+                            Mostrando {startItem} - {endItem} de {total}
                         </span>
                         <div className="flex gap-2">
                             <button 

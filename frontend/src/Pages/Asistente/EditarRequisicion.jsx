@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { motion as Motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { getAuthHeaders } from "../../api/auth";
@@ -29,14 +29,14 @@ const Label = ({ children, required }) => (
 const API = API_BASE_URL;
 const PRIMARY = "#8B1D35";
 
-const statusMeta = (statusId) => {
+const statusMeta = (statusId, basePath = "/unidad") => {
   const st = Number(statusId);
   if (st === 14) {
     return {
       label: "En revisión interna de Compras",
       detail: "Compras Admin está realizando la selección final de proveedores.",
       actionLabel: "Ver mis requisiciones",
-      actionPath: "/unidad/mi-requisiciones",
+      actionPath: `${basePath}/mi-requisiciones`,
     };
   }
   if (st === 8) {
@@ -44,7 +44,7 @@ const statusMeta = (statusId) => {
       label: "En Coordinación",
       detail: "Ya fue enviada a Coordinación. Está pendiente de validación.",
       actionLabel: "Ver mis requisiciones",
-      actionPath: "/unidad/mi-requisiciones",
+      actionPath: `${basePath}/mi-requisiciones`,
     };
   }
   if (st === 9) {
@@ -52,7 +52,7 @@ const statusMeta = (statusId) => {
       label: "En Secretaría",
       detail: "Ya pasó a Secretaría para revisión administrativa.",
       actionLabel: "Ver mis requisiciones",
-      actionPath: "/unidad/mi-requisiciones",
+      actionPath: `${basePath}/mi-requisiciones`,
     };
   }
   if (st === 12) {
@@ -60,7 +60,7 @@ const statusMeta = (statusId) => {
       label: "En cotización",
       detail: "Compras está cotizando proveedores para esta requisición.",
       actionLabel: "Ver mis requisiciones",
-      actionPath: "/unidad/mi-requisiciones",
+      actionPath: `${basePath}/mi-requisiciones`,
     };
   }
   if (st === 13) {
@@ -68,7 +68,7 @@ const statusMeta = (statusId) => {
       label: "En proceso de compra",
       detail: "La compra ya está en proceso y este borrador quedó cerrado.",
       actionLabel: "Ver mis requisiciones",
-      actionPath: "/unidad/mi-requisiciones",
+      actionPath: `${basePath}/mi-requisiciones`,
     };
   }
   if (st === 11) {
@@ -76,7 +76,7 @@ const statusMeta = (statusId) => {
       label: "Finalizada",
       detail: "La requisición ya se completó. No requiere edición.",
       actionLabel: "Ver mis requisiciones",
-      actionPath: "/unidad/mi-requisiciones",
+      actionPath: `${basePath}/mi-requisiciones`,
     };
   }
   if (st === 10) {
@@ -84,14 +84,14 @@ const statusMeta = (statusId) => {
       label: "Rechazada",
       detail: "Fue rechazada. Revisa el motivo en el detalle y crea/ajusta una nueva.",
       actionLabel: "Ver mis requisiciones",
-      actionPath: "/unidad/mi-requisiciones",
+      actionPath: `${basePath}/mi-requisiciones`,
     };
   }
   return {
     label: "Fuera de borrador",
     detail: "Esta requisición ya cambió de etapa y no se puede editar desde aquí.",
     actionLabel: "Ver mis requisiciones",
-    actionPath: "/unidad/mi-requisiciones",
+    actionPath: `${basePath}/mi-requisiciones`,
   };
 };
 
@@ -159,6 +159,9 @@ function ConfirmModal({
 export default function EditarRequisicion() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const isSecretariaView = pathname.startsWith("/secretaria");
+  const basePath = isSecretariaView ? "/secretaria" : "/unidad";
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -184,7 +187,7 @@ export default function EditarRequisicion() {
   const [confirmSendOpen, setConfirmSendOpen] = useState(false);
 
   const isBorrador = Number(estatusId) === 7;
-  const currentStatusMeta = statusMeta(estatusId, id);
+  const currentStatusMeta = statusMeta(estatusId, basePath);
   const maxAttachments = 5;
 
   const fmtSize = (bytes) => {
@@ -266,15 +269,15 @@ export default function EditarRequisicion() {
           setAdjustmentSource("Compras");
           setAdjustmentMessage(rawNotes.replace("AJUSTE_COMPRAS:", "").trim());
         } else if (rawNotes.startsWith("AJUSTE_SECRETARIA:")) {
-          setResumeTo(9);
+          setResumeTo(isSecretariaView ? 12 : 9);
           setAdjustmentSource("Secretaría");
           setAdjustmentMessage(rawNotes.replace("AJUSTE_SECRETARIA:", "").trim());
         } else if (rawNotes.startsWith("AJUSTE_COORDINACION:")) {
-          setResumeTo(8);
+          setResumeTo(isSecretariaView ? 12 : 8);
           setAdjustmentSource("Coordinación");
           setAdjustmentMessage(rawNotes.replace("AJUSTE_COORDINACION:", "").trim());
         } else {
-          setResumeTo(8);
+          setResumeTo(isSecretariaView ? 12 : 8);
           setAdjustmentSource("");
           setAdjustmentMessage("");
         }
@@ -618,7 +621,7 @@ export default function EditarRequisicion() {
       }
 
       if (navigateOnSuccess) {
-        navigate("/unidad/dashboard");
+        navigate(`${basePath}/mi-requisiciones`);
       }
 
       return true;
@@ -668,7 +671,7 @@ export default function EditarRequisicion() {
       toast.success("Requisición enviada");
 
       setEstatusId(Number(data?.statuses_id || resumeTo));
-      navigate("/unidad/mi-requisiciones");
+      navigate(`${basePath}/mi-requisiciones`);
     } catch (e) {
       console.error(e);
       toast.error("Error al enviar");

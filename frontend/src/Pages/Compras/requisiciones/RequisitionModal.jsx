@@ -6,6 +6,7 @@ import ConfirmModal from "../../../components/ConfirmModal";
 import RequisitionTimelineModal from "../../../components/RequisitionTimelineModal";
 import { API_BASE_URL } from "../../../api/config";
 import useEscapeKey from "../../../hooks/useEscapeKey";
+import { getRequisitionUnitLabel } from "../../../utils/unitDisplay";
 
 const API_OPERATORS = `${API_BASE_URL}/compras/operators`;
 const API_ASSIGN = `${API_BASE_URL}/compras/requisiciones`;
@@ -191,9 +192,10 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
     const userStr = localStorage.getItem("usuario");
     const user = userStr ? JSON.parse(userStr) : null;
     const isAdmin = user?.role === "compras_admin";
+    const isReader = user?.role === "compras_lector";
 
     // Variables auxiliares
-    const jefatura = req.nombre_unidad || req.ure_solicitante; 
+    const jefatura = getRequisitionUnitLabel(req, "Unidad solicitante");
     const area = req.coordinacion || req.area_solicitante;
     
     // Estatus
@@ -321,7 +323,14 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
         }
     };
 
-    const showOrderButtons = Number(req.statuses_id) === 11;
+    const statusId = Number(req.statuses_id);
+    const isInternalReview = statusId === 14;
+    const showOrderButtons = statusId === 11;
+    const stageLabel = isInternalReview
+        ? "Compras / Revisión interna"
+        : statusId === 13
+        ? "Compras / En proceso"
+        : "Compras / Cotización";
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -421,9 +430,21 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                     <div className="flex justify-center items-center gap-4 mb-6">
                         <div className="flex items-center gap-2 text-[#8B1D35] font-bold text-xs uppercase bg-[#8B1D35]/5 px-4 py-2 rounded-full border border-[#8B1D35]/10">
                             <ShoppingBag size={14} />
-                            Etapa Actual: Compras / Cotización
+                            Etapa actual: {stageLabel}
                         </div>
                     </div>
+
+                    {isInternalReview && !isAdmin && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                            <p className="text-[11px] font-extrabold uppercase tracking-wide text-amber-700">
+                                Requisición en revisión interna
+                            </p>
+                            <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                                La comparación ya fue enviada y está en evaluación final por Jefatura de Compras.
+                                En esta etapa no se puede editar cotización desde este perfil.
+                            </p>
+                        </div>
+                    )}
 
                     {showOrderButtons && (
                         <div className="bg-[#8B1D35]/5 border border-[#8B1D35]/15 rounded-xl p-4">
@@ -659,7 +680,7 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                                 </button>
                             )}
                             
-                            {Number(req.statuses_id) === 13 ? (
+                            {statusId === 13 ? (
                                 <button 
                                     onClick={() => {
                                         onClose();
@@ -669,27 +690,38 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                                 >
                                     <ShoppingBag size={14}/> VER SELECCIÓN
                                 </button>
-                            ) : Number(req.statuses_id) === 14 ? (
-                                isAdmin ? (
-                                    <button
-                                        onClick={() => {
-                                            onClose();
-                                            navigate(`/compras/revision/${req.id}`);
-                                        }}
-                                        className="px-4 py-2 rounded-lg bg-[#8B1D35] text-white font-bold text-xs hover:bg-[#72182b] flex items-center gap-2 shadow-md"
-                                        title="Abrir cuadro comparativo para selección final"
-                                    >
-                                        <ShoppingBag size={14}/> REVISAR COMPARATIVO
-                                    </button>
-                                ) : (
-                                    <button
-                                        disabled
-                                        className="px-4 py-2 rounded-lg bg-gray-200 text-gray-500 font-bold text-xs flex items-center gap-2 cursor-not-allowed"
-                                        title="En revisión interna por Compras Admin"
-                                    >
-                                        <ShoppingBag size={14}/> EN REVISIÓN INTERNA
-                                    </button>
-                                )
+                            ) : statusId === 14 ? (
+                                <>
+                                    {isAdmin && (
+                                        <button
+                                            onClick={() => {
+                                                onClose();
+                                                navigate(`/compras/revision/${req.id}`);
+                                            }}
+                                            className="px-4 py-2 rounded-lg bg-[#8B1D35] text-white font-bold text-xs hover:bg-[#72182b] flex items-center gap-2 shadow-md"
+                                            title="Abrir cuadro comparativo para selección final"
+                                        >
+                                            <ShoppingBag size={14}/> REVISAR COMPARATIVO
+                                        </button>
+                                    )}
+                                    {isReader && (
+                                        <>
+                                            <button
+                                                onClick={() => setTimelineOpen(true)}
+                                                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 font-bold text-xs hover:bg-gray-100 flex items-center gap-2"
+                                            >
+                                                VER PROGRESO
+                                            </button>
+                                            <button
+                                                disabled
+                                                className="px-4 py-2 rounded-lg bg-gray-200 text-gray-500 font-bold text-xs flex items-center gap-2 cursor-not-allowed"
+                                                title="En revisión interna por Compras Admin"
+                                            >
+                                                <ShoppingBag size={14}/> EN REVISIÓN INTERNA
+                                            </button>
+                                        </>
+                                    )}
+                                </>
                             ) : (
                                 <button 
                                     onClick={() => {

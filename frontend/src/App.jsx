@@ -84,6 +84,9 @@ export default function App() {
         >
           <Route path="dashboard" element={<SecDashboard />} />
           <Route path="recibidas" element={<SecRecibidas />} />
+          <Route path="mi-requisiciones" element={<ListaRequisiciones />} />
+          <Route path="requisiciones/nueva" element={<RequisicionesUre />} />
+          <Route path="requisiciones/editar/:id" element={<EditarRequisicion />} />
         </Route>
 
         {/* RUTAS DE COMPRAS */}

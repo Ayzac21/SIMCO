@@ -183,12 +183,14 @@ export const getComprasDashboard = async (req, res) => {
           OR u.name LIKE ?
           OR u.ure LIKE ?
           OR ho.name LIKE ?
+          OR sec.name LIKE ?
           OR c.name LIKE ?
+          OR csec.name LIKE ?
           OR c2.name LIKE ?
         )
       `);
       const like = `%${q}%`;
-      params.push(like, like, like, like, like, like, like);
+      params.push(like, like, like, like, like, like, like, like, like);
     }
 
     if (assignedTo) {
@@ -210,7 +212,23 @@ export const getComprasDashboard = async (req, res) => {
           ORDER BY LENGTH(TRIM(ho2.ure)) DESC
           LIMIT 1
         )
+      LEFT JOIN secretary sec
+        ON sec.id = (
+          SELECT s2.id
+          FROM secretary s2
+          WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+          ORDER BY LENGTH(TRIM(s2.ure)) DESC
+          LIMIT 1
+        )
       LEFT JOIN coordination c ON ho.coordination_id = c.id
+      LEFT JOIN coordination csec
+        ON csec.id = (
+          SELECT c4.id
+          FROM coordination c4
+          WHERE TRIM(UPPER(sec.ure)) LIKE CONCAT(TRIM(UPPER(c4.ure)), '%')
+          ORDER BY LENGTH(TRIM(c4.ure)) DESC
+          LIMIT 1
+        )
       LEFT JOIN coordination c2
         ON c2.id = (
           SELECT c3.id
@@ -267,8 +285,18 @@ export const getComprasDashboard = async (req, res) => {
         s.name as nombre_estatus,
         u.name as solicitante,
         au.name as assigned_operator_name,
-        COALESCE(NULLIF(TRIM(ho.name), ''), NULLIF(TRIM(c2.name), ''), u.ure) as nombre_unidad,
-        COALESCE(NULLIF(TRIM(c.name), ''), NULLIF(TRIM(c2.name), ''), 'General') as coordinacion
+        COALESCE(
+          NULLIF(TRIM(ho.name), ''),
+          NULLIF(TRIM(sec.name), ''),
+          NULLIF(TRIM(c2.name), ''),
+          u.ure
+        ) as nombre_unidad,
+        COALESCE(
+          NULLIF(TRIM(c.name), ''),
+          NULLIF(TRIM(csec.name), ''),
+          NULLIF(TRIM(c2.name), ''),
+          'General'
+        ) as coordinacion
       FROM requisition r
       LEFT JOIN statuses s ON r.statuses_id = s.id
       LEFT JOIN users u ON r.users_id = u.id
@@ -281,7 +309,23 @@ export const getComprasDashboard = async (req, res) => {
           ORDER BY LENGTH(TRIM(ho2.ure)) DESC
           LIMIT 1
         )
+      LEFT JOIN secretary sec
+        ON sec.id = (
+          SELECT s2.id
+          FROM secretary s2
+          WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+          ORDER BY LENGTH(TRIM(s2.ure)) DESC
+          LIMIT 1
+        )
       LEFT JOIN coordination c ON ho.coordination_id = c.id
+      LEFT JOIN coordination csec
+        ON csec.id = (
+          SELECT c4.id
+          FROM coordination c4
+          WHERE TRIM(UPPER(sec.ure)) LIKE CONCAT(TRIM(UPPER(c4.ure)), '%')
+          ORDER BY LENGTH(TRIM(c4.ure)) DESC
+          LIMIT 1
+        )
       LEFT JOIN coordination c2
         ON c2.id = (
           SELECT c3.id
@@ -601,7 +645,7 @@ export const updateEstatusCompras = async (req, res) => {
       });
     }
 
-    if ((targetStatusId === 10 || targetStatusId === 7) && req.user?.role !== "compras_admin") {
+    if ((targetStatusId === 10 || targetStatusId === 7 || targetStatusId === 11) && req.user?.role !== "compras_admin") {
       return res.status(403).json({ message: "Solo admin puede ejecutar esta acción" });
     }
 
@@ -1420,6 +1464,33 @@ export const getCompraSeleccion = async (req, res) => {
     `;
 
     const [items] = await pool.query(queryItems, [id]);
+    const providerIds = Array.from(
+      new Set(items.map((it) => Number(it.provider_id || 0)).filter((pid) => pid > 0))
+    );
+
+    let providers = [];
+    if (providerIds.length > 0) {
+      const [providerRows] = await pool.query(
+        `
+        SELECT
+          p.id,
+          p.name,
+          p.razon_social,
+          p.rfc,
+          p.email,
+          p.address,
+          GROUP_CONCAT(ph.phone SEPARATOR ', ') AS phones
+        FROM provider p
+        LEFT JOIN provider_has_phones php ON php.provider_id = p.id
+        LEFT JOIN phones ph ON ph.id = php.phones_id
+        WHERE p.id IN (${providerIds.map(() => "?").join(",")})
+        GROUP BY p.id, p.name, p.razon_social, p.rfc, p.email, p.address
+        ORDER BY p.name ASC
+        `,
+        providerIds
+      );
+      providers = Array.isArray(providerRows) ? providerRows : [];
+    }
 
     const [[tot]] = await pool.query(
       `SELECT COUNT(*) AS total FROM line_items WHERE requisition_id = ?`,
@@ -1451,6 +1522,7 @@ export const getCompraSeleccion = async (req, res) => {
     res.json({
       requisition,
       items,
+      providers,
       summary: {
         total_items: total,
         selected_items: selected,
@@ -4046,7 +4118,7 @@ export const reopenCotizacionReception = async (req, res) => {
     if (!ok) return;
 
     const [reqRows] = await pool.query(
-      `SELECT id, statuses_id, quotation_closed_at FROM requisition WHERE id = ?`,
+      `SELECT id, statuses_id, quotation_closed_at, assigned_operator_id, users_id FROM requisition WHERE id = ?`,
       [id]
     );
     if (reqRows.length === 0) {
@@ -4054,24 +4126,84 @@ export const reopenCotizacionReception = async (req, res) => {
     }
 
     const st = Number(reqRows[0].statuses_id);
-    if (st === 14) {
-      return res.status(400).json({
-        message: "No se puede reabrir cuando ya está en revisión",
-      });
-    }
+    const changedFromReview = st === 14;
 
     await pool.query(
       `
       UPDATE requisition
       SET quotation_closed_at = NULL,
           quotation_closed_by = NULL,
-          quotation_close_note = NULL
+          quotation_close_note = NULL,
+          statuses_id = CASE WHEN statuses_id = 14 THEN 12 ELSE statuses_id END
       WHERE id = ?
       `,
       [id]
     );
 
-    res.json({ message: "Recepción reabierta" });
+    if (changedFromReview) {
+      const actorId = Number(req.user?.id || 0) || null;
+      const operatorId = Number(reqRows[0].assigned_operator_id || 0) || null;
+      const ownerId = Number(reqRows[0].users_id || 0) || null;
+
+      await logRequisitionStatusChange({
+        requisitionId: id,
+        fromStatusId: 14,
+        toStatusId: 12,
+        changedBy: actorId,
+        note: "Regresada de revisión interna a cotización",
+      });
+
+      if (operatorId && operatorId !== actorId) {
+        await createNotification({
+          recipientUserId: operatorId,
+          actorUserId: actorId,
+          title: "Requisición regresada a cotización",
+          message: `La requisición #${id} regresó desde revisión interna para ajustes de cotización.`,
+          entityType: "requisition",
+          entityId: Number(id),
+          actionPath: `/compras/cotizar/${id}`,
+        });
+      }
+
+      if (ownerId && ownerId !== actorId) {
+        await createNotification({
+          recipientUserId: ownerId,
+          actorUserId: actorId,
+          title: "Requisición regresada a cotización",
+          message: `La requisición #${id} regresó a cotización para ajustes en Compras.`,
+          entityType: "requisition",
+          entityId: Number(id),
+          actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+        });
+      }
+
+      const coordinatorIds = await getCoordinatorUsersForRequisition(id);
+      await createNotificationsForUsers(coordinatorIds, {
+        actorUserId: actorId,
+        title: "Requisición regresada a cotización",
+        message: `La requisición #${id} regresó de revisión interna a cotización.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/coordinador/requisiciones?openReq=${id}`,
+      });
+
+      const secretariaIds = await getUsersByRole("secretaria");
+      await createNotificationsForUsers(secretariaIds, {
+        actorUserId: actorId,
+        title: "Requisición regresada a cotización",
+        message: `La requisición #${id} regresó a cotización para ajustes de Compras.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/secretaria/recibidas?openReq=${id}`,
+      });
+    }
+
+    res.json({
+      message: changedFromReview
+        ? "Requisición regresada a cotización para ajustes"
+        : "Recepción reabierta",
+      requisition_statuses_id: changedFromReview ? 12 : st,
+    });
   } catch (error) {
     console.error("Error reabriendo recepción:", error);
     res.status(500).json({ message: "Error interno del servidor" });

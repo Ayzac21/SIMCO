@@ -4,6 +4,7 @@ import { ArrowLeft, FileText, CheckCircle2, Briefcase, Building2, MapPin } from 
 import { toast } from "sonner";
 import ConfirmModal from "../../../components/ConfirmModal";
 import { API_BASE_URL } from "../../../api/config";
+import { getRequisitionUnitLabel } from "../../../utils/unitDisplay";
 
 const API_URL = `${API_BASE_URL}/compras`;
 
@@ -29,11 +30,12 @@ export default function OrdenCompra() {
   const navigate = useNavigate();
   const userStr = localStorage.getItem("usuario");
   const user = userStr ? JSON.parse(userStr) : null;
-  const isReader = user?.role === "compras_lector";
+  const isAdmin = user?.role === "compras_admin";
 
   const [loading, setLoading] = useState(true);
   const [requisition, setRequisition] = useState(null);
   const [items, setItems] = useState([]);
+  const [providersInfo, setProvidersInfo] = useState([]);
   const [summary, setSummary] = useState({
     total_items: 0,
     selected_items: 0,
@@ -44,10 +46,11 @@ export default function OrdenCompra() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [savingMeta, setSavingMeta] = useState(false);
   const [metaByProvider, setMetaByProvider] = useState({});
   const [orderType, setOrderType] = useState("compra");
-  const [savingType, setSavingType] = useState(false);
+  const [orderNumber, setOrderNumber] = useState("");
+  const [savingOrderSetup, setSavingOrderSetup] = useState(false);
+  const [refreshingPreview, setRefreshingPreview] = useState(false);
 
   const loadData = async () => {
     try {
@@ -59,7 +62,8 @@ export default function OrdenCompra() {
       if (!resp.ok) throw new Error(data?.message || "Error cargando selección");
 
       setRequisition(data.requisition || null);
-      setItems(Array.isArray(data.items) ? data.items : []);
+      const safeItems = Array.isArray(data.items) ? data.items : [];
+      setItems(safeItems);
       setSummary(
         data.summary || {
           total_items: 0,
@@ -83,13 +87,19 @@ export default function OrdenCompra() {
       const metaData = await metaResp.json().catch(() => ([]));
       if (metaResp.ok && Array.isArray(metaData)) {
         const map = {};
+        const uniqueFolios = new Set();
         metaData.forEach((m) => {
           map[m.provider_id] = {
             folio: m.folio || "",
           };
+          const folio = String(m.folio || "").trim();
+          if (folio) uniqueFolios.add(folio);
         });
         setMetaByProvider(map);
+        setOrderNumber(uniqueFolios.size ? Array.from(uniqueFolios)[0] : "");
       }
+
+      setProvidersInfo(Array.isArray(data.providers) ? data.providers : []);
     } catch (e) {
       console.error(e);
       toast.error(e?.message || "No se pudo cargar la selección");
@@ -144,8 +154,46 @@ export default function OrdenCompra() {
     return rows.reduce((acc, r) => acc + (Number(r.total) || 0), 0);
   }, [rows]);
 
+  const providerInfoMap = useMemo(() => {
+    const map = new Map();
+    providersInfo.forEach((p) => map.set(Number(p.id), p));
+    return map;
+  }, [providersInfo]);
+
+  const providersWithMissingData = useMemo(() => {
+    return providersList
+      .map((provider) => {
+        const info = providerInfoMap.get(Number(provider.id)) || {};
+        const missing = [];
+        if (!String(info.name || "").trim()) missing.push("Nombre");
+        if (!String(info.rfc || "").trim()) missing.push("RFC");
+        if (!String(info.address || "").trim()) missing.push("Dirección");
+        return {
+          id: provider.id,
+          name: info.name || provider.name || `Proveedor ${provider.id}`,
+          missing,
+        };
+      })
+      .filter((p) => p.missing.length > 0);
+  }, [providersList, providerInfoMap]);
+
+  const requisitionUnitLabel = useMemo(
+    () => getRequisitionUnitLabel(requisition || {}, "Sin unidad"),
+    [requisition]
+  );
+
+  const firstProviderMissingDataId = useMemo(() => {
+    if (providersWithMissingData.length === 0) return null;
+    const idValue = Number(providersWithMissingData[0]?.id);
+    return Number.isFinite(idValue) ? idValue : null;
+  }, [providersWithMissingData]);
+
   const handleMarkCompleted = async () => {
     if (saving) return;
+    if (!isAdmin) {
+      toast.warning("Solo Jefe de Compras puede finalizar la compra");
+      return;
+    }
     try {
       const missing = providersList.filter((p) => {
         const meta = metaByProvider[p.id] || {};
@@ -207,49 +255,57 @@ export default function OrdenCompra() {
     }
   };
 
-  const handleSaveType = async () => {
-    if (savingType) return;
+  const handleSaveOrderSetup = async () => {
+    if (!isAdmin || savingOrderSetup) return;
+    const cleanOrderNumber = String(orderNumber || "").trim();
+    if (!cleanOrderNumber) {
+      toast.error("Ingresa el número de orden recibido");
+      return;
+    }
+    if (providersList.length === 0) {
+      toast.error("No hay proveedores seleccionados para guardar");
+      return;
+    }
+
     try {
-      setSavingType(true);
-      const resp = await fetch(`${API_URL}/orden/${id}/type`, {
+      setSavingOrderSetup(true);
+      const headers = { "Content-Type": "application/json", ...getAuthHeaders() };
+
+      const typeResp = await fetch(`${API_URL}/orden/${id}/type`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        headers,
         body: JSON.stringify({ order_type: orderType }),
       });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(data?.message || "Error al guardar");
-      toast.success("Tipo de orden guardado");
-      setOrderType(orderType);
-    } catch (e) {
-      console.error(e);
-      toast.error(e?.message || "No se pudo guardar");
-    } finally {
-      setSavingType(false);
-    }
-  };
+      const typeData = await typeResp.json().catch(() => ({}));
+      if (!typeResp.ok) throw new Error(typeData?.message || "Error al guardar tipo de orden");
 
-  const handleSaveMeta = async (providerId) => {
-    if (savingMeta) return;
-    try {
-      setSavingMeta(true);
-      const current = metaByProvider[providerId] || {};
-      const payload = {
-        provider_id: providerId,
-        folio: current.folio || null,
-      };
-      const resp = await fetch(`${API_URL}/orden/${id}/meta`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify(payload),
+      for (const provider of providersList) {
+        const metaResp = await fetch(`${API_URL}/orden/${id}/meta`, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({
+            provider_id: provider.id,
+            folio: cleanOrderNumber,
+          }),
+        });
+        const metaData = await metaResp.json().catch(() => ({}));
+        if (!metaResp.ok) throw new Error(metaData?.message || "Error al guardar número de orden");
+      }
+
+      setMetaByProvider((prev) => {
+        const next = { ...prev };
+        providersList.forEach((provider) => {
+          next[provider.id] = { ...(next[provider.id] || {}), folio: cleanOrderNumber };
+        });
+        return next;
       });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(data?.message || "Error al guardar");
-      toast.success("Datos de orden guardados");
+
+      toast.success("Formato de orden guardado");
     } catch (e) {
       console.error(e);
-      toast.error(e?.message || "No se pudo guardar");
+      toast.error(e?.message || "No se pudo guardar el formato");
     } finally {
-      setSavingMeta(false);
+      setSavingOrderSetup(false);
     }
   };
 
@@ -289,7 +345,7 @@ export default function OrdenCompra() {
               </span>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              {requisition?.nombre_unidad || requisition?.ure_solicitante || "Sin unidad"}
+              {requisitionUnitLabel}
               <span className="mx-2 text-gray-400">•</span>
               {requisition?.coordinacion || "General"}
               <span className="mx-2 text-gray-400">•</span>
@@ -351,32 +407,80 @@ export default function OrdenCompra() {
               </div>
             </div>
           )}
-          <button
-            onClick={() => setConfirmOpen(true)}
-            disabled={!summary.is_complete || isReader}
-            className={`px-3 py-1.5 rounded-md text-[11px] font-semibold flex items-center gap-1.5 border ${
-              summary.is_complete && !isReader
-                ? "bg-[#8B1D35] hover:bg-[#72182b] text-white border-[#8B1D35]"
-                : "bg-gray-200 text-gray-500 cursor-not-allowed border-gray-200"
-            }`}
-            title={
-              isReader
-                ? "Solo lectura"
-                : summary.is_complete
-                ? "Marcar como comprada"
-                : "Faltan partidas por seleccionar"
-            }
-          >
-            <CheckCircle2 size={12} />
-            Marcar comprada
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setConfirmOpen(true)}
+              disabled={!summary.is_complete}
+              className={`px-3 py-1.5 rounded-md text-[11px] font-semibold flex items-center gap-1.5 border ${
+                summary.is_complete
+                  ? "bg-[#8B1D35] hover:bg-[#72182b] text-white border-[#8B1D35]"
+                  : "bg-gray-200 text-gray-500 cursor-not-allowed border-gray-200"
+              }`}
+              title={summary.is_complete ? "Marcar como comprada" : "Faltan partidas por seleccionar"}
+            >
+              <CheckCircle2 size={12} />
+              Marcar comprada
+            </button>
+          )}
         </div>
       </div>
+
+      {!isAdmin && (
+        <div className="mb-4 bg-blue-50 border border-blue-100 rounded-xl p-4 text-xs text-blue-800">
+          Vista de consulta. Los pasos finales del proceso de compra solo los puede ejecutar Jefatura de Compras.
+        </div>
+      )}
 
       {!summary.is_complete && summary.total_items > 0 && (
         <div className="mb-4 bg-amber-50 border border-amber-100 rounded-xl p-4 text-xs text-amber-800">
           Faltan {summary.missing_items} partida(s) por seleccionar. No se puede
           marcar como comprada hasta completar la selección.
+        </div>
+      )}
+
+      {providersWithMissingData.length > 0 && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <div className="text-xs font-extrabold uppercase tracking-wide text-amber-800">
+            Validación previa de formato
+          </div>
+          <p className="mt-1 text-xs text-amber-800">
+            Hay datos de proveedor incompletos. Completa primero para que la orden salga correcta.
+          </p>
+          <div className="mt-2 space-y-1 text-xs text-amber-900">
+            {providersWithMissingData.map((p) => (
+              <div key={p.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5">
+                <div>
+                  <span className="font-bold">{p.name}:</span> falta {p.missing.join(", ")}
+                </div>
+                {isAdmin && (
+                  <button
+                    onClick={() =>
+                      navigate(`/compras/proveedores?editProviderId=${encodeURIComponent(String(p.id))}`)
+                    }
+                    className="px-2.5 py-1 rounded-md text-[11px] font-semibold border border-amber-300 text-amber-800 bg-white hover:bg-amber-100"
+                  >
+                    Editar este proveedor
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          {isAdmin && (
+            <button
+              onClick={() =>
+                firstProviderMissingDataId
+                  ? navigate(
+                      `/compras/proveedores?editProviderId=${encodeURIComponent(
+                        String(firstProviderMissingDataId)
+                      )}`
+                    )
+                  : navigate("/compras/proveedores")
+              }
+              className="mt-3 px-3 py-1.5 rounded-md text-[11px] font-semibold border border-amber-300 text-amber-800 bg-white hover:bg-amber-100"
+            >
+              Corregir datos de proveedor
+            </button>
+          )}
         </div>
       )}
 
@@ -395,7 +499,7 @@ export default function OrdenCompra() {
                 Unidad
               </div>
               <div className="mt-2 text-sm font-semibold text-gray-900">
-                {requisition?.nombre_unidad || requisition?.ure_solicitante || "—"}
+                {requisitionUnitLabel}
               </div>
             </div>
 
@@ -460,79 +564,151 @@ export default function OrdenCompra() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
           <h2 className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-3">
             <FileText size={16} className="text-[#8B1D35]" />
-            Datos de orden
+            Formato de orden
           </h2>
-          <div className="mb-4 border border-gray-200 rounded-lg p-3 bg-white">
-            <label className="text-[10px] font-bold text-gray-500 uppercase">Tipo de orden</label>
-            <div className="mt-1 flex items-center gap-2">
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div className="text-[10px] font-bold text-gray-500 uppercase">Requisición</div>
+                <div className="mt-1 font-semibold text-gray-800">#{id}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div className="text-[10px] font-bold text-gray-500 uppercase">Proveedores seleccionados</div>
+                <div className="mt-1 font-semibold text-gray-800">{providersList.length}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div className="text-[10px] font-bold text-gray-500 uppercase">Unidad</div>
+                <div className="mt-1 font-semibold text-gray-800 truncate">{requisitionUnitLabel}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div className="text-[10px] font-bold text-gray-500 uppercase">Total estimado</div>
+                <div className="mt-1 font-semibold text-gray-800">{money(totalGeneral)}</div>
+              </div>
+            </div>
+
+            <div className="border border-gray-200 rounded-lg p-3 bg-white">
+              <label className="text-[10px] font-bold text-gray-500 uppercase">Tipo de formato</label>
               <select
                 value={orderType}
                 onChange={(e) => setOrderType(e.target.value)}
-                className="px-3 py-2 border rounded-lg text-sm bg-white border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
-                disabled={isReader}
+                className="mt-1 w-full px-3 py-2 border rounded-lg text-sm bg-white border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
+                disabled={!isAdmin}
               >
-                <option value="compra">Compra</option>
-                <option value="servicio">Servicio</option>
+                <option value="compra">Orden de compra</option>
+                <option value="servicio">Orden de servicio</option>
               </select>
+            </div>
+
+            <div className="border border-gray-200 rounded-lg p-3 bg-white">
+              <label className="text-[10px] font-bold text-gray-500 uppercase">Número de orden recibido</label>
+              <input
+                value={orderNumber}
+                onChange={(e) => setOrderNumber(e.target.value)}
+                className="mt-1 w-full px-3 py-2 border rounded-lg text-sm bg-white border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
+                placeholder="Ej. OC-2026-0154"
+                disabled={!isAdmin}
+              />
+              <p className="mt-1 text-[11px] text-gray-500">
+                Este número se aplicará al formato de orden de esta requisición.
+              </p>
+            </div>
+
+            {isAdmin && (
               <button
-                onClick={handleSaveType}
-                disabled={savingType || isReader}
-                className={`px-3 py-2 rounded-lg text-xs font-bold ${
-                  savingType || isReader ? "bg-gray-200 text-gray-500" : "bg-[#8B1D35] text-white hover:bg-[#72182b]"
+                onClick={handleSaveOrderSetup}
+                disabled={savingOrderSetup || providersList.length === 0}
+                className={`w-full px-3 py-2 rounded-lg text-xs font-bold ${
+                  savingOrderSetup || providersList.length === 0
+                    ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                    : "bg-[#8B1D35] text-white hover:bg-[#72182b]"
                 }`}
               >
-                {savingType ? "GUARDANDO..." : isReader ? "SOLO LECTURA" : "GUARDAR"}
+                {savingOrderSetup ? "GUARDANDO FORMATO..." : "GUARDAR FORMATO DE ORDEN"}
               </button>
-            </div>
+            )}
           </div>
-          {providersList.length === 0 ? (
-            <div className="text-xs text-gray-500">No hay proveedores seleccionados.</div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-              {providersList.map((p) => {
-                const meta = metaByProvider[p.id] || {
-                  folio: "",
-                };
-                return (
-                  <div
-                    key={p.id}
-                    className="border border-gray-200 rounded-lg p-4 bg-gray-50/50 w-full"
-                  >
-                    <div className="text-[11px] font-bold text-gray-700 mb-2">
-                      {p.name}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-4">
+        <h2 className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-3">
+          <FileText size={16} className="text-[#8B1D35]" />
+          Previsualización de orden
+        </h2>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <p className="text-[11px] text-gray-500">
+            Datos del proveedor en tiempo real para validar antes de finalizar.
+          </p>
+          <button
+            onClick={async () => {
+              if (isAdmin && firstProviderMissingDataId) {
+                navigate(
+                  `/compras/proveedores?editProviderId=${encodeURIComponent(
+                    String(firstProviderMissingDataId)
+                  )}`
+                );
+                return;
+              }
+              try {
+                setRefreshingPreview(true);
+                await loadData();
+              } finally {
+                setRefreshingPreview(false);
+              }
+            }}
+            disabled={refreshingPreview && !(isAdmin && firstProviderMissingDataId)}
+            className={`px-3 py-1.5 rounded-md text-[11px] font-semibold border ${
+              refreshingPreview && !(isAdmin && firstProviderMissingDataId)
+                ? "bg-gray-200 text-gray-500 cursor-not-allowed border-gray-200"
+                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+            }`}
+          >
+            {isAdmin && firstProviderMissingDataId
+              ? "ACTUALIZAR DATOS DE PROVEEDOR"
+              : refreshingPreview
+              ? "ACTUALIZANDO..."
+              : "ACTUALIZAR DATOS"}
+          </button>
+        </div>
+        {providersList.length === 0 ? (
+          <div className="text-xs text-gray-500">Sin proveedor seleccionado.</div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {providersList.map((provider) => {
+              const info = providerInfoMap.get(Number(provider.id)) || {};
+              const folioValue = String(metaByProvider[provider.id]?.folio || orderNumber || "").trim();
+              return (
+                <div key={provider.id} className="rounded-lg border border-gray-200 bg-gray-50/50 p-3 text-xs">
+                  <div className="font-bold text-gray-800">{info.name || provider.name || "—"}</div>
+                  <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div className="rounded border border-gray-200 bg-white p-2">
+                      <div className="text-[10px] font-bold uppercase text-gray-500">Número de orden</div>
+                      <div className="mt-1 text-gray-800">{folioValue || "—"}</div>
                     </div>
-                    <div className="space-y-2">
-                      <div>
-                        <label className="text-[10px] font-bold text-gray-500 uppercase">Número (folio)</label>
-                        <input
-                          value={meta.folio}
-                          onChange={(e) =>
-                            setMetaByProvider((prev) => ({
-                              ...prev,
-                              [p.id]: { ...meta, folio: e.target.value },
-                            }))
-                          }
-                          className="mt-1 w-full px-3 py-2 border rounded-lg text-sm bg-white border-gray-300 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none"
-                          placeholder="Número de orden"
-                          disabled={isReader}
-                        />
+                    <div className="rounded border border-gray-200 bg-white p-2">
+                      <div className="text-[10px] font-bold uppercase text-gray-500">Tipo</div>
+                      <div className="mt-1 text-gray-800">
+                        {orderType === "servicio" ? "Orden de servicio" : "Orden de compra"}
                       </div>
-                      <button
-                        onClick={() => handleSaveMeta(p.id)}
-                        disabled={savingMeta || isReader}
-                        className={`w-full px-3 py-2 rounded-lg text-xs font-bold ${
-                          savingMeta || isReader ? "bg-gray-200 text-gray-500" : "bg-[#8B1D35] text-white hover:bg-[#72182b]"
-                        }`}
-                      >
-                        {savingMeta ? "GUARDANDO..." : isReader ? "SOLO LECTURA" : "GUARDAR DATOS"}
-                      </button>
+                    </div>
+                    <div className="rounded border border-gray-200 bg-white p-2">
+                      <div className="text-[10px] font-bold uppercase text-gray-500">RFC</div>
+                      <div className="mt-1 text-gray-800">{info.rfc || "—"}</div>
+                    </div>
+                    <div className="rounded border border-gray-200 bg-white p-2">
+                      <div className="text-[10px] font-bold uppercase text-gray-500">Teléfono</div>
+                      <div className="mt-1 text-gray-800">{info.phones || "—"}</div>
+                    </div>
+                    <div className="rounded border border-gray-200 bg-white p-2 md:col-span-2">
+                      <div className="text-[10px] font-bold uppercase text-gray-500">Dirección</div>
+                      <div className="mt-1 text-gray-800">{info.address || "—"}</div>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">

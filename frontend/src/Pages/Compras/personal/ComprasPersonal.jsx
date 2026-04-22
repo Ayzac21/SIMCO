@@ -501,9 +501,9 @@ export default function ComprasPersonal() {
             <option value="">
               {isComprasRole ? "No aplica" : loadingUres ? "Cargando..." : "Seleccionar..."}
             </option>
-            {ures.map((u) => (
+              {ures.map((u) => (
               <option key={u.ure} value={u.ure}>
-                {u.ure} - {u.nombre_ure}
+                {u.nombre_ure}
               </option>
             ))}
           </select>
@@ -659,7 +659,9 @@ export default function ComprasPersonal() {
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-gray-600">{u.ure || "—"}</td>
+                      <td className="px-3 py-2 text-gray-600">
+                        {u.ure_name || (u.role?.startsWith("compras_") ? "Departamento de Compras" : u.ure || "—")}
+                      </td>
                       <td className="px-3 py-2 text-gray-600">{u.email || "—"}</td>
                       {isAdmin && (
                         <td className="px-3 py-2 text-right">

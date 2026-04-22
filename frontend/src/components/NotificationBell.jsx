@@ -21,9 +21,19 @@ function formatWhen(value) {
 }
 
 function normalizeActionPath(notification) {
-  const base = String(notification?.action_path || "").trim();
+  let base = String(notification?.action_path || "").trim();
   const reqId = Number(notification?.entity_id || 0);
   if (!base) return "";
+
+  try {
+    const user = JSON.parse(localStorage.getItem("usuario"));
+    const role = String(user?.role || "");
+    if (role === "secretaria" && base.startsWith("/unidad/")) {
+      base = base.replace("/unidad/", "/secretaria/");
+    }
+  } catch {
+    // noop
+  }
 
   const isRequisition = String(notification?.entity_type || "") === "requisition";
   if (!isRequisition || !reqId) return base;
@@ -34,6 +44,7 @@ function normalizeActionPath(notification) {
   if (
     base.startsWith("/coordinador/requisiciones") ||
     base.startsWith("/secretaria/recibidas") ||
+    base.startsWith("/secretaria/mi-requisiciones") ||
     base.startsWith("/unidad/mi-requisiciones") ||
     base.startsWith("/compras/dashboard")
   ) {

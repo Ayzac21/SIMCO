@@ -96,15 +96,15 @@ router.post("/revision/:id/select", requireComprasAdmin, submitComprasReviewSele
 router.get("/orden/:id/pdf", getOrdenCompraPdf);
 router.get("/orden/:id/providers", getOrdenCompraProviders);
 router.get("/orden/:id/meta", getOrdenCompraMeta);
-router.put("/orden/:id/meta", blockReader, updateOrdenCompraMeta);
-router.put("/orden/:id/type", blockReader, updateOrdenCompraType);
+router.put("/orden/:id/meta", requireComprasAdmin, updateOrdenCompraMeta);
+router.put("/orden/:id/type", requireComprasAdmin, updateOrdenCompraType);
 
 router.get("/providers", getAllProviders);
 router.get("/providers/admin", getProvidersAdmin);
 router.get("/providers/export/basic", exportProvidersBasicExcel);
-router.post("/providers/import", blockReader, uploadExcel.single("file"), importProvidersFromExcel);
-router.post("/providers", blockReader, createProvider);
-router.put("/providers/:id", blockReader, updateProvider);
-router.patch("/providers/:id/status", blockReader, updateProviderStatus);
+router.post("/providers/import", requireComprasAdmin, uploadExcel.single("file"), importProvidersFromExcel);
+router.post("/providers", requireComprasAdmin, createProvider);
+router.put("/providers/:id", requireComprasAdmin, updateProvider);
+router.patch("/providers/:id/status", requireComprasAdmin, updateProviderStatus);
 
 export default router;

@@ -6,6 +6,7 @@ import { getAuthHeaders } from "../../api/auth";
 import { API_BASE_URL } from "../../api/config";
 import useEscapeKey from "../../hooks/useEscapeKey";
 import RequisitionTimelineModal from "../../components/RequisitionTimelineModal";
+import { getUserUnitLabel } from "../../utils/unitDisplay";
 
 const API = API_BASE_URL;
 const PRIMARY = "#8B1D35";
@@ -166,6 +167,14 @@ function emphasisByStatus(statusId) {
 
 export default function UreDashboard() {
   const navigate = useNavigate();
+  const currentUser = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("usuario") || "null");
+    } catch {
+      return null;
+    }
+  }, []);
+  const unitLabel = getUserUnitLabel(currentUser, "Unidad solicitante");
   const usersId = useMemo(() => getUserId(), []);
 
   const [loading, setLoading] = useState(true);
@@ -401,7 +410,7 @@ export default function UreDashboard() {
 
                   <div className="text-xs text-gray-500 mt-1">
                     Folio: <span className="font-extrabold text-gray-800">#{selectedRow.id}</span> •{" "}
-                    <span className="font-extrabold text-gray-800">{selectedRow.area_folio}</span> •{" "}
+                    <span className="font-extrabold text-gray-800">{unitLabel}</span> •{" "}
                     {selectedRow.categoria}
                   </div>
 
@@ -449,7 +458,7 @@ export default function UreDashboard() {
                         <div className="text-sm font-extrabold text-gray-900 mt-1">
                           {detail?.solicitante?.trim() ? detail.solicitante : "—"}
                         </div>
-                        <div className="text-xs text-gray-700 mt-1">{detail?.ure?.trim() ? detail.ure : ""}</div>
+                        <div className="text-xs text-gray-700 mt-1">{unitLabel}</div>
                       </div>
 
                       <div className="rounded-xl border border-red-200 bg-red-50 p-4">
@@ -686,7 +695,7 @@ export default function UreDashboard() {
                           <div className="min-w-0">
                             <div className="text-sm font-semibold text-gray-900 truncate">{req.categoria}</div>
                             <div className="text-xs text-gray-500 mt-0.5">
-                              {req.area_folio} • {fmtDate(req.created_at)}
+                              {unitLabel} • {fmtDate(req.created_at)}
                             </div>
                             <div className="text-xs text-gray-600 mt-1">{nextStepText(req.statuses_id)}</div>
                           </div>

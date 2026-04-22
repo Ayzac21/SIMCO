@@ -9,6 +9,7 @@ import SecModal from "./SecModal";
 import { getAuthHeaders } from "../../../api/auth";
 import { API_BASE_URL } from "../../../api/config";
 import useEscapeKey from "../../../hooks/useEscapeKey";
+import { getRequisitionUnitLabel } from "../../../utils/unitDisplay";
 
 function AppLoader({ label = "Cargando..." }) {
     return (
@@ -85,12 +86,19 @@ export default function SecDashboard() {
     }, [userId]);
 
     // --- CÁLCULOS ---
-    const { pendientes, procesadas, rechazadas } = useMemo(() => {
+    const { pendientes, procesadas, rechazadas, urgentes } = useMemo(() => {
         const safeReqs = Array.isArray(allReqs) ? allReqs : [];
+        const now = Date.now();
+        const urgentThresholdMs = 48 * 60 * 60 * 1000;
+        const pendingReqs = safeReqs.filter(r => Number(r.statuses_id) === 9);
         return {
-            pendientes: safeReqs.filter(r => Number(r.statuses_id) === 9),
+            pendientes: pendingReqs,
             procesadas: safeReqs.filter(r => [12, 13, 14, 11].includes(Number(r.statuses_id))),
-            rechazadas: safeReqs.filter(r => Number(r.statuses_id) === 10)
+            rechazadas: safeReqs.filter(r => Number(r.statuses_id) === 10),
+            urgentes: pendingReqs.filter((r) => {
+                const created = new Date(r.created_at).getTime();
+                return Number.isFinite(created) && now - created >= urgentThresholdMs;
+            }),
         };
     }, [allReqs]);
 
@@ -98,7 +106,7 @@ export default function SecDashboard() {
         if (!Array.isArray(allReqs) || allReqs.length === 0) return [];
         const counts = {};
         allReqs.forEach(req => {
-            const dept = req.nombre_unidad || req.ure_solicitante || "Sin Código";
+            const dept = getRequisitionUnitLabel(req, "Unidad solicitante");
             counts[dept] = (counts[dept] || 0) + 1;
         });
         return Object.entries(counts).sort(([,a], [,b]) => b - a).slice(0, 3).map(([name, count]) => ({ name, count }));
@@ -310,7 +318,7 @@ export default function SecDashboard() {
                     <div className="p-2 bg-blue-50 rounded-lg text-blue-600 h-fit"><Clock size={20} /></div>
                 </div>
                 <div className="bg-white p-5 rounded-xl shadow-sm border border-red-100 ring-1 ring-red-50 flex justify-between">
-                    <div><p className="text-[10px] font-bold text-red-400 uppercase">Urgentes</p><p className="text-3xl font-bold text-red-600 mt-1">0</p><p className="text-[10px] text-red-400 mt-1">Atención inmediata</p></div>
+                    <div><p className="text-[10px] font-bold text-red-400 uppercase">Urgentes</p><p className="text-3xl font-bold text-red-600 mt-1">{urgentes.length}</p><p className="text-[10px] text-red-400 mt-1">Más de 48h en Secretaría</p></div>
                     <div className="p-2 bg-red-50 rounded-lg text-red-600 h-fit"><AlertTriangle size={20} /></div>
                 </div>
                 <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between">
@@ -341,9 +349,8 @@ export default function SecDashboard() {
                                 {allReqs.length === 0 ? (
                                     <tr><td className="p-8 text-center text-gray-400 text-sm">No hay requisiciones recientes</td></tr>
                                 ) : allReqs.slice(0, 5).map((req) => { // <--- AQUÍ ESTÁ EL CAMBIO A 5
-                                    const jefatura = req.nombre_unidad;
+                                    const jefatura = getRequisitionUnitLabel(req, "Unidad solicitante");
                                     const coordinacion = req.coordinacion;
-                                    const codigoUre = req.ure_solicitante;
 
                                     return (
                                         <tr key={req.id} onClick={() => handleRowClick(req)} className="hover:bg-gray-50 cursor-pointer group transition-colors">
@@ -355,7 +362,7 @@ export default function SecDashboard() {
                                                 <div className="flex flex-col items-start gap-1">
                                                     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-[#8B1D35]/10 text-[#8B1D35] border border-[#8B1D35]/10">
                                                         <Briefcase size={10} /> 
-                                                        <span className="truncate max-w-[200px]">{jefatura || codigoUre}</span>
+                                                        <span className="truncate max-w-[200px]">{jefatura}</span>
                                                     </span>
                                                     {coordinacion && coordinacion !== 'General' && (
                                                         <span className="text-[10px] text-gray-500 font-semibold ml-1 flex items-center gap-1">

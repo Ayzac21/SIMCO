@@ -1,10 +1,11 @@
 import React, { useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Menu, X, LayoutGrid, FileText } from "lucide-react";
+import { Menu, X, LayoutGrid, FileText, PlusCircle } from "lucide-react";
 import { Toaster } from 'sonner';
 import NotificationBell from "../../../components/NotificationBell";
 import escudoCualtos from "../../../assets/escudo-cualtos-02_0_1.png";
 import UserMenu from "../../../components/UserMenu";
+import { getUserUnitLabel } from "../../../utils/unitDisplay";
 
 export default function SecretariaLayout() {
     const [open, setOpen] = useState(false);
@@ -16,6 +17,7 @@ export default function SecretariaLayout() {
     const user = userStr ? JSON.parse(userStr) : null;
     const userName = user ? (user.name || user.user_name) : "Secretaría";
     const userInitial = userName.charAt(0).toUpperCase();
+    const userUnitLabel = getUserUnitLabel(user, "Secretaría");
 
     /* ===== CONFIG HEADER SEGÚN RUTA ===== */
     const headers = {
@@ -27,9 +29,17 @@ export default function SecretariaLayout() {
             title: "Requisiciones por Autorizar",
             subtitle: "Validación de presupuesto y suficiencia",
         },
+        "/secretaria/mi-requisiciones": {
+            title: "Mis Requisiciones",
+            subtitle: "Borradores y seguimiento de tus solicitudes",
+        },
         "/secretaria/recibidas": {
             title: "Historial de Solicitudes",
             subtitle: "Consulta de requisiciones pasadas",
+        },
+        "/secretaria/requisiciones/nueva": {
+            title: "Nueva Requisición",
+            subtitle: "Crear una solicitud desde Secretaría",
         }
     };
 
@@ -63,7 +73,7 @@ export default function SecretariaLayout() {
                             </div>
                             <div className="min-w-0">
                                 <p className="text-sm font-semibold text-white truncate">{userName}</p>
-                                <p className="text-[11px] text-white/80 truncate">{user?.ure || "Secretaría"}</p>
+                                <p className="text-[11px] text-white/80 truncate">{userUnitLabel}</p>
                             </div>
                         </div>
                     </div>
@@ -86,6 +96,19 @@ export default function SecretariaLayout() {
 
                     {/* HISTORIAL */}
                     <NavLink
+                        to="/secretaria/mi-requisiciones"
+                        className={({ isActive }) =>
+                            `flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all
+                            ${isActive
+                                ? "bg-white text-secundario font-bold shadow-md"
+                                : "text-white/80 hover:bg-white/20 hover:text-white"}`
+                        }
+                    >
+                        <FileText size={20} />
+                        Mis requisiciones
+                    </NavLink>
+
+                    <NavLink
                         to="/secretaria/recibidas"
                         className={({ isActive }) =>
                             `flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all
@@ -96,6 +119,19 @@ export default function SecretariaLayout() {
                     >
                         <FileText size={20} />
                         Historial
+                    </NavLink>
+
+                    <NavLink
+                        to="/secretaria/requisiciones/nueva"
+                        className={({ isActive }) =>
+                            `flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all
+                            ${isActive
+                                ? "bg-white text-secundario font-bold shadow-md"
+                                : "text-white/80 hover:bg-white/20 hover:text-white"}`
+                        }
+                    >
+                        <PlusCircle size={20} />
+                        Nueva Requisición
                     </NavLink>
                 </nav>
 
@@ -142,10 +178,10 @@ export default function SecretariaLayout() {
                             <p className="text-[10px] text-gray-500">Administración</p>
                         </div>
                         
-                        <UserMenu
+                            <UserMenu
                             userName={userName}
                             userInitial={userInitial}
-                            subtitle={user?.ure || "Secretaría"}
+                            subtitle={userUnitLabel}
                             onLogout={handleLogout}
                             avatarClassName="h-9 w-9 aspect-square shrink-0 rounded-full bg-secundario text-white flex items-center justify-center font-bold shadow-sm border border-gray-100 text-sm leading-none"
                         />

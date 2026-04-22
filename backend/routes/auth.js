@@ -12,7 +12,22 @@ router.post("/login", async (req, res) => {
 
         // Buscar usuario
         const [rows] = await pool.query(
-            "SELECT * FROM users WHERE user_name = ?",
+            `
+            SELECT
+              u.*,
+              COALESCE(
+                NULLIF(TRIM(ho.name), ''),
+                NULLIF(TRIM(s.name), ''),
+                NULLIF(TRIM(c.name), ''),
+                NULLIF(TRIM(u.ure), '')
+              ) AS ure_name
+            FROM users u
+            LEFT JOIN head_offices ho ON TRIM(UPPER(ho.ure)) = TRIM(UPPER(u.ure))
+            LEFT JOIN secretary s ON TRIM(UPPER(s.ure)) = TRIM(UPPER(u.ure))
+            LEFT JOIN coordination c ON TRIM(UPPER(c.ure)) = TRIM(UPPER(u.ure))
+            WHERE u.user_name = ?
+            LIMIT 1
+            `,
             [user_name]
         );
 
@@ -77,6 +92,7 @@ router.post("/login", async (req, res) => {
                 name: user.name,
                 user_name: user.user_name,
                 ure: user.ure,
+                ure_name: user.ure_name || null,
                 statuses_id: user.statuses_id,
                 role: user.role
             }

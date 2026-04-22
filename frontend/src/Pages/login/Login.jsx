@@ -16,6 +16,40 @@ export default function Login() {
     const navigate = useNavigate();
     const { login } = useContext(AuthContext);
 
+    const resolveUreName = async (baseUser, token) => {
+        if (!baseUser?.ure || baseUser?.ure_name || !token) return baseUser;
+        const normalize = (v) => String(v || "").trim().toUpperCase();
+        const userUre = normalize(baseUser.ure);
+        if (!userUre) return baseUser;
+
+        const roleOrder = [];
+        if (baseUser.role === "head_office") roleOrder.push("head_office");
+        if (baseUser.role === "secretaria") roleOrder.push("secretaria");
+        if (baseUser.role === "coordinador") roleOrder.push("coordinador");
+        ["head_office", "secretaria", "coordinador"].forEach((r) => {
+            if (!roleOrder.includes(r)) roleOrder.push(r);
+        });
+
+        for (const role of roleOrder) {
+            try {
+                const resp = await fetch(`${API_BASE_URL}/catalogs/ures?role=${role}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!resp.ok) continue;
+                const rows = await resp.json().catch(() => []);
+                const found = Array.isArray(rows)
+                    ? rows.find((r) => normalize(r?.ure) === userUre)
+                    : null;
+                const name = String(found?.nombre_ure || "").trim();
+                if (!name) continue;
+                return { ...baseUser, ure_name: name };
+            } catch {
+                // Continuar al siguiente catálogo
+            }
+        }
+        return baseUser;
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
@@ -31,17 +65,19 @@ export default function Login() {
             const data = await response.json();
 
             if (data.ok) {
-                localStorage.setItem("usuario", JSON.stringify(data.user));
-                if (data.token) {
-                    localStorage.setItem("token", data.token);
+                const token = data.token || "";
+                const enrichedUser = await resolveUreName(data.user, token);
+                localStorage.setItem("usuario", JSON.stringify(enrichedUser));
+                if (token) {
+                    localStorage.setItem("token", token);
                 }
-                localStorage.setItem("users_id", data.user.id);
-                login(data.user);
+                localStorage.setItem("users_id", enrichedUser.id);
+                login(enrichedUser);
 
-                const rawUre = data.user.ure || "";
+                const rawUre = enrichedUser.ure || "";
                 const ureLimpia = rawUre.toString().toUpperCase().trim();
-                const userName = (data.user.user_name || "").toLowerCase();
-                const role = String(data.user?.role || "");
+                const userName = (enrichedUser.user_name || "").toLowerCase();
+                const role = String(enrichedUser?.role || "");
 
                 if (role.startsWith("compras_")) {
                     navigate("/compras/dashboard");

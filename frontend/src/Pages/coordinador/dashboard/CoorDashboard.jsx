@@ -14,6 +14,7 @@ import ConfirmModal from "../../../components/ConfirmModal";
 import { toast } from "sonner";
 import { getAuthHeaders } from "../../../api/auth";
 import { API_BASE_URL } from "../../../api/config";
+import { getRequisitionUnitLabel } from "../../../utils/unitDisplay";
 
 const API = API_BASE_URL;
 
@@ -188,7 +189,7 @@ export default function CoorDashboard() {
 
     const conteo = {};
     sorted.forEach((req) => {
-      const ure = req.ure_solicitante || req.area_folio || "General";
+      const ure = getRequisitionUnitLabel(req, "Unidad solicitante");
       conteo[ure] = (conteo[ure] || 0) + 1;
     });
 
@@ -595,7 +596,7 @@ export default function CoorDashboard() {
                         </div>
                         <div className="text-xs text-gray-400 truncate">
                           {req.solicitante || "—"}{" "}
-                          {req.ure_solicitante ? `• ${req.ure_solicitante}` : ""}
+                          {`• ${getRequisitionUnitLabel(req, "Unidad solicitante")}`}
                         </div>
                       </td>
 

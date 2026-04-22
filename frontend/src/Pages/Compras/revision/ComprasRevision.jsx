@@ -233,6 +233,7 @@ export default function ComprasRevision() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [reopening, setReopening] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const [requisition, setRequisition] = useState(null);
@@ -332,6 +333,26 @@ export default function ComprasRevision() {
     }
   };
 
+  const handleBackToCotizacion = async () => {
+    if (reopening || saving) return;
+    try {
+      setReopening(true);
+      const resp = await fetch(`${API_URL}/cotizacion/${id}/reopen`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data?.message || "No se pudo regresar a cotización");
+      toast.success(data?.message || "Regresada a cotización");
+      navigate(`/compras/cotizar/${id}`);
+    } catch (e) {
+      console.error(e);
+      toast.error(e?.message || "No se pudo regresar a cotización");
+    } finally {
+      setReopening(false);
+    }
+  };
+
   if (loading) {
     return <div className="p-10 text-center text-sm text-gray-500">Cargando revisión interna...</div>;
   }
@@ -378,18 +399,31 @@ export default function ComprasRevision() {
           </div>
         </div>
 
-        <button
-          onClick={() => setConfirmOpen(true)}
-          disabled={!canSave || saving}
-          className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm transition-colors ${
-            !canSave || saving
-              ? "bg-gray-300 text-gray-600 cursor-not-allowed"
-              : "bg-[#8B1D35] hover:bg-[#72182b] text-white"
-          }`}
-        >
-          <Save size={14} />
-          {saving ? "GUARDANDO..." : "CONFIRMAR SELECCIÓN"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleBackToCotizacion}
+            disabled={reopening || saving}
+            className={`px-4 py-2 rounded-lg text-xs font-bold border border-amber-200 text-amber-700 flex items-center gap-2 transition-colors ${
+              reopening || saving ? "opacity-60 cursor-not-allowed" : "hover:bg-amber-50"
+            }`}
+            title="Regresar a cotización para agregar o ajustar proveedores"
+          >
+            <ArrowLeft size={14} />
+            {reopening ? "REGRESANDO..." : "REGRESAR A COTIZACIÓN"}
+          </button>
+          <button
+            onClick={() => setConfirmOpen(true)}
+            disabled={!canSave || saving || reopening}
+            className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm transition-colors ${
+              !canSave || saving || reopening
+                ? "bg-gray-300 text-gray-600 cursor-not-allowed"
+                : "bg-[#8B1D35] hover:bg-[#72182b] text-white"
+            }`}
+          >
+            <Save size={14} />
+            {saving ? "GUARDANDO..." : "CONFIRMAR SELECCIÓN"}
+          </button>
+        </div>
       </div>
 
       <div className="mb-4 bg-[#8B1D35]/5 border border-[#8B1D35]/10 rounded-xl p-4 flex gap-3">

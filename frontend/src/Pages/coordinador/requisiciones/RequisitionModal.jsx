@@ -15,6 +15,7 @@ import useEscapeKey from "../../../hooks/useEscapeKey";
 import RequisitionTimelineModal from "../../../components/RequisitionTimelineModal";
 import { getAuthHeaders } from "../../../api/auth";
 import { API_BASE_URL } from "../../../api/config";
+import { getRequisitionUnitLabel } from "../../../utils/unitDisplay";
 
 // ✅ Loader doble (tu diseño)
 const DoubleSpinner = ({ label = "Cargando..." }) => (
@@ -182,7 +183,7 @@ export default function RequisitionModal({
               <span className="truncate">{req.request_name}</span>
             </h2>
             <p className="text-sm text-gray-500 mt-1">
-              Folio: #{req.id} • {req.area_folio || "S/F"}
+              Folio: #{req.id} • {getRequisitionUnitLabel(req, "Unidad solicitante")}
             </p>
             <span className={`mt-2 inline-flex px-2.5 py-1 rounded-full text-[11px] font-bold border ${statusTone}`}>
               {req.nombre_estatus || "Sin estatus"}
@@ -273,7 +274,7 @@ export default function RequisitionModal({
                     Solicitante
                   </p>
                   <p className="font-semibold text-gray-800">{req.solicitante}</p>
-                  <p className="text-sm text-gray-600">{req.ure_solicitante}</p>
+                  <p className="text-sm text-gray-600">{getRequisitionUnitLabel(req, "Unidad solicitante")}</p>
                 </div>
               </div>
 

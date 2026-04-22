@@ -5,6 +5,7 @@ import { canManageUnits } from "../unidades/unitsAccess";
 import NotificationBell from "../../../components/NotificationBell";
 import escudoCualtos from "../../../assets/escudo-cualtos-02_0_1.png";
 import UserMenu from "../../../components/UserMenu";
+import { getUserUnitLabel } from "../../../utils/unitDisplay";
 
 export default function ComprasLayout() {
     const [open, setOpen] = useState(false);
@@ -20,6 +21,7 @@ export default function ComprasLayout() {
 
     const userName = user ? (user.name || user.user_name || "Compras") : "Compras";
     const userInitial = (userName?.[0] || "C").toUpperCase();
+    const userUnitLabel = getUserUnitLabel(user, "Departamento de Compras");
 
     // --- Headers por ruta ---
     const headers = useMemo(
@@ -150,7 +152,7 @@ export default function ComprasLayout() {
                         </div>
                         <div className="min-w-0">
                             <p className="text-sm font-semibold text-white truncate">{userName}</p>
-                            <p className="text-[11px] text-white/80 uppercase truncate">{user?.ure || "Departamento de Compras"}</p>
+                            <p className="text-[11px] text-white/80 uppercase truncate">{userUnitLabel}</p>
                         </div>
                     </div>
                 </div>
@@ -235,14 +237,14 @@ export default function ComprasLayout() {
                     <div className="text-right hidden md:block">
                     <p className="text-sm font-bold text-gray-800">Bienvenido, {userName}</p>
                     <p className="text-xs text-gray-500 uppercase">
-                        {user?.ure || "Departamento de Compras"}
+                        {userUnitLabel}
                     </p>
                     </div>
 
                     <UserMenu
                         userName={userName}
                         userInitial={userInitial}
-                        subtitle={user?.ure || "Departamento de Compras"}
+                        subtitle={userUnitLabel}
                         onLogout={handleLogout}
                     />
                 </div>
