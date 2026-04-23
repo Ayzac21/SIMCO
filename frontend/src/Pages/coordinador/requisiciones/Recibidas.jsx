@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { getAuthHeaders } from "../../../api/auth";
 import { API_BASE_URL } from "../../../api/config";
 import { getRequisitionUnitLabel } from "../../../utils/unitDisplay";
+import { getStatusLabel } from "../../../utils/statusDisplay";
 
 const API = API_BASE_URL;
 
@@ -32,8 +33,8 @@ const STATUS_LABELS = {
     8: "Coordinación",
     9: "Secretaría",
     12: "Cotización",
-    14: "Revisión",
-    13: "Compra",
+    14: "Revisión interna",
+    13: "Proceso de compra",
     11: "Finalizada",
     10: "Rechazada",
 };
@@ -75,7 +76,7 @@ const renderStatusBadge = (statusId, statusName) => {
             className={`px-3 py-1 rounded-full text-xs font-extrabold border ${styles} inline-flex items-center gap-1`}
         >
             <span className="w-2 h-2 rounded-full bg-current opacity-50" />
-            {statusName || "Sin estatus"}
+            {getStatusLabel(statusId, statusName)}
         </span>
     );
 };

@@ -10,6 +10,7 @@ import { getAuthHeaders } from "../../../api/auth";
 import { API_BASE_URL } from "../../../api/config";
 import useEscapeKey from "../../../hooks/useEscapeKey";
 import { getRequisitionUnitLabel } from "../../../utils/unitDisplay";
+import { getStatusLabel } from "../../../utils/statusDisplay";
 
 function AppLoader({ label = "Cargando..." }) {
     return (
@@ -174,13 +175,14 @@ export default function SecDashboard() {
     };
 
     const renderStatusBadge = (statusId) => {
+        const label = getStatusLabel(statusId);
         switch(statusId) {
-            case 9: return <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit ml-auto"><Clock size={10} /> En Revisión</span>;
-            case 12: return <span className="bg-yellow-50 text-yellow-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit ml-auto"><Truck size={10} /> En Compras</span>;
-            case 14: return <span className="bg-slate-100 text-slate-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit ml-auto"><Clock size={10} /> En Revisión Compras</span>;
-            case 13: return <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit ml-auto"><Truck size={10} /> Proceso de Compra</span>;
-            case 11: return <span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit ml-auto"><CheckCircle size={10} /> Finalizada</span>;
-            case 10: return <span className="bg-red-50 text-red-600 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit ml-auto"><XCircle size={10} /> Rechazada</span>;
+            case 9: return <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit ml-auto"><Clock size={10} /> {label}</span>;
+            case 12: return <span className="bg-yellow-50 text-yellow-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit ml-auto"><Truck size={10} /> {label}</span>;
+            case 14: return <span className="bg-slate-100 text-slate-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit ml-auto"><Clock size={10} /> {label}</span>;
+            case 13: return <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit ml-auto"><Truck size={10} /> {label}</span>;
+            case 11: return <span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit ml-auto"><CheckCircle size={10} /> {label}</span>;
+            case 10: return <span className="bg-red-50 text-red-600 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit ml-auto"><XCircle size={10} /> {label}</span>;
             default: return null;
         }
     };

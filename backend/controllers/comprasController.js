@@ -19,6 +19,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const templatesDir = path.resolve(__dirname, "..", "templates");
 const requisitionUploadsDir = path.resolve(__dirname, "..", "uploads", "requisiciones");
+const resolveStoredRequisitionImagePath = async (storedPath) => {
+  if (!storedPath) return null;
+  const raw = String(storedPath || "");
+  const normalized = raw.replace(/\\/g, "/");
+  const fileName = path.basename(normalized);
+  const candidates = [];
+  if (path.isAbsolute(raw)) {
+    candidates.push(path.resolve(raw));
+  }
+  if (fileName) {
+    candidates.push(path.resolve(requisitionUploadsDir, fileName));
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate.startsWith(requisitionUploadsDir)) continue;
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      // continuar al siguiente candidato
+    }
+  }
+  return null;
+};
 const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
 const normalizeRfc = (value) =>
   String(value || "")
@@ -784,7 +808,7 @@ export const updateEstatusCompras = async (req, res) => {
     // Reglas de transición para evitar saltos de proceso por error o llamadas externas
     if (targetStatusId === 11 && currentStatusId !== 13) {
       return res.status(400).json({
-        message: "Solo se puede marcar como comprada cuando está en proceso de compra (13)",
+        message: "Solo se puede marcar como finalizada cuando está en proceso de compra (13)",
         current_status: currentStatusId,
       });
     }
@@ -816,7 +840,7 @@ export const updateEstatusCompras = async (req, res) => {
 
       if (!rows.length) {
         return res.status(400).json({
-          message: "No hay proveedores seleccionados para marcar como comprada",
+          message: "No hay proveedores seleccionados para marcar como finalizada",
         });
       }
 
@@ -1190,7 +1214,7 @@ export const getComprasHistorialReport = async (req, res) => {
 
     res.setHeader("Content-Type", "application/pdf");
     const statusLabel =
-      status === "11" ? "Compradas" : status === "10" ? "Rechazadas" : "Todas";
+      status === "11" ? "Finalizadas" : status === "10" ? "Rechazadas" : "Todas";
     const dateIso = new Date().toISOString().slice(0, 10);
     res.setHeader(
       "Content-Disposition",
@@ -1226,7 +1250,7 @@ export const getComprasHistorialReport = async (req, res) => {
       doc.fillColor("#111827").fontSize(14).text(String(value), x + 8, y + 22);
     };
 
-    drawBox(40, summaryY, "COMPRADAS", compradas);
+    drawBox(40, summaryY, "FINALIZADAS", compradas);
     drawBox(40 + boxW + gap, summaryY, "RECHAZADAS", rechazadas);
     drawBox(40 + (boxW + gap) * 2, summaryY, "% RECHAZO", `${pctRechazo}%`);
     drawBox(40 + (boxW + gap) * 3, summaryY, "TOTAL", total);
@@ -1409,6 +1433,7 @@ export const getRequisitionItems = async (req, res) => {
     const query = `
       SELECT 
         li.id,
+        li.product_name,
         li.quantity,
         li.description,
         un.name AS unidad
@@ -1444,12 +1469,10 @@ export const getComprasRequisitionItemImage = async (req, res) => {
       return res.status(404).json({ message: "Imagen no encontrada" });
     }
 
-    const absPath = path.resolve(String(row.image_file_path || ""));
-    if (!absPath.startsWith(requisitionUploadsDir)) {
+    const absPath = await resolveStoredRequisitionImagePath(row.image_file_path);
+    if (!absPath) {
       return res.status(404).json({ message: "Archivo no disponible" });
     }
-
-    await fs.access(absPath);
     const mime = row.image_mime_type || "application/octet-stream";
     const fileName = encodeURIComponent(row.image_original_name || "imagen");
     res.setHeader("Content-Type", mime);
@@ -1705,7 +1728,7 @@ export const getOrdenCompraPdf = async (req, res) => {
     const st = Number(requisition.statuses_id);
     if (![13, 11].includes(st)) {
       return res.status(400).json({
-        message: "Solo disponible en proceso de compra (13) o comprada (11)",
+        message: "Solo disponible en proceso de compra (13) o finalizada (11)",
         current_status: st,
       });
     }

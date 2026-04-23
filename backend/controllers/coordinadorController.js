@@ -18,6 +18,21 @@ const getAuthUserId = (req) => parseUserId(req.user?.id);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const requisitionUploadsDir = path.resolve(__dirname, "..", "uploads", "requisiciones");
+const resolveStoredRequisitionImagePath = (storedPath) => {
+    if (!storedPath) return null;
+    const raw = String(storedPath || "");
+    const normalized = raw.replace(/\\/g, "/");
+    const fileName = path.basename(normalized);
+    const candidates = [];
+    if (path.isAbsolute(raw)) candidates.push(path.resolve(raw));
+    if (fileName) candidates.push(path.resolve(requisitionUploadsDir, fileName));
+
+    for (const candidate of candidates) {
+        if (!candidate.startsWith(requisitionUploadsDir)) continue;
+        if (fs.existsSync(candidate)) return candidate;
+    }
+    return null;
+};
 
 const getCoordinatorUre = async (coordinadorId) => {
     const [rows] = await pool.query("SELECT ure FROM users WHERE id = ? LIMIT 1", [coordinadorId]);
@@ -165,8 +180,8 @@ export const getRequisicionItemImage = async (req, res) => {
             return res.status(404).json({ message: "Imagen no encontrada" });
         }
 
-        const absPath = path.resolve(String(itemRow.image_file_path));
-        if (!absPath.startsWith(requisitionUploadsDir) || !fs.existsSync(absPath)) {
+        const absPath = resolveStoredRequisitionImagePath(itemRow.image_file_path);
+        if (!absPath) {
             return res.status(404).json({ message: "Archivo no disponible" });
         }
 

@@ -217,7 +217,7 @@ export default function OrdenCompra() {
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data?.message || "Error al actualizar estatus");
 
-      toast.success("Orden marcada como comprada");
+      toast.success("Requisición marcada como finalizada");
       navigate("/compras/historial");
     } catch (e) {
       console.error(e);
@@ -452,9 +452,9 @@ export default function OrdenCompra() {
     <div className="p-3 sm:p-5 lg:p-6 bg-[#F3F4F6] min-h-full">
       <ConfirmModal
         open={confirmOpen}
-        title="Marcar como comprada"
+        title="Marcar como finalizada"
         headerText="Confirmar compra"
-        description="Esta acción moverá la requisición a historial como comprada. ¿Deseas continuar?"
+        description="Esta acción moverá la requisición a historial como finalizada. ¿Deseas continuar?"
         confirmText="Sí, marcar"
         cancelText="Cancelar"
         loading={saving}
@@ -562,10 +562,10 @@ export default function OrdenCompra() {
                   ? "bg-[#8B1D35] hover:bg-[#72182b] text-white border-[#8B1D35]"
                   : "bg-gray-200 text-gray-500 cursor-not-allowed border-gray-200"
               }`}
-              title={summary.is_complete ? "Marcar como comprada" : "Faltan partidas por seleccionar"}
+              title={summary.is_complete ? "Marcar como finalizada" : "Faltan partidas por seleccionar"}
             >
               <CheckCircle2 size={12} />
-              Marcar comprada
+              Marcar finalizada
             </button>
           )}
         </div>
@@ -580,7 +580,7 @@ export default function OrdenCompra() {
       {!summary.is_complete && summary.total_items > 0 && (
         <div className="mb-4 bg-amber-50 border border-amber-100 rounded-xl p-4 text-xs text-amber-800">
           Faltan {summary.missing_items} partida(s) por seleccionar. No se puede
-          marcar como comprada hasta completar la selección.
+          marcar como finalizada hasta completar la selección.
         </div>
       )}
 

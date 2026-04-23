@@ -7,6 +7,7 @@ import { API_BASE_URL } from "../../api/config";
 import useEscapeKey from "../../hooks/useEscapeKey";
 import RequisitionTimelineModal from "../../components/RequisitionTimelineModal";
 import { getRequisitionUnitLabel, getUserUnitLabel } from "../../utils/unitDisplay";
+import { getStatusLabel } from "../../utils/statusDisplay";
 
 const API = API_BASE_URL;
 
@@ -18,8 +19,8 @@ const STATUS_LABELS = {
   8: "Coordinación",
   9: "Secretaría",
   12: "Cotización",
-  14: "Revisión",
-  13: "Compra",
+  14: "Revisión interna",
+  13: "Proceso de compra",
   11: "Finalizada",
   10: "Rechazada",
 };
@@ -223,7 +224,7 @@ const ProgressBar = ({ statusId, trimPast = false, flow = STATUS_FLOW }) => {
 /** ✅ NUEVO: SOLO estatus actual + mini progreso (para MODAL) */
 const CurrentStatus = ({ statusId, statusName }) => {
   const st = Number(statusId);
-  const label = statusName || STATUS_LABELS[st] || "Sin estatus";
+  const label = getStatusLabel(st, statusName || STATUS_LABELS[st]);
 
   // Si está en flujo, mostramos barrita; si no (p.ej. rechazada 10), no.
   const idx = STATUS_FLOW.indexOf(st);
@@ -309,11 +310,7 @@ export default function ListaRequisiciones() {
   };
 
   const loadPartidaImagePreviews = async (reqId, partidas = []) => {
-    const validPartidas = (partidas || []).filter(
-      (p) =>
-        p?.id &&
-        (p?.image_original_name || p?.image_mime_type || Number(p?.image_size_bytes || 0) > 0)
-    );
+    const validPartidas = (partidas || []).filter((p) => p?.id);
 
     if (!validPartidas.length) {
       clearPartidaImagePreviews();
@@ -650,10 +647,10 @@ export default function ListaRequisiciones() {
                           <table className="w-full text-sm">
                             <thead className="text-xs uppercase text-[#6F152B] bg-[#8B1D35]/[0.08]">
                               <tr>
-                                <th className="text-left px-4 py-3">Producto</th>
-                                <th className="text-left px-4 py-3">Descripción</th>
-                                <th className="text-right px-4 py-3">Cant.</th>
-                                <th className="text-center px-4 py-3">Img</th>
+                                <th className="text-left px-4 py-3 w-[22%]">Producto</th>
+                                <th className="text-left px-4 py-3 w-[60%]">Descripción</th>
+                                <th className="text-right px-4 py-3 w-14">Cant.</th>
+                                <th className="text-center px-4 py-3 w-20">Img</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
@@ -679,7 +676,7 @@ export default function ListaRequisiciones() {
                                             "noopener,noreferrer"
                                           )
                                         }
-                                        className="h-11 w-11 rounded border border-[#8B1D35]/20 overflow-hidden inline-flex"
+                                        className="h-12 w-12 rounded border border-[#8B1D35]/20 overflow-hidden inline-flex"
                                         title="Abrir imagen"
                                       >
                                         <img
@@ -914,7 +911,7 @@ export default function ListaRequisiciones() {
                       <span
                         className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold border ${statusBadgeClasses(st)}`}
                       >
-                        {req.estatus || STATUS_LABELS[st] || "Sin estatus"}
+                        {getStatusLabel(st, req.estatus || STATUS_LABELS[st])}
                       </span>
 
                     </div>

@@ -16,6 +16,7 @@ import RequisitionTimelineModal from "../../../components/RequisitionTimelineMod
 import { getAuthHeaders } from "../../../api/auth";
 import { API_BASE_URL } from "../../../api/config";
 import { getRequisitionUnitLabel } from "../../../utils/unitDisplay";
+import { getStatusLabel } from "../../../utils/statusDisplay";
 
 // ✅ Loader doble (tu diseño)
 const DoubleSpinner = ({ label = "Cargando..." }) => (
@@ -67,11 +68,7 @@ export default function RequisitionModal({
     let cancelled = false;
 
     const loadItemImages = async () => {
-      const validItems = (items || []).filter(
-        (item) =>
-          item?.id &&
-          (item?.image_original_name || item?.image_mime_type || Number(item?.image_size_bytes || 0) > 0)
-      );
+      const validItems = (items || []).filter((item) => item?.id);
 
       if (!req?.id || !validItems.length) {
         setItemImagePreviews((prev) => {
@@ -129,8 +126,7 @@ export default function RequisitionModal({
 
   if (!req) return null;
   const statusId = Number(req.statuses_id);
-  const statusName = String(req.nombre_estatus || req.estatus || "").toLowerCase();
-  const isPurchasedStatus = statusId === 11 || statusName.includes("comprad");
+  const isPurchasedStatus = statusId === 11;
   const canDownloadSignaturePdf = [12, 13, 14].includes(statusId) && !isPurchasedStatus;
   const isAdjustMode = actionMode === "adjust";
 
@@ -186,7 +182,7 @@ export default function RequisitionModal({
               Folio: #{req.id} • {getRequisitionUnitLabel(req, "Unidad solicitante")}
             </p>
             <span className={`mt-2 inline-flex px-2.5 py-1 rounded-full text-[11px] font-bold border ${statusTone}`}>
-              {req.nombre_estatus || "Sin estatus"}
+              {getStatusLabel(req.statuses_id, req.nombre_estatus || req.estatus)}
             </span>
           </div>
 
@@ -352,46 +348,50 @@ export default function RequisitionModal({
                   <table className="w-full text-sm text-left">
                     <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-200">
                       <tr>
-                        <th className="px-3 py-2 text-center w-16">Cant.</th>
+                        <th className="px-3 py-2 w-[20%]">Producto</th>
+                        <th className="px-3 py-2 w-[56%]">Descripción</th>
+                        <th className="px-3 py-2 text-center w-14">Cant.</th>
                         <th className="px-3 py-2 w-20">Unidad</th>
-                        <th className="px-3 py-2 w-[52%]">Descripción</th>
-                        <th className="px-3 py-2 text-center w-16">Imagen</th>
+                        <th className="px-3 py-2 text-center w-20">Imagen</th>
                       </tr>
                     </thead>
 
                     <tbody className="divide-y divide-gray-100">
                       {loadingItems ? (
                         <tr>
-                          <td colSpan="4" className="p-0">
+                          <td colSpan="5" className="p-0">
                             <DoubleSpinner label="Cargando artículos..." />
                           </td>
                         </tr>
                       ) : items.length === 0 ? (
                         <tr>
-                          <td colSpan="4" className="p-4 text-center text-gray-400">
+                          <td colSpan="5" className="p-4 text-center text-gray-400">
                             No hay artículos
                           </td>
                         </tr>
                       ) : (
                         items.map((item, idx) => (
                           <tr key={idx}>
+                            <td className="px-3 py-3 font-medium text-gray-800">
+                              {item.product_name ||
+                                item.name ||
+                                item.producto ||
+                                "—"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-600 leading-snug">
+                              {item.description || item.concept || item.descripcion || "—"}
+                            </td>
                             <td className="px-3 py-3 font-bold text-center bg-gray-50/50">
                               {item.quantity || item.cantidad || 0}
                             </td>
                             <td className="px-3 py-3 text-gray-600 font-medium">
                               {item.nombre_unidad || item.unit || "-"}
                             </td>
-                            <td className="px-3 py-3 font-medium text-gray-800">
-                              {item.name ||
-                                item.description ||
-                                item.concept ||
-                                item.descripcion}
-                            </td>
                             <td className="px-3 py-3 text-center">
                               {itemImagePreviews[String(item.id)] ? (
                                 <button
                                   type="button"
-                                  className="h-14 w-14 rounded border border-gray-200 overflow-hidden inline-flex"
+                                  className="h-16 w-16 rounded border border-gray-200 overflow-hidden inline-flex"
                                   onClick={() =>
                                     window.open(
                                       itemImagePreviews[String(item.id)],

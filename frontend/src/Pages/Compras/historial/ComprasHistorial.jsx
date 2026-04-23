@@ -106,7 +106,7 @@ export default function ComprasHistorial() {
               statusFilter === "11" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
             }`}
           >
-            Compradas
+            Finalizadas
           </button>
           <button
             onClick={() => { setStatusFilter("10"); setPage(1); }}

@@ -31,7 +31,7 @@ const STEP_LABELS = {
   9: "Secretaría",
   12: "Cotización",
   14: "Revisión",
-  13: "Compra",
+  13: "Proceso de compra",
   11: "Finalizada",
 };
 

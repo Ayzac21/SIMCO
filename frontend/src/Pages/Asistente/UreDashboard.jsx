@@ -7,6 +7,7 @@ import { API_BASE_URL } from "../../api/config";
 import useEscapeKey from "../../hooks/useEscapeKey";
 import RequisitionTimelineModal from "../../components/RequisitionTimelineModal";
 import { getUserUnitLabel } from "../../utils/unitDisplay";
+import { getStatusLabel } from "../../utils/statusDisplay";
 
 const API = API_BASE_URL;
 const PRIMARY = "#8B1D35";
@@ -83,7 +84,7 @@ function badgeByStatus(statusId, statusName) {
       break;
   }
 
-  return { text: statusName || "Sin estatus", cls };
+  return { text: getStatusLabel(statusId, statusName), cls };
 }
 
 function nextStepText(statusId) {
@@ -92,7 +93,7 @@ function nextStepText(statusId) {
   if (st === 14) return "Compras está en revisión interna del comparativo.";
   if (st === 10) return "Fue rechazada. Revisa las notas.";
   if (st === 13) return "Compras ya está haciendo el pedido.";
-  if (st === 11) return "Listo: ya fue comprada.";
+  if (st === 11) return "Listo: el proceso ya está finalizado.";
   if (st === 8) return "Está en Coordinación.";
   if (st === 9) return "Está en Secretaría.";
   if (st === 12) return "Compras está cotizando.";
@@ -211,11 +212,7 @@ export default function UreDashboard() {
   };
 
   const loadPartidaImagePreviews = async (reqId, partidas = []) => {
-    const validPartidas = (partidas || []).filter(
-      (p) =>
-        p?.id &&
-        (p?.image_original_name || p?.image_mime_type || Number(p?.image_size_bytes || 0) > 0)
-    );
+    const validPartidas = (partidas || []).filter((p) => p?.id);
 
     if (!validPartidas.length) {
       clearPartidaImagePreviews();
@@ -492,10 +489,10 @@ export default function UreDashboard() {
                         <table className="w-full text-sm">
                           <thead className="text-xs uppercase text-[#6F152B] bg-[#8B1D35]/[0.08]">
                             <tr>
-                              <th className="text-left px-4 py-3">Producto</th>
-                              <th className="text-left px-4 py-3">Descripción</th>
-                              <th className="text-right px-4 py-3">Cant.</th>
-                              <th className="text-center px-4 py-3">Img</th>
+                              <th className="text-left px-4 py-3 w-[22%]">Producto</th>
+                              <th className="text-left px-4 py-3 w-[60%]">Descripción</th>
+                              <th className="text-right px-4 py-3 w-14">Cant.</th>
+                              <th className="text-center px-4 py-3 w-20">Img</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100">
@@ -515,7 +512,7 @@ export default function UreDashboard() {
                                           "noopener,noreferrer"
                                         )
                                       }
-                                      className="h-11 w-11 rounded border border-[#8B1D35]/20 overflow-hidden inline-flex"
+                                      className="h-12 w-12 rounded border border-[#8B1D35]/20 overflow-hidden inline-flex"
                                       title="Abrir imagen"
                                     >
                                       <img

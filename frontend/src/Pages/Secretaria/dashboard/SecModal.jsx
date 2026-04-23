@@ -3,6 +3,7 @@ import { X, User, FileText, CheckCircle, XCircle, Briefcase, Building2 } from "l
 import useEscapeKey from "../../../hooks/useEscapeKey";
 import RequisitionTimelineModal from "../../../components/RequisitionTimelineModal";
 import { getRequisitionUnitLabel } from "../../../utils/unitDisplay";
+import { getStatusLabel } from "../../../utils/statusDisplay";
 import { getAuthHeaders } from "../../../api/auth";
 import { API_BASE_URL } from "../../../api/config";
 
@@ -26,11 +27,7 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
         let cancelled = false;
 
         const loadItemImages = async () => {
-            const validItems = (items || []).filter(
-                (item) =>
-                    item?.id &&
-                    (item?.image_original_name || item?.image_mime_type || Number(item?.image_size_bytes || 0) > 0)
-            );
+            const validItems = (items || []).filter((item) => item?.id);
 
             if (!req?.id || !validItems.length) {
                 setItemImagePreviews((prev) => {
@@ -124,7 +121,7 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
                                 req.statuses_id === 10 ? 'bg-red-50 text-red-600 border-red-100' :
                                 'bg-gray-100 text-gray-600 border-gray-200'
                             }`}>
-                                {req.nombre_estatus}
+                                {getStatusLabel(req.statuses_id, req.nombre_estatus)}
                             </span>
                         </h2>
                         <p className="text-xs text-gray-400 mt-0.5">
@@ -283,28 +280,35 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-[#8B1D35]/[0.08] text-[#6F152B] font-medium border-b border-[#8B1D35]/20 text-xs">
                                     <tr>
-                                        <th className="px-4 py-2 w-16 text-center">Cant.</th>
-                                        <th className="px-4 py-2">Descripción</th>
-                                        <th className="px-4 py-2 w-24 text-right">Unidad</th>
-                                        <th className="px-4 py-2 w-16 text-center">Img</th>
+                                        <th className="px-4 py-2 w-[20%]">Producto</th>
+                                        <th className="px-4 py-2 w-[56%]">Descripción</th>
+                                        <th className="px-4 py-2 w-14 text-center">Cant.</th>
+                                        <th className="px-4 py-2 w-20 text-right">Unidad</th>
+                                        <th className="px-4 py-2 w-20 text-center">Img</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100 text-xs">
                                     {loadingItems ? (
-                                        <tr><td colSpan="4" className="p-4 text-center text-gray-400">Cargando items...</td></tr>
+                                        <tr><td colSpan="5" className="p-4 text-center text-gray-400">Cargando items...</td></tr>
                                     ) : items.length === 0 ? (
-                                        <tr><td colSpan="4" className="p-4 text-center text-gray-400">Sin artículos</td></tr>
+                                        <tr><td colSpan="5" className="p-4 text-center text-gray-400">Sin artículos</td></tr>
                                     ) : (
                                         items.map((item) => (
                                             <tr key={item.id} className="hover:bg-gray-50/50">
+                                                <td className="px-4 py-3 text-gray-600">
+                                                    {item.product_name ||
+                                                        item.name ||
+                                                        item.producto ||
+                                                        "—"}
+                                                </td>
+                                                <td className="px-4 py-3 text-gray-600 leading-snug">{item.description || item.descripcion || "—"}</td>
                                                 <td className="px-4 py-3 text-center font-bold text-gray-700">{item.quantity}</td>
-                                                <td className="px-4 py-3 text-gray-600">{item.description}</td>
                                                 <td className="px-4 py-3 text-right text-gray-400 uppercase">{item.unidad || 'PZA'}</td>
                                                 <td className="px-4 py-3 text-center">
                                                     {itemImagePreviews[String(item.id)] ? (
                                                         <button
                                                             type="button"
-                                                            className="h-10 w-10 rounded border border-[#8B1D35]/20 overflow-hidden inline-flex"
+                                                            className="h-12 w-12 rounded border border-[#8B1D35]/20 overflow-hidden inline-flex"
                                                             title="Abrir imagen"
                                                             onClick={() =>
                                                                 window.open(

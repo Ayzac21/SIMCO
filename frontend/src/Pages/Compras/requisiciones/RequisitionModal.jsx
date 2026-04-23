@@ -7,6 +7,7 @@ import RequisitionTimelineModal from "../../../components/RequisitionTimelineMod
 import { API_BASE_URL } from "../../../api/config";
 import useEscapeKey from "../../../hooks/useEscapeKey";
 import { getRequisitionUnitLabel } from "../../../utils/unitDisplay";
+import { getStatusLabel } from "../../../utils/statusDisplay";
 
 const API_OPERATORS = `${API_BASE_URL}/compras/operators`;
 const API_ASSIGN = `${API_BASE_URL}/compras/requisiciones`;
@@ -399,7 +400,7 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                         <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                             Requisición #{req.id}
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border bg-orange-50 text-orange-600 border-orange-100">
-                                {req.nombre_estatus || 'EN COTIZACIÓN'}
+                                {getStatusLabel(req.statuses_id, req.nombre_estatus || "EN COTIZACIÓN")}
                             </span>
                         </h2>
                         <p className="text-xs text-gray-400 mt-0.5">
@@ -548,28 +549,35 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-200 text-xs">
                                     <tr>
-                                        <th className="px-4 py-2 w-16 text-center">Cant.</th>
-                                        <th className="px-4 py-2">Descripción</th>
-                                        <th className="px-4 py-2 w-24 text-right">Unidad</th>
-                                        <th className="px-4 py-2 w-16 text-center">Img</th>
+                                        <th className="px-4 py-2 w-[20%]">Producto</th>
+                                        <th className="px-4 py-2 w-[56%]">Descripción</th>
+                                        <th className="px-4 py-2 w-14 text-center">Cant.</th>
+                                        <th className="px-4 py-2 w-20 text-right">Unidad</th>
+                                        <th className="px-4 py-2 w-20 text-center">Img</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100 text-xs">
                                     {loadingItems ? (
-                                        <tr><td colSpan="4" className="p-4 text-center text-gray-400">Cargando detalles...</td></tr>
+                                        <tr><td colSpan="5" className="p-4 text-center text-gray-400">Cargando detalles...</td></tr>
                                     ) : items.length === 0 ? (
-                                        <tr><td colSpan="4" className="p-4 text-center text-gray-400">Sin artículos listados</td></tr>
+                                        <tr><td colSpan="5" className="p-4 text-center text-gray-400">Sin artículos listados</td></tr>
                                     ) : (
                                         items.map((item, idx) => (
                                             <tr key={idx} className="hover:bg-gray-50/50">
+                                                <td className="px-4 py-3 text-gray-600">
+                                                    {item.product_name ||
+                                                        item.name ||
+                                                        item.producto ||
+                                                        "—"}
+                                                </td>
+                                                <td className="px-4 py-3 text-gray-600 leading-snug">{item.description || item.descripcion || "—"}</td>
                                                 <td className="px-4 py-3 text-center font-bold text-gray-700">{item.quantity || item.cantidad}</td>
-                                                <td className="px-4 py-3 text-gray-600">{item.description || item.descripcion}</td>
                                                 <td className="px-4 py-3 text-right text-gray-400 uppercase">{item.unidad}</td>
                                                 <td className="px-4 py-3 text-center">
                                                     {itemImagePreviews[String(item.id)] ? (
                                                         <button
                                                             type="button"
-                                                            className="h-10 w-10 rounded border border-[#8B1D35]/20 overflow-hidden inline-flex"
+                                                            className="h-12 w-12 rounded border border-[#8B1D35]/20 overflow-hidden inline-flex"
                                                             title="Abrir imagen"
                                                             onClick={() =>
                                                                 window.open(

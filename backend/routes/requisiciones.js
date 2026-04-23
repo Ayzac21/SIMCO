@@ -163,11 +163,27 @@ const lineItemImageUpload = multer({
   },
 });
 
+const resolveStoredUploadPath = (maybePath) => {
+  if (!maybePath) return null;
+  const raw = String(maybePath || "");
+  const normalized = raw.replace(/\\/g, "/");
+  const fileName = path.basename(normalized);
+  const candidates = [];
+  if (path.isAbsolute(raw)) candidates.push(path.resolve(raw));
+  if (fileName) candidates.push(path.resolve(uploadsDir, fileName));
+
+  for (const candidate of candidates) {
+    if (!candidate.startsWith(uploadsDir)) continue;
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+};
+
 const safeUnlinkUpload = (maybePath) => {
   try {
     if (!maybePath) return;
-    const absPath = path.resolve(String(maybePath));
-    if (!absPath.startsWith(uploadsDir)) return;
+    const absPath = resolveStoredUploadPath(maybePath);
+    if (!absPath) return;
     if (fs.existsSync(absPath)) fs.unlinkSync(absPath);
   } catch (error) {
     console.error("WARN unlink upload:", error);
@@ -611,8 +627,8 @@ router.get("/:id/partidas/:lineItemId/image", async (req, res) => {
       return res.status(404).json({ ok: false, message: "Imagen no encontrada" });
     }
 
-    const absPath = path.resolve(lineItem.image_file_path);
-    if (!absPath.startsWith(uploadsDir) || !fs.existsSync(absPath)) {
+    const absPath = resolveStoredUploadPath(lineItem.image_file_path);
+    if (!absPath) {
       return res.status(404).json({ ok: false, message: "Archivo no disponible" });
     }
 

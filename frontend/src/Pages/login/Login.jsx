@@ -16,6 +16,29 @@ export default function Login() {
     const navigate = useNavigate();
     const { login } = useContext(AuthContext);
 
+    const resolveDashboardPath = (baseUser) => {
+        const rawUre = String(baseUser?.ure || "");
+        const ureLimpia = rawUre.toUpperCase().trim();
+        const userName = String(baseUser?.user_name || "").toLowerCase();
+        const role = String(baseUser?.role || "");
+
+        if (role.startsWith("compras_")) return "/compras/dashboard";
+        if (role === "secretaria") return "/secretaria/dashboard";
+        if (role === "coordinador") return "/coordinador/dashboard";
+        if (role === "head_office") return "/unidad/dashboard";
+
+        if (ureLimpia === "COMPRAS" || userName === "jefe.compras" || userName === "compras") {
+            return "/compras/dashboard";
+        }
+
+        const niveles = rawUre.includes(".") ? rawUre.split(".").length : 0;
+        if (niveles === 3) return "/secretaria/dashboard";
+        if (niveles === 4) return "/coordinador/dashboard";
+        if (niveles >= 5) return "/unidad/dashboard";
+
+        return null;
+    };
+
     const resolveUreName = async (baseUser, token) => {
         if (!baseUser?.ure || baseUser?.ure_name || !token) return baseUser;
         const normalize = (v) => String(v || "").trim().toUpperCase();
@@ -59,69 +82,30 @@ export default function Login() {
             const response = await fetch(`${API_BASE_URL}/login`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ user_name, password }),
+                body: JSON.stringify({
+                    user_name: String(user_name || "").trim(),
+                    password,
+                }),
             });
 
-            const data = await response.json();
+            const data = await response.json().catch(() => ({}));
 
             if (data.ok) {
                 const token = data.token || "";
                 const enrichedUser = await resolveUreName(data.user, token);
-                localStorage.setItem("usuario", JSON.stringify(enrichedUser));
-                if (token) {
-                    localStorage.setItem("token", token);
+                const nextPath = resolveDashboardPath(enrichedUser);
+                if (!nextPath) {
+                    setMensaje("Perfil no reconocido. Contacta al administrador.");
+                    return;
                 }
+
+                if (token) localStorage.setItem("token", token);
+                localStorage.setItem("usuario", JSON.stringify(enrichedUser));
                 localStorage.setItem("users_id", enrichedUser.id);
                 login(enrichedUser);
-
-                const rawUre = enrichedUser.ure || "";
-                const ureLimpia = rawUre.toString().toUpperCase().trim();
-                const userName = (enrichedUser.user_name || "").toLowerCase();
-                const role = String(enrichedUser?.role || "");
-
-                if (role.startsWith("compras_")) {
-                    navigate("/compras/dashboard");
-                    return;
-                }
-
-                if (role === "secretaria") {
-                    navigate("/secretaria/dashboard");
-                    return;
-                }
-
-                if (role === "coordinador") {
-                    navigate("/coordinador/dashboard");
-                    return;
-                }
-
-                if (role === "head_office") {
-                    navigate("/unidad/dashboard");
-                    return;
-                }
-
-                if (ureLimpia === "COMPRAS" || userName === "jefe.compras" || userName === "compras") {
-                    navigate("/compras/dashboard");
-                    return;
-                }
-
-                const niveles = rawUre.includes('.') ? rawUre.split('.').length : 0;
-
-                if (niveles === 3) {
-                    navigate("/secretaria/dashboard");
-                }
-                else if (niveles === 4) {
-                    navigate("/coordinador/dashboard");
-                }
-                else if (niveles >= 5) {
-                    navigate("/unidad/dashboard");
-                }
-                else {
-                    setMensaje("Perfil no reconocido. Contacta al administrador.");
-                    navigate("/login");
-                }
-
+                navigate(nextPath);
             } else {
-                setMensaje("Credenciales inválidas");
+                setMensaje(data?.message || "Credenciales inválidas");
             }
         } catch (error) {
             console.error(error);

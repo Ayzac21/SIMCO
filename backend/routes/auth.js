@@ -8,7 +8,15 @@ const router = express.Router();
 
 router.post("/login", async (req, res) => {
     try {
-        const { user_name, password } = req.body;
+        const inputUser = String(req.body?.user_name || "").trim();
+        const inputPassword = String(req.body?.password || "");
+
+        if (!inputUser || !inputPassword) {
+            return res.status(400).json({
+                ok: false,
+                message: "Usuario y contraseña son requeridos"
+            });
+        }
 
         // Buscar usuario
         const [rows] = await pool.query(
@@ -28,7 +36,7 @@ router.post("/login", async (req, res) => {
             WHERE u.user_name = ?
             LIMIT 1
             `,
-            [user_name]
+            [inputUser]
         );
 
         // Usuario no existe
@@ -51,11 +59,11 @@ router.post("/login", async (req, res) => {
         const stored = String(user.password || "");
         let passwordOk = false;
         if (stored.startsWith("$2a$") || stored.startsWith("$2b$") || stored.startsWith("$2y$")) {
-            passwordOk = await bcrypt.compare(password, stored);
+            passwordOk = await bcrypt.compare(inputPassword, stored);
         } else {
-            passwordOk = stored === password;
+            passwordOk = stored === inputPassword;
             if (passwordOk) {
-                const hashed = await bcrypt.hash(password, 10);
+                const hashed = await bcrypt.hash(inputPassword, 10);
                 await pool.query(
                     `UPDATE users SET password = ? WHERE id = ?`,
                     [hashed, user.id]

@@ -3,6 +3,7 @@ import { Search, RotateCw, Clock3, User, Briefcase, Eye } from "lucide-react";
 import { toast } from "sonner";
 import RequisitionModal from "../requisiciones/RequisitionModal";
 import { API_BASE_URL } from "../../../api/config";
+import { getStatusLabel } from "../../../utils/statusDisplay";
 
 const API = `${API_BASE_URL}/compras/preparacion`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -111,15 +112,15 @@ export default function ComprasPreparacion() {
 
   const statusBadge = (statusId, statusName) => {
     const sid = Number(statusId || 0);
-    if (sid === 7) return { text: statusName || "Borrador", cls: "bg-amber-50 text-amber-700 border-amber-200" };
-    if (sid === 8) return { text: statusName || "Coordinación", cls: "bg-indigo-50 text-indigo-700 border-indigo-200" };
-    if (sid === 9) return { text: statusName || "Secretaría", cls: "bg-violet-50 text-violet-700 border-violet-200" };
-    if (sid === 10) return { text: statusName || "Rechazada", cls: "bg-rose-50 text-rose-700 border-rose-200" };
-    if (sid === 11) return { text: statusName || "Comprada", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
-    if (sid === 12) return { text: statusName || "En cotización", cls: "bg-orange-50 text-orange-700 border-orange-200" };
-    if (sid === 13) return { text: statusName || "En proceso", cls: "bg-blue-50 text-blue-700 border-blue-200" };
-    if (sid === 14) return { text: statusName || "En revisión", cls: "bg-[#8B1D35]/10 text-[#8B1D35] border-[#8B1D35]/20" };
-    return { text: statusName || "Estatus", cls: "bg-gray-100 text-gray-700 border-gray-200" };
+    if (sid === 7) return { text: getStatusLabel(sid, statusName), cls: "bg-amber-50 text-amber-700 border-amber-200" };
+    if (sid === 8) return { text: getStatusLabel(sid, statusName), cls: "bg-indigo-50 text-indigo-700 border-indigo-200" };
+    if (sid === 9) return { text: getStatusLabel(sid, statusName), cls: "bg-violet-50 text-violet-700 border-violet-200" };
+    if (sid === 10) return { text: getStatusLabel(sid, statusName), cls: "bg-rose-50 text-rose-700 border-rose-200" };
+    if (sid === 11) return { text: getStatusLabel(sid, statusName), cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+    if (sid === 12) return { text: getStatusLabel(sid, statusName), cls: "bg-orange-50 text-orange-700 border-orange-200" };
+    if (sid === 13) return { text: getStatusLabel(sid, statusName), cls: "bg-blue-50 text-blue-700 border-blue-200" };
+    if (sid === 14) return { text: getStatusLabel(sid, statusName), cls: "bg-[#8B1D35]/10 text-[#8B1D35] border-[#8B1D35]/20" };
+    return { text: getStatusLabel(sid, statusName), cls: "bg-gray-100 text-gray-700 border-gray-200" };
   };
 
   return (
