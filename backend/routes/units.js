@@ -3,34 +3,7 @@ import { pool } from "../db/connection.js";
 
 const router = express.Router();
 
-const isComprasRole = (role) => String(role || "").startsWith("compras_");
-const ownerIdRaw = Number(process.env.UNITS_OWNER_ID || 0);
-const UNITS_OWNER_ID = Number.isInteger(ownerIdRaw) && ownerIdRaw > 0 ? ownerIdRaw : 0;
-const UNITS_OWNER_USER = String(process.env.UNITS_OWNER_USER || "")
-  .trim()
-  .toLowerCase();
-
-const canMutateUnitsByRole = (role) => {
-  const r = String(role || "");
-  return isComprasRole(r) && r !== "compras_lector";
-};
-
-const canMutateUnits = async (req) => {
-  const role = String(req.user?.role || "");
-  if (!canMutateUnitsByRole(role)) return false;
-
-  const authId = Number(req.user?.id || 0);
-  if (!Number.isInteger(authId) || authId <= 0) return false;
-  if (UNITS_OWNER_ID > 0) return authId === UNITS_OWNER_ID;
-  if (!UNITS_OWNER_USER) return role === "compras_admin";
-
-  const [rows] = await pool.query(
-    `SELECT user_name FROM users WHERE id = ? LIMIT 1`,
-    [authId]
-  );
-  const dbUser = String(rows?.[0]?.user_name || "").trim().toLowerCase();
-  return Boolean(dbUser) && dbUser === UNITS_OWNER_USER;
-};
+const canMutateUnits = (req) => String(req.user?.role || "") === "compras_admin";
 
 router.get("/", async (req, res) => {
   try {
@@ -44,7 +17,7 @@ router.get("/", async (req, res) => {
 
 router.post("/", async (req, res) => {
   try {
-    if (!(await canMutateUnits(req))) {
+    if (!canMutateUnits(req)) {
       return res.status(403).json({ ok: false, message: "Acceso restringido" });
     }
 
@@ -71,7 +44,7 @@ router.post("/", async (req, res) => {
 
 router.put("/:id", async (req, res) => {
   try {
-    if (!(await canMutateUnits(req))) {
+    if (!canMutateUnits(req)) {
       return res.status(403).json({ ok: false, message: "Acceso restringido" });
     }
 

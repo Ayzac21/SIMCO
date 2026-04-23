@@ -126,8 +126,22 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-          <Route path="proveedores" element={<ComprasProveedores />} />
-          <Route path="unidades" element={<ComprasUnidades />} />
+          <Route
+            path="proveedores"
+            element={
+              <ProtectedRoute allowedRoles={["compras_admin"]}>
+                <ComprasProveedores />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="unidades"
+            element={
+              <ProtectedRoute allowedRoles={["compras_admin"]}>
+                <ComprasUnidades />
+              </ProtectedRoute>
+            }
+          />
         </Route>
       </Routes>
     </Suspense>

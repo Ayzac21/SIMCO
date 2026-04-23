@@ -3268,9 +3268,9 @@ export const importProvidersFromExcel = async (req, res) => {
         await pool.query(
           `
           INSERT INTO provider (name, razon_social, email, rfc, statuses_id, address)
-          VALUES (?, ?, NULL, ?, 6, NULL)
+          VALUES (?, ?, ?, ?, 6, NULL)
           `,
-          [entry.name, entry.razon_social, entry.rfc]
+          [entry.name, entry.razon_social, "", entry.rfc]
         );
         created += 1;
       } catch (error) {

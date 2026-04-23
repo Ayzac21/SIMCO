@@ -132,43 +132,43 @@ export default function Login() {
     };
 
     return (
-        <div className="min-h-dvh bg-gray-50 relative overflow-hidden">
+        <div className="min-h-dvh bg-gray-50 relative overflow-x-hidden">
             <Navbar actionButton={{ to: "/", label: "Volver", mobileLabel: "Volver", icon: ArrowLeft }} />
             <div className="absolute inset-x-0 top-0 h-52 bg-gradient-to-b from-red-100/75 to-transparent pointer-events-none"></div>
 
-            <div className="relative z-10 min-h-[calc(100dvh-76px)] w-full px-4 sm:px-6 lg:px-10 py-6 sm:py-8 lg:py-6 flex items-center justify-center">
+            <div className="relative z-10 min-h-[calc(100dvh-76px)] w-full px-4 sm:px-6 lg:px-10 py-5 sm:py-8 lg:py-6 flex items-start lg:items-center justify-center">
                 <section className="w-full max-w-5xl rounded-3xl border border-white/20 bg-white shadow-[0_20px_55px_rgba(15,23,42,0.12)] overflow-hidden">
                     <div className="grid grid-cols-1 lg:grid-cols-12">
-                        <aside className="relative lg:col-span-5 bg-principal border-b lg:border-b-0 lg:border-r border-white/15 p-6 sm:p-8 lg:p-9 overflow-hidden">
+                        <aside className="relative lg:col-span-5 bg-principal border-b lg:border-b-0 lg:border-r border-white/15 p-5 sm:p-7 lg:p-9 overflow-hidden">
                             <div className="absolute -top-20 -left-14 h-56 w-56 rounded-full bg-white/10 blur-3xl pointer-events-none"></div>
                             <div className="absolute -top-3 -left-4 h-36 w-36 rounded-full bg-white/20 blur-2xl pointer-events-none"></div>
                             <div className="absolute bottom-0 right-0 h-44 w-44 rounded-full bg-white/10 blur-2xl pointer-events-none"></div>
                             <div className="relative z-10 h-full flex items-center">
                                 <div className="w-full max-w-sm mx-auto">
-                                    <p className="text-xl sm:text-2xl font-extrabold text-white leading-none tracking-tight">CUAltos</p>
-                                    <p className="mt-2 text-xs sm:text-sm uppercase tracking-[0.12em] text-white/80 font-medium">
+                                    <p className="text-lg sm:text-2xl font-extrabold text-white leading-none tracking-tight">CUAltos</p>
+                                    <p className="mt-1.5 text-[11px] sm:text-sm uppercase tracking-[0.12em] text-white/80 font-medium">
                                         Sistema Institucional de Compras
                                     </p>
 
-                                    <div className="mt-6 rounded-xl border border-white/20 bg-white/10 p-3.5">
+                                    <div className="mt-5 sm:mt-6 rounded-xl border border-white/20 bg-white/10 p-3.5">
                                         <p className="text-xs font-semibold text-white uppercase tracking-wide">Aviso</p>
                                         <p className="text-xs sm:text-sm text-white/85 mt-1">
                                             El acceso es institucional y exclusivo para personal autorizado.
                                         </p>
                                     </div>
 
-                                    <div className="mt-6 sm:mt-8 flex justify-center">
+                                    <div className="mt-5 sm:mt-8 flex justify-center">
                                         <img
                                             src={escudoCualtos}
                                             alt="Escudo oficial CUAltos"
-                                            className="h-16 sm:h-20 w-auto object-contain translate-y-1 sm:translate-y-2"
+                                            className="h-14 sm:h-20 w-auto object-contain translate-y-1 sm:translate-y-2"
                                         />
                                     </div>
                                 </div>
                             </div>
                         </aside>
 
-                        <main className="lg:col-span-7 p-6 sm:p-8 lg:p-10 bg-white">
+                        <main className="lg:col-span-7 p-5 sm:p-8 lg:p-10 bg-white">
                             <h3 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
                                 Iniciar sesión
                             </h3>
