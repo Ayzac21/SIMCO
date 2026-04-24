@@ -536,6 +536,40 @@ router.get("/:id/attachments/:attachmentId/download", async (req, res) => {
   }
 });
 
+router.delete("/:id/attachments/:attachmentId", async (req, res) => {
+  try {
+    const { id, attachmentId } = req.params;
+    const ownsReq = await ensureOwnsRequisition(req, res, id);
+    if (!ownsReq) return;
+    await ensureAttachmentsTable();
+
+    const [[row]] = await pool.query(
+      `
+      SELECT id, file_path
+      FROM requisition_attachments
+      WHERE id = ? AND requisition_id = ?
+      LIMIT 1
+      `,
+      [attachmentId, id]
+    );
+
+    if (!row) {
+      return res.status(404).json({ ok: false, message: "Adjunto no encontrado" });
+    }
+
+    await pool.query(
+      `DELETE FROM requisition_attachments WHERE id = ? AND requisition_id = ?`,
+      [attachmentId, id]
+    );
+    safeUnlinkUpload(row.file_path);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("ERROR delete attachment:", err);
+    return res.status(500).json({ ok: false, message: "No se pudo eliminar el adjunto" });
+  }
+});
+
 router.post("/:id/partidas/:lineItemId/image", lineItemImageUpload.single("file"), async (req, res) => {
   const conn = await pool.getConnection();
   try {
@@ -1002,7 +1036,7 @@ router.post("/", createRequisitionHandler);
 
 /* Mis requisiciones */
 router.get("/mis-requisiciones/:users_id", async (req, res) => {
-  try {
+  try{
     const { users_id } = req.params;
     if (!ensureSelf(req, res, users_id)) return;
 

@@ -28,6 +28,8 @@ export default function RequisicionesUre() {
     const [partidaFoto, setPartidaFoto] = useState(null);
     const [partidaFotoPreviewUrl, setPartidaFotoPreviewUrl] = useState("");
     const [articulos, setArticulos] = useState([]);
+    const [attachments, setAttachments] = useState([]);
+    const [dragActive, setDragActive] = useState(false);
 
     const [errors, setErrors] = useState({ 
         nombreReq: false,
@@ -41,6 +43,12 @@ export default function RequisicionesUre() {
     const [notification, setNotification] = useState({ show: false, message: "", type: "success" });
 
     const normalizeText = (value) => String(value || "").trim().toLowerCase();
+    const fmtSize = (bytes) => {
+        const n = Number(bytes || 0);
+        if (n < 1024) return `${n} B`;
+        if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+        return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    };
 
     useEffect(() => {
         if (!(partidaFoto instanceof File)) {
@@ -150,6 +158,43 @@ export default function RequisicionesUre() {
             return prev.filter((a) => a.id !== id);
         });
     };
+    const quitarFotoArticulo = (id) => {
+        setArticulos((prev) =>
+            prev.map((a) => {
+                if (a.id !== id) return a;
+                if (a?.foto_preview_url) URL.revokeObjectURL(a.foto_preview_url);
+                return { ...a, foto_partida: null, foto_preview_url: null };
+            })
+        );
+    };
+    const eliminarAdjunto = (index) => setAttachments(attachments.filter((_, i) => i !== index));
+
+    const procesarAdjuntos = (filesRaw) => {
+        const files = Array.from(filesRaw || []);
+        if (!files.length) return;
+
+        const clean = files.filter((f) => {
+            const type = String(f.type || "").toLowerCase();
+            const name = String(f.name || "").toLowerCase();
+            const byMime = type.includes("pdf") || type.startsWith("image/");
+            const byExt = [".pdf", ".png", ".jpg", ".jpeg", ".webp"].some((ext) => name.endsWith(ext));
+            return byMime || byExt;
+        });
+        if (clean.length !== files.length) {
+            showAlert("Solo se permiten imágenes (PNG/JPG/WEBP) y PDF", "error");
+        }
+
+        const merged = [...attachments, ...clean].slice(0, 5);
+        if (attachments.length + clean.length > 5) {
+            showAlert("Máximo 5 adjuntos por requisición", "error");
+        }
+        setAttachments(merged);
+    };
+
+    const agregarAdjuntos = (e) => {
+        procesarAdjuntos(e.target.files);
+        e.target.value = "";
+    };
 
     const uploadPartidaImage = async (requisitionId, lineItemId, file) => {
         const fd = new FormData();
@@ -246,6 +291,17 @@ export default function RequisicionesUre() {
                         await uploadPartidaImage(data.id, up.lineItemId, up.file);
                     }
                 }
+                if (attachments.length && data.id) {
+                    const fd = new FormData();
+                    attachments.forEach((file) => fd.append("files", file));
+                    const up = await fetch(`${API_BASE_URL}/requisiciones/${data.id}/attachments`, {
+                        method: "POST",
+                        headers: getAuthHeaders(),
+                        body: fd,
+                    });
+                    const upData = await up.json().catch(() => ({}));
+                    if (!up.ok) throw new Error(upData?.message || "No se pudieron subir adjuntos");
+                }
 
                 showAlert(
                     `Borrador guardado (${data.folio}). Puedes revisarlo y enviarlo después desde recibidas.`,
@@ -255,11 +311,12 @@ export default function RequisicionesUre() {
                     if (a?.foto_preview_url) URL.revokeObjectURL(a.foto_preview_url);
                 });
                 setArticulos([]); setNombreReq(""); setObservacion(""); setJustificacion(""); setPartidaFoto(null);
+                setAttachments([]);
                 setStep(1); 
             } else {
                 showAlert(data.message || "Error", "error");
             }
-        } catch { showAlert("Error de conexión", "error"); }
+        } catch (err) { showAlert(err?.message || "Error de conexión", "error"); }
     };
 
     return (
@@ -419,7 +476,7 @@ export default function RequisicionesUre() {
                                                 {partidaFoto ? ` Seleccionada: ${partidaFoto.name}` : ""}
                                             </p>
                                             {partidaFotoPreviewUrl && (
-                                                <div className="mt-2">
+                                                <div className="mt-2 relative h-16 w-16">
                                                     <button
                                                         type="button"
                                                         onClick={() => window.open(partidaFotoPreviewUrl, "_blank", "noopener,noreferrer")}
@@ -431,6 +488,14 @@ export default function RequisicionesUre() {
                                                             alt="Vista previa de foto de partida"
                                                             className="h-full w-full object-cover"
                                                         />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPartidaFoto(null)}
+                                                        className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-white border border-red-300 text-red-600 text-xs font-bold leading-none hover:bg-red-50"
+                                                        title="Quitar foto"
+                                                    >
+                                                        X
                                                     </button>
                                                 </div>
                                             )}
@@ -492,18 +557,28 @@ export default function RequisicionesUre() {
                                             <div className="mt-2 flex items-center gap-2">
                                                 <p className="text-[11px] text-emerald-700 font-semibold">Con foto de referencia</p>
                                                 {a.foto_preview_url && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => window.open(a.foto_preview_url, "_blank", "noopener,noreferrer")}
-                                                        className="h-10 w-10 rounded border border-[#8B1D35]/20 overflow-hidden bg-white"
-                                                        title="Abrir vista previa"
-                                                    >
-                                                        <img
-                                                            src={a.foto_preview_url}
-                                                            alt="Vista previa de foto por partida"
-                                                            className="h-full w-full object-cover"
-                                                        />
-                                                    </button>
+                                                    <div className="relative h-10 w-10">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => window.open(a.foto_preview_url, "_blank", "noopener,noreferrer")}
+                                                            className="h-10 w-10 rounded border border-[#8B1D35]/20 overflow-hidden bg-white"
+                                                            title="Abrir vista previa"
+                                                        >
+                                                            <img
+                                                                src={a.foto_preview_url}
+                                                                alt="Vista previa de foto por partida"
+                                                                className="h-full w-full object-cover"
+                                                            />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => quitarFotoArticulo(a.id)}
+                                                            className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-white border border-red-300 text-red-600 text-[10px] font-bold leading-none hover:bg-red-50"
+                                                            title="Quitar foto"
+                                                        >
+                                                            X
+                                                        </button>
+                                                    </div>
                                                 )}
                                             </div>
                                         )}
@@ -517,7 +592,71 @@ export default function RequisicionesUre() {
                     </div>
 
                     {/* Footer Resumen (Fijo) */}
-                    <div className="p-4 sm:p-5 lg:p-6 border-t border-gray-200 bg-white flex-none">
+                    <div className="p-4 sm:p-5 lg:p-6 border-t border-gray-200 bg-white flex-none space-y-3">
+                        <div>
+                            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                                Adjuntos (imagen o PDF)
+                            </p>
+                            <input
+                                id="adjuntos-requisicion-coor"
+                                type="file"
+                                accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
+                                multiple
+                                onChange={agregarAdjuntos}
+                                className="hidden"
+                            />
+                            <label
+                                htmlFor="adjuntos-requisicion-coor"
+                                onDragOver={(e) => {
+                                    e.preventDefault();
+                                    setDragActive(true);
+                                }}
+                                onDragLeave={(e) => {
+                                    e.preventDefault();
+                                    setDragActive(false);
+                                }}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    setDragActive(false);
+                                    procesarAdjuntos(e.dataTransfer.files);
+                                }}
+                                className={`block w-full rounded-lg border-2 border-dashed p-3 text-center cursor-pointer transition-all ${
+                                    dragActive
+                                        ? "border-secundario bg-red-50"
+                                        : "border-gray-300 bg-white hover:bg-gray-50"
+                                }`}
+                            >
+                                <p className="text-xs font-semibold text-gray-700">
+                                    Haz clic para seleccionar archivos
+                                </p>
+                                <p className="text-[11px] text-gray-500 mt-1">
+                                    o arrástralos aquí (imagen o PDF)
+                                </p>
+                            </label>
+                            <p className="text-[11px] text-gray-500 mt-1">
+                                Máximo 5 archivos. Úsalos como referencia visual o cotización de ejemplo.
+                            </p>
+
+                            {attachments.length > 0 && (
+                                <div className="mt-2 max-h-24 overflow-y-auto space-y-1 pr-1">
+                                    {attachments.map((f, i) => (
+                                        <div key={`${f.name}-${i}`} className="flex items-center justify-between bg-white border border-gray-200 rounded px-2 py-1 text-xs">
+                                            <div className="min-w-0">
+                                                <p className="truncate font-semibold text-gray-700">{f.name}</p>
+                                                <p className="text-gray-500">{fmtSize(f.size)}</p>
+                                            </div>
+                                            <button
+                                                onClick={() => eliminarAdjunto(i)}
+                                                className="text-gray-400 hover:text-red-600 px-2"
+                                                title="Quitar"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                         <button
                             onClick={enviarRequisicion}
                             disabled={articulos.length === 0 || step === 1}

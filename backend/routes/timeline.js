@@ -1,6 +1,7 @@
 import express from "express";
 import { pool } from "../db/connection.js";
 import { getRequisitionStatusTimeline } from "../services/statusHistory.js";
+import { getRequisitionAssignmentTimeline } from "../services/assignmentHistory.js";
 
 const router = express.Router();
 
@@ -129,6 +130,13 @@ router.get("/timeline/requisiciones/:id", async (req, res) => {
     if (!allowed) return res.status(403).json({ message: "Acceso denegado" });
 
     let statusTimeline = await getRequisitionStatusTimeline(requisitionId);
+    let assignmentTimeline = [];
+    try {
+      assignmentTimeline = await getRequisitionAssignmentTimeline(requisitionId);
+    } catch (assignmentError) {
+      console.error("WARN timeline assignment history fallback:", assignmentError?.message || assignmentError);
+      assignmentTimeline = [];
+    }
     let inferred = false;
     if (!statusTimeline.length) {
       statusTimeline = await buildLegacyMilestones(requisitionId);
@@ -143,6 +151,7 @@ router.get("/timeline/requisiciones/:id", async (req, res) => {
         quotation_closed_at: requisition.quotation_closed_at,
       },
       statusTimeline,
+      assignmentTimeline,
       inferred,
     });
   } catch (error) {

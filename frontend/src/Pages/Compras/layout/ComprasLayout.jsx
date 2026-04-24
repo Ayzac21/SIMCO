@@ -78,8 +78,13 @@ export default function ComprasLayout() {
         return headers[match] || headers["/compras/dashboard"] || { title: "Panel Compras", subtitle: "Sistema SIMCO" };
     }, [headers, pathname]);
 
-    const isWideContentRoute = pathname.startsWith("/compras/cotizar/");
-    const contentMaxWidthClass = isWideContentRoute ? "max-w-[1800px]" : "max-w-[1280px]";
+    const isCotizarRoute = pathname.startsWith("/compras/cotizar/");
+    const isOrdenRoute = pathname.startsWith("/compras/orden/");
+    const contentMaxWidthClass = isOrdenRoute
+        ? "max-w-none"
+        : isCotizarRoute
+        ? "max-w-[1800px]"
+        : "max-w-[1280px]";
 
     // --- Cerrar sidebar al cambiar de ruta (mejor UX móvil) ---
     useEffect(() => {

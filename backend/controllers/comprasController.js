@@ -14,6 +14,10 @@ import {
   getRequisitionStatusTimeline,
   logRequisitionStatusChange,
 } from "../services/statusHistory.js";
+import {
+  getRequisitionAssignmentTimeline,
+  logRequisitionAssignmentChange,
+} from "../services/assignmentHistory.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,6 +47,7 @@ const resolveStoredRequisitionImagePath = async (storedPath) => {
   }
   return null;
 };
+const DEFAULT_DELIVERY_PLACE = "UAYS CUALTOS";
 const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
 const normalizeRfc = (value) =>
   String(value || "")
@@ -178,6 +183,7 @@ const getComprasAdminIds = async (connOrPool = pool) => {
 
 let selectionTaxColumnsAvailableCache = null;
 let ensureAttachmentsTablePromise = null;
+let ensureOrderFolioSequenceTablePromise = null;
 let lineItemImageColumnsAvailableCache = null;
 const hasLineItemImageColumns = async (connOrPool = pool) => {
   if (lineItemImageColumnsAvailableCache !== null) return lineItemImageColumnsAvailableCache;
@@ -236,6 +242,49 @@ const ensureAttachmentsTable = async () => {
     });
   }
   await ensureAttachmentsTablePromise;
+};
+
+const ensureOrderMetaConditionColumns = async (connOrPool = pool) => {
+  const requiredColumns = [
+    ["oc_payment_mode", "VARCHAR(20) NOT NULL DEFAULT 'contado'"],
+    ["oc_payment_anticipo", "TINYINT(1) NOT NULL DEFAULT 0"],
+    ["oc_delivery_place", "VARCHAR(255) NULL"],
+    ["oc_delivery_date", "DATE NULL"],
+    ["oc_payment_start_date", "DATE NULL"],
+    ["oc_payment_end_date", "DATE NULL"],
+    ["oc_payment_date", "DATE NULL"],
+    ["oc_installments_count", "INT NULL"],
+    ["oc_advance_percentage", "DECIMAL(6,2) NULL"],
+    ["oc_payment_compliance", "TINYINT(1) NOT NULL DEFAULT 0"],
+  ];
+  for (const [columnName, columnType] of requiredColumns) {
+    const [existsRows] = await connOrPool.query(
+      `SHOW COLUMNS FROM orden_compra_meta LIKE ?`,
+      [columnName]
+    );
+    if (!Array.isArray(existsRows) || !existsRows.length) {
+      await connOrPool.query(
+        `ALTER TABLE orden_compra_meta ADD COLUMN ${columnName} ${columnType}`
+      );
+    }
+  }
+};
+
+const ensureOrderFolioSequenceTable = async (connOrPool = pool) => {
+  if (!ensureOrderFolioSequenceTablePromise) {
+    ensureOrderFolioSequenceTablePromise = connOrPool
+      .query(`
+      CREATE TABLE IF NOT EXISTS orden_compra_sequence (
+        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+      .catch((error) => {
+        ensureOrderFolioSequenceTablePromise = null;
+        throw error;
+      });
+  }
+  await ensureOrderFolioSequenceTablePromise;
 };
 
 /* =============================
@@ -665,6 +714,7 @@ export const getComprasOperators = async (req, res) => {
    ASIGNAR REQUISICION A OPERADOR
 ============================= */
 export const assignRequisitionOperator = async (req, res) => {
+  const conn = await pool.getConnection();
   try {
     if (req.user?.role !== "compras_admin") {
       return res.status(403).json({ message: "Solo admin puede asignar" });
@@ -692,7 +742,7 @@ export const assignRequisitionOperator = async (req, res) => {
     }
 
     if (nextAssignedId !== null) {
-      const [opRows] = await pool.query(
+      const [opRows] = await conn.query(
         `SELECT 1 FROM users WHERE id = ? AND role = 'compras_operador' AND statuses_id = 1 LIMIT 1`,
         [nextAssignedId]
       );
@@ -701,17 +751,24 @@ export const assignRequisitionOperator = async (req, res) => {
       }
     }
 
-    const [reqRows] = await pool.query(
+    await conn.beginTransaction();
+
+    const [reqRows] = await conn.query(
       `SELECT id, request_name, assigned_operator_id FROM requisition WHERE id = ? LIMIT 1`,
       [requisitionId]
     );
     if (!reqRows.length) {
+      await conn.rollback();
       return res.status(404).json({ message: "Requisición no encontrada" });
     }
 
     const currentAssignedId = Number(reqRows[0].assigned_operator_id || 0) || null;
+    if (currentAssignedId === nextAssignedId) {
+      await conn.rollback();
+      return res.json({ ok: true, unchanged: true });
+    }
 
-    const [result] = await pool.query(
+    const [result] = await conn.query(
       `
       UPDATE requisition
       SET assigned_operator_id = ?
@@ -721,10 +778,24 @@ export const assignRequisitionOperator = async (req, res) => {
     );
 
     if (!result.affectedRows) {
+      await conn.rollback();
       return res.status(404).json({ message: "Requisición no encontrada" });
     }
 
     const actorId = Number(req.user?.id || 0) || null;
+    const noteRaw = String(req.body?.note || "").trim();
+    await logRequisitionAssignmentChange(
+      {
+        requisitionId,
+        previousOperatorId: currentAssignedId,
+        newOperatorId: nextAssignedId,
+        changedBy: actorId,
+        note: noteRaw || null,
+      },
+      conn
+    );
+    await conn.commit();
+
     const requestName = String(reqRows[0].request_name || "").trim();
     const reqLabel = requestName ? `#${requisitionId} - ${requestName}` : `#${requisitionId}`;
 
@@ -754,8 +825,13 @@ export const assignRequisitionOperator = async (req, res) => {
 
     res.json({ ok: true });
   } catch (error) {
+    try {
+      await conn.rollback();
+    } catch {}
     console.error("Error assignRequisitionOperator:", error);
     res.status(500).json({ message: "Error al asignar operador" });
+  } finally {
+    conn.release();
   }
 };
 
@@ -826,14 +902,17 @@ export const updateEstatusCompras = async (req, res) => {
         SELECT
           qs.provider_id,
           p.name AS provider_name,
-          m.folio
+          p.rfc,
+          p.address,
+          m.folio,
+          m.oc_delivery_date
         FROM quotation_selections qs
         LEFT JOIN provider p ON p.id = qs.provider_id
         LEFT JOIN orden_compra_meta m
           ON m.requisition_id = qs.requisition_id
          AND m.provider_id = qs.provider_id
-        WHERE qs.requisition_id = ?
-        GROUP BY qs.provider_id, p.name, m.folio
+        WHERE qs.requisition_id = ? AND qs.provider_id IS NOT NULL
+        GROUP BY qs.provider_id, p.name, p.rfc, p.address, m.folio, m.oc_delivery_date
         `,
         [id]
       );
@@ -851,6 +930,28 @@ export const updateEstatusCompras = async (req, res) => {
           .join(", ");
         return res.status(400).json({
           message: `Falta folio para: ${names}`,
+        });
+      }
+
+      const missingProviderData = rows.filter(
+        (r) => !String(r.rfc || "").trim() || !String(r.address || "").trim()
+      );
+      if (missingProviderData.length) {
+        const names = missingProviderData
+          .map((r) => r.provider_name || `ID ${r.provider_id}`)
+          .join(", ");
+        return res.status(400).json({
+          message: `Faltan datos de proveedor (RFC/Dirección) para: ${names}`,
+        });
+      }
+
+      const missingDeliveryDate = rows.filter((r) => !String(r.oc_delivery_date || "").trim());
+      if (missingDeliveryDate.length) {
+        const names = missingDeliveryDate
+          .map((r) => r.provider_name || `ID ${r.provider_id}`)
+          .join(", ");
+        return res.status(400).json({
+          message: `Falta fecha de entrega para: ${names}`,
         });
       }
     }
@@ -1054,8 +1155,18 @@ export const getComprasHistorial = async (req, res) => {
         r.order_type,
         s.name as nombre_estatus,
         u.name as solicitante,
-        COALESCE(NULLIF(TRIM(ho.name), ''), NULLIF(TRIM(c2.name), ''), u.ure) as nombre_unidad,
-        COALESCE(NULLIF(TRIM(c.name), ''), NULLIF(TRIM(c2.name), ''), 'General') as coordinacion
+        COALESCE(
+          NULLIF(TRIM(ho.name), ''),
+          NULLIF(TRIM(sec.name), ''),
+          NULLIF(TRIM(c2.name), ''),
+          u.ure
+        ) as nombre_unidad,
+        COALESCE(
+          NULLIF(TRIM(c.name), ''),
+          NULLIF(TRIM(csec.name), ''),
+          NULLIF(TRIM(c2.name), ''),
+          'General'
+        ) as coordinacion
       FROM requisition r
       LEFT JOIN statuses s ON r.statuses_id = s.id
       LEFT JOIN users u ON r.users_id = u.id
@@ -1067,7 +1178,23 @@ export const getComprasHistorial = async (req, res) => {
           ORDER BY LENGTH(TRIM(ho2.ure)) DESC
           LIMIT 1
         )
+      LEFT JOIN secretary sec
+        ON sec.id = (
+          SELECT s2.id
+          FROM secretary s2
+          WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+          ORDER BY LENGTH(TRIM(s2.ure)) DESC
+          LIMIT 1
+        )
       LEFT JOIN coordination c ON ho.coordination_id = c.id
+      LEFT JOIN coordination csec
+        ON csec.id = (
+          SELECT c4.id
+          FROM coordination c4
+          WHERE TRIM(UPPER(sec.ure)) LIKE CONCAT(TRIM(UPPER(c4.ure)), '%')
+          ORDER BY LENGTH(TRIM(c4.ure)) DESC
+          LIMIT 1
+        )
       LEFT JOIN coordination c2
         ON c2.id = (
           SELECT c3.id
@@ -1324,7 +1451,7 @@ export const getComprasHistorialReport = async (req, res) => {
       doc.text(`#${r.id}`, colX.folio, y);
       doc.text(projText, colX.proj, y, { width: 170 });
       doc.text(unidadText, colX.unidad, y, { width: 150 });
-      doc.text(Number(r.statuses_id) === 11 ? "Comprado" : "Rechazado", colX.estatus, y);
+      doc.text(Number(r.statuses_id) === 11 ? "Finalizada" : "Cancelada", colX.estatus, y);
       doc.text(fechaText, colX.fecha, y);
       y += rowH;
 
@@ -1429,6 +1556,7 @@ export const getRequisitionItems = async (req, res) => {
     const { id } = req.params;
     const ok = await ensureAssignedOrAdmin(req, res, id);
     if (!ok) return;
+    const withImageCols = await hasLineItemImageColumns();
 
     const query = `
       SELECT 
@@ -1436,12 +1564,25 @@ export const getRequisitionItems = async (req, res) => {
         li.product_name,
         li.quantity,
         li.description,
-        un.name AS unidad
+        un.name AS unidad,
+        ${
+          withImageCols
+            ? "CASE WHEN li.image_file_path IS NOT NULL AND TRIM(li.image_file_path) <> '' THEN 1 ELSE 0 END AS has_image"
+            : "0 AS has_image"
+        }
       FROM line_items li
       LEFT JOIN units un ON li.units_id = un.id
       WHERE li.requisition_id = ?
     `;
-    const [rows] = await pool.query(query, [id]);
+    const [rowsRaw] = await pool.query(query, [id]);
+    const rows = (Array.isArray(rowsRaw) ? rowsRaw : []).map((row) => {
+      const productName = String(row?.product_name ?? "").trim();
+      const description = String(row?.description ?? "").trim();
+      return {
+        ...row,
+        product_name: productName || (description ? description : null),
+      };
+    });
     res.json(rows);
   } catch (error) {
     console.error("Error obteniendo items:", error);
@@ -1466,12 +1607,12 @@ export const getComprasRequisitionItemImage = async (req, res) => {
     );
 
     if (!row || !row.image_file_path) {
-      return res.status(404).json({ message: "Imagen no encontrada" });
+      return res.status(204).end();
     }
 
     const absPath = await resolveStoredRequisitionImagePath(row.image_file_path);
     if (!absPath) {
-      return res.status(404).json({ message: "Archivo no disponible" });
+      return res.status(204).end();
     }
     const mime = row.image_mime_type || "application/octet-stream";
     const fileName = encodeURIComponent(row.image_original_name || "imagen");
@@ -1480,10 +1621,10 @@ export const getComprasRequisitionItemImage = async (req, res) => {
     return res.sendFile(absPath);
   } catch (error) {
     if (error?.code === "ER_BAD_FIELD_ERROR") {
-      return res.status(404).json({ message: "Imagen no disponible" });
+      return res.status(204).end();
     }
     if (error?.code === "ENOENT") {
-      return res.status(404).json({ message: "Archivo no disponible" });
+      return res.status(204).end();
     }
     console.error("Error obteniendo imagen por partida (compras):", error);
     return res.status(500).json({ message: "Error interno" });
@@ -1491,7 +1632,7 @@ export const getComprasRequisitionItemImage = async (req, res) => {
 };
 
 /* =============================
-   SELECCION PARA PROCESO DE COMPRA (13)
+   SELECCION PARA PROCESO DE COMPRA / FINALIZADA (13, 11)
 ============================= */
 export const getCompraSeleccion = async (req, res) => {
   try {
@@ -1512,8 +1653,18 @@ export const getCompraSeleccion = async (req, res) => {
         s.name as nombre_estatus,
         u.name as solicitante,
         u.ure as ure_solicitante,
-        COALESCE(NULLIF(TRIM(ho.name), ''), NULLIF(TRIM(c2.name), ''), u.ure) as nombre_unidad,
-        COALESCE(NULLIF(TRIM(c.name), ''), NULLIF(TRIM(c2.name), ''), 'General') as coordinacion
+        COALESCE(
+          NULLIF(TRIM(ho.name), ''),
+          NULLIF(TRIM(sec.name), ''),
+          NULLIF(TRIM(c2.name), ''),
+          u.ure
+        ) as nombre_unidad,
+        COALESCE(
+          NULLIF(TRIM(c.name), ''),
+          NULLIF(TRIM(csec.name), ''),
+          NULLIF(TRIM(c2.name), ''),
+          'General'
+        ) as coordinacion
       FROM requisition r
       LEFT JOIN statuses s ON r.statuses_id = s.id
       LEFT JOIN users u ON r.users_id = u.id
@@ -1525,7 +1676,23 @@ export const getCompraSeleccion = async (req, res) => {
           ORDER BY LENGTH(TRIM(ho2.ure)) DESC
           LIMIT 1
         )
+      LEFT JOIN secretary sec
+        ON sec.id = (
+          SELECT s2.id
+          FROM secretary s2
+          WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+          ORDER BY LENGTH(TRIM(s2.ure)) DESC
+          LIMIT 1
+        )
       LEFT JOIN coordination c ON ho.coordination_id = c.id
+      LEFT JOIN coordination csec
+        ON csec.id = (
+          SELECT c4.id
+          FROM coordination c4
+          WHERE TRIM(UPPER(sec.ure)) LIKE CONCAT(TRIM(UPPER(c4.ure)), '%')
+          ORDER BY LENGTH(TRIM(c4.ure)) DESC
+          LIMIT 1
+        )
       LEFT JOIN coordination c2
         ON c2.id = (
           SELECT c3.id
@@ -1543,9 +1710,9 @@ export const getCompraSeleccion = async (req, res) => {
     }
 
     const requisition = reqRows[0];
-    if (Number(requisition.statuses_id) !== 13) {
+    if (![13, 11].includes(Number(requisition.statuses_id))) {
       return res.status(400).json({
-        message: "La requisición no está en proceso de compra (13)",
+        message: "La requisición no está en proceso de compra/finalizada (13/11)",
         current_status: requisition.statuses_id,
       });
     }
@@ -1554,6 +1721,7 @@ export const getCompraSeleccion = async (req, res) => {
       SELECT 
         li.id,
         li.quantity,
+        li.product_name,
         li.description,
         u.name AS unidad_medida,
         qs.provider_id,
@@ -1598,7 +1766,16 @@ export const getCompraSeleccion = async (req, res) => {
       ORDER BY li.id ASC
     `;
 
-    const [items] = await pool.query(queryItems, [id]);
+    const [itemsRaw] = await pool.query(queryItems, [id]);
+    const items = (Array.isArray(itemsRaw) ? itemsRaw : []).map((item) => {
+      const productName = String(item?.product_name ?? "").trim();
+      const description = String(item?.description ?? "").trim();
+      return {
+        ...item,
+        product_name: productName || (description ? description : null),
+        description: description || null,
+      };
+    });
     const providerIds = Array.from(
       new Set(items.map((it) => Number(it.provider_id || 0)).filter((pid) => pid > 0))
     );
@@ -1682,6 +1859,7 @@ export const getOrdenCompraPdf = async (req, res) => {
     const ok = await ensureAssignedOrAdmin(req, res, id);
     if (!ok) return;
     const withSelectionTaxCols = await hasSelectionTaxColumns();
+    await ensureOrderMetaConditionColumns();
 
     const queryReq = `
       SELECT 
@@ -1696,8 +1874,18 @@ export const getOrdenCompraPdf = async (req, res) => {
         r.order_type,
         u.name as solicitante,
         u.ure as ure_solicitante,
-        COALESCE(NULLIF(TRIM(ho.name), ''), NULLIF(TRIM(c2.name), ''), u.ure) as nombre_unidad,
-        COALESCE(NULLIF(TRIM(c.name), ''), NULLIF(TRIM(c2.name), ''), 'General') as coordinacion
+        COALESCE(
+          NULLIF(TRIM(ho.name), ''),
+          NULLIF(TRIM(sec.name), ''),
+          NULLIF(TRIM(c2.name), ''),
+          u.ure
+        ) as nombre_unidad,
+        COALESCE(
+          NULLIF(TRIM(c.name), ''),
+          NULLIF(TRIM(csec.name), ''),
+          NULLIF(TRIM(c2.name), ''),
+          'General'
+        ) as coordinacion
       FROM requisition r
       LEFT JOIN users u ON r.users_id = u.id
       LEFT JOIN head_offices ho
@@ -1708,7 +1896,23 @@ export const getOrdenCompraPdf = async (req, res) => {
           ORDER BY LENGTH(TRIM(ho2.ure)) DESC
           LIMIT 1
         )
+      LEFT JOIN secretary sec
+        ON sec.id = (
+          SELECT s2.id
+          FROM secretary s2
+          WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+          ORDER BY LENGTH(TRIM(s2.ure)) DESC
+          LIMIT 1
+        )
       LEFT JOIN coordination c ON ho.coordination_id = c.id
+      LEFT JOIN coordination csec
+        ON csec.id = (
+          SELECT c4.id
+          FROM coordination c4
+          WHERE TRIM(UPPER(sec.ure)) LIKE CONCAT(TRIM(UPPER(c4.ure)), '%')
+          ORDER BY LENGTH(TRIM(c4.ure)) DESC
+          LIMIT 1
+        )
       LEFT JOIN coordination c2
         ON c2.id = (
           SELECT c3.id
@@ -1725,6 +1929,15 @@ export const getOrdenCompraPdf = async (req, res) => {
     }
 
     const requisition = reqRows[0];
+    const ureCodePattern = /^\d+(?:\.[0-9A-Za-z]+)+$/;
+    const cleanText = (value) => String(value || "").trim();
+    const resolvedUnitNameRaw = cleanText(requisition.nombre_unidad);
+    const resolvedCoordRaw = cleanText(requisition.coordinacion);
+    const requesterName = cleanText(requisition.solicitante);
+    const resolvedUnitName =
+      resolvedUnitNameRaw && !ureCodePattern.test(resolvedUnitNameRaw)
+        ? resolvedUnitNameRaw
+        : resolvedCoordRaw || "Unidad solicitante";
     const st = Number(requisition.statuses_id);
     if (![13, 11].includes(st)) {
       return res.status(400).json({
@@ -1829,7 +2042,20 @@ export const getOrdenCompraPdf = async (req, res) => {
 
     const [metaRows] = await pool.query(
       `
-      SELECT folio, oc_incluir_iva, oc_iva_porcentaje
+      SELECT
+        folio,
+        oc_incluir_iva,
+        oc_iva_porcentaje,
+        oc_payment_mode,
+        oc_payment_anticipo,
+        oc_delivery_place,
+        oc_delivery_date,
+        oc_payment_start_date,
+        oc_payment_end_date,
+        oc_payment_date,
+        oc_installments_count,
+        oc_advance_percentage,
+        oc_payment_compliance
       FROM orden_compra_meta
       WHERE requisition_id = ? AND provider_id = ?
       LIMIT 1
@@ -1840,6 +2066,56 @@ export const getOrdenCompraPdf = async (req, res) => {
     const folioValue = meta.folio ?? requisition.folio ?? null;
     const incluirIvaMeta = meta.oc_incluir_iva ?? 0;
     const ivaPctMeta = meta.oc_iva_porcentaje ?? 0;
+    const paymentModeMeta =
+      String(meta.oc_payment_mode || "").toLowerCase() === "parcialidades"
+        ? "parcialidades"
+        : "contado";
+    const paymentAdvanceMeta = Number(meta.oc_payment_anticipo || 0) === 1;
+    const deliveryPlaceMeta = String(meta.oc_delivery_place || "").trim();
+    const paymentComplianceMeta = Number(meta.oc_payment_compliance || 0) === 1;
+    const installmentsCountMeta =
+      meta.oc_installments_count == null ? "" : String(meta.oc_installments_count);
+    const advancePercentageMeta =
+      meta.oc_advance_percentage == null || meta.oc_advance_percentage === ""
+        ? ""
+        : `${Number(meta.oc_advance_percentage).toLocaleString("es-MX", {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2,
+          })}%`;
+    const formatMetaDate = (value) => {
+      const raw = String(value || "").trim();
+      if (!raw) return "";
+      const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (match) return `${match[3]}/${match[2]}/${match[1]}`;
+      const dt = new Date(raw);
+      if (!Number.isNaN(dt.getTime())) {
+        const dd = String(dt.getDate()).padStart(2, "0");
+        const mm = String(dt.getMonth() + 1).padStart(2, "0");
+        const yyyy = dt.getFullYear();
+        return `${dd}/${mm}/${yyyy}`;
+      }
+      return raw;
+    };
+    const deliveryDateMeta = formatMetaDate(meta.oc_delivery_date);
+    let buyerInitials = "";
+    try {
+      const buyerUserId = Number(req.user?.id || 0);
+      if (buyerUserId) {
+        const [buyerRows] = await pool.query(
+          `SELECT name FROM users WHERE id = ? LIMIT 1`,
+          [buyerUserId]
+        );
+        const buyerName = String(buyerRows?.[0]?.name || "").trim();
+        if (buyerName) {
+          buyerInitials = buyerName
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 4)
+            .map((w) => w.charAt(0).toUpperCase())
+            .join("");
+        }
+      }
+    } catch {}
     const orderType =
       String(requisition.order_type || "compra").toLowerCase() === "servicio"
         ? "servicio"
@@ -1933,7 +2209,7 @@ export const getOrdenCompraPdf = async (req, res) => {
       "No FONDO": "",
       "PROGRAMA": "",
       "CÓDIGO DE URERow1": requisition.ure_solicitante || "",
-      "ENTIDAD o DEPENDENCIA SOLICITANTERow1": requisition.nombre_unidad || requisition.ure_solicitante || "",
+      "ENTIDAD o DEPENDENCIA SOLICITANTERow1": resolvedUnitName,
       "TELEFONO DE LA DEPENDENCIA": "3787828033",
       "DOMICILIO DE LA DEPENDENCIA": "Av. Rafael Casillas Aceves #1200, Col. Popotes, Tepatitlan de Morelos, Jalisco C.P 47620",
       "PROVEEDOR": provider.name || "",
@@ -1941,23 +2217,32 @@ export const getOrdenCompraPdf = async (req, res) => {
       "FAX/EMAIL": provider.email || "",
       "TELEFONO DEL PROVEEDOR": provider.phones || "",
       "DOMICILO DEL PROVEEDOR": provider.address || "",
-      "LUGAR DE ENTREGA": requisition.nombre_unidad || "",
+      "LUGAR DE ENTREGA": deliveryPlaceMeta || DEFAULT_DELIVERY_PLACE,
       "OBSERVACIONES": requisition.observation || requisition.notes || "",
+      "FECHA DE ENTREGA": deliveryDateMeta,
       "FECHA DE INICIO": "",
       "FECHA DE CONCLUCION": "",
       "FECHA DE PAGO": "",
-      "No DE PARCIALIDADES": "",
-      "PORCENTAJE DE ANTICIPO": "",
+      "No DE PARCIALIDADES": installmentsCountMeta,
+      "PORCENTAJE DE ANTICIPO": advancePercentageMeta,
+      "Vo Bo": requesterName || resolvedUnitName,
     };
 
     const srcDoc = await PDFLibDocument.load(templateBytes);
     const form = srcDoc.getForm();
 
     Object.entries(common).forEach(([k, v]) => setText(form, k, v));
-    setCheck(form, "PAGO DE CONTADO", true);
-    setCheck(form, "PAGO EN PARCIALIDADES", false);
-    setCheck(form, "a) ANTICIPO", false);
-    setCheck(form, "b CUMPLIMIENTO", false);
+    try {
+      const voBoField = form.getTextField("Vo Bo");
+      // Evita recortes en apellidos largos por límites del campo en la plantilla.
+      voBoField.removeMaxLength();
+      voBoField.setFontSize(7);
+      voBoField.setText(requesterName || resolvedUnitName);
+    } catch {}
+    setCheck(form, "PAGO DE CONTADO", paymentModeMeta === "contado");
+    setCheck(form, "PAGO EN PARCIALIDADES", paymentModeMeta === "parcialidades");
+    setCheck(form, "a) ANTICIPO", paymentAdvanceMeta);
+    setCheck(form, "b CUMPLIMIENTO", paymentComplianceMeta);
 
     const itemValues = itemsByProvider.map((it) => {
       const qty = Number(it.quantity || 0);
@@ -2000,8 +2285,16 @@ export const getOrdenCompraPdf = async (req, res) => {
     const mergedQty = itemValues.map((it) => formatQty(it.qty) || "-").join(multilineGap);
     const mergedUnits = itemValues.map((it) => it.unidad || "-").join(multilineGap);
     const mergedUnitPrices = itemValues.map((it) => (it.unit ? formatMoney(it.unit) : "-")).join(multilineGap);
-    const isrNote = isrFromItems > 0 ? `\nRetención ISR: ${formatMoney(isrFromItems)}` : "";
-    const obsBase = requisition.observation || requisition.notes || "";
+    const partidas = Array.from(
+      new Set(
+        itemsByProvider
+          .map((it) => Number(it.id))
+          .filter((n) => Number.isFinite(n) && n > 0)
+      )
+    ).join(", ");
+    const obsWhoLine = `Quien solicita: ${resolvedUnitName || ""}`.trimEnd();
+    const obsReqLine = `REQ: ${partidas || ""}`.trimEnd();
+    const obsInitialsLine = String(buyerInitials || "").trim();
 
     setText(form, "CANTIDADRow1", single ? (single.qty ? formatQty(single.qty) : "") : mergedQty);
     setTextAny(form, ["DESCRIPCIÓN DE LOS SERVICIOSRow1", "DESCRIPCIÓN DE LOS BIENESRow1"], single ? single.desc : mergedDescription);
@@ -2012,7 +2305,7 @@ export const getOrdenCompraPdf = async (req, res) => {
     setText(form, "IMPORTE TOTALSUBTOTAL IVA TOTAL_2", iva ? formatMoney(iva) : "0.00");
     setText(form, "IMPORTE TOTALSUBTOTAL IVA TOTAL_3", totalConIva ? formatMoney(totalConIva) : "");
     setText(form, "IMPORTE CON LETRA", "");
-    setText(form, "OBSERVACIONES", `${obsBase}${isrNote}`.trim());
+    setText(form, "OBSERVACIONES", [obsWhoLine, obsReqLine, obsInitialsLine].join("\n"));
 
     form.flatten();
 
@@ -2063,7 +2356,24 @@ export const updateOrdenCompraMeta = async (req, res) => {
     const ok = await ensureAssignedOrAdmin(req, res, id);
     if (!ok) return;
 
-    const { provider_id, folio, oc_incluir_iva, oc_iva_porcentaje } = req.body || {};
+    await ensureOrderMetaConditionColumns();
+
+    const {
+      provider_id,
+      folio,
+      oc_incluir_iva,
+      oc_iva_porcentaje,
+      oc_payment_mode,
+      oc_payment_anticipo,
+      oc_delivery_place,
+      oc_delivery_date,
+      oc_payment_start_date,
+      oc_payment_end_date,
+      oc_payment_date,
+      oc_installments_count,
+      oc_advance_percentage,
+      oc_payment_compliance,
+    } = req.body || {};
     const providerId = Number(provider_id || 0);
     if (!providerId) {
       return res.status(400).json({ message: "provider_id es requerido" });
@@ -2074,25 +2384,133 @@ export const updateOrdenCompraMeta = async (req, res) => {
       oc_iva_porcentaje === null || oc_iva_porcentaje === undefined || oc_iva_porcentaje === ""
         ? null
         : Number(oc_iva_porcentaje);
+    const paymentMode =
+      String(oc_payment_mode || "").toLowerCase() === "parcialidades"
+        ? "parcialidades"
+        : "contado";
+    const paymentAdvance = Number(oc_payment_anticipo) ? 1 : 0;
+    const deliveryPlaceRaw = String(oc_delivery_place || "").trim();
+    const deliveryPlace = deliveryPlaceRaw ? deliveryPlaceRaw : DEFAULT_DELIVERY_PLACE;
+    const deliveryDateRaw = String(oc_delivery_date || "").trim();
+    const paymentCompliance = Number(oc_payment_compliance) ? 1 : 0;
+    const startDateRaw = String(oc_payment_start_date || "").trim();
+    const endDateRaw = String(oc_payment_end_date || "").trim();
+    const paymentDateRaw = String(oc_payment_date || "").trim();
+    const installmentsRaw = String(oc_installments_count || "").trim();
+    const advancePctRaw = String(oc_advance_percentage || "").trim();
+    const isIsoDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+    const deliveryDate = deliveryDateRaw ? (isIsoDate(deliveryDateRaw) ? deliveryDateRaw : null) : null;
+    const paymentStartDate = startDateRaw ? (isIsoDate(startDateRaw) ? startDateRaw : null) : null;
+    const paymentEndDate = endDateRaw ? (isIsoDate(endDateRaw) ? endDateRaw : null) : null;
+    const paymentDate = paymentDateRaw ? (isIsoDate(paymentDateRaw) ? paymentDateRaw : null) : null;
+    const installmentsCount = installmentsRaw === "" ? null : Number(installmentsRaw);
+    const advancePercentage = advancePctRaw === "" ? null : Number(advancePctRaw);
 
     if (pct != null && (!Number.isFinite(pct) || pct < 0 || pct > 100)) {
       return res.status(400).json({ message: "IVA inválido" });
+    }
+    if (startDateRaw && !paymentStartDate) {
+      return res.status(400).json({ message: "Fecha de inicio inválida" });
+    }
+    if (deliveryDateRaw && !deliveryDate) {
+      return res.status(400).json({ message: "Fecha de entrega inválida" });
+    }
+    if (endDateRaw && !paymentEndDate) {
+      return res.status(400).json({ message: "Fecha de conclusión inválida" });
+    }
+    if (paymentDateRaw && !paymentDate) {
+      return res.status(400).json({ message: "Fecha de pago inválida" });
+    }
+    if (
+      installmentsCount != null &&
+      (!Number.isFinite(installmentsCount) || installmentsCount < 0 || installmentsCount > 999)
+    ) {
+      return res.status(400).json({ message: "Número de parcialidades inválido" });
+    }
+    if (
+      advancePercentage != null &&
+      (!Number.isFinite(advancePercentage) || advancePercentage < 0 || advancePercentage > 100)
+    ) {
+      return res.status(400).json({ message: "Porcentaje de anticipo inválido" });
+    }
+
+    let folioFinal = String(folio || "").trim();
+    if (!folioFinal) {
+      const [[existingMeta]] = await pool.query(
+        `
+        SELECT folio
+        FROM orden_compra_meta
+        WHERE requisition_id = ? AND provider_id = ?
+        LIMIT 1
+        `,
+        [id, providerId]
+      );
+      const existingFolio = String(existingMeta?.folio || "").trim();
+      if (existingFolio) {
+        folioFinal = existingFolio;
+      } else {
+        await ensureOrderFolioSequenceTable();
+        const [seqResult] = await pool.query(`INSERT INTO orden_compra_sequence () VALUES ()`);
+        folioFinal = String(seqResult?.insertId || "").trim();
+      }
     }
 
     await pool.query(
       `
       INSERT INTO orden_compra_meta
-        (requisition_id, provider_id, folio, oc_incluir_iva, oc_iva_porcentaje)
-      VALUES (?, ?, ?, ?, ?)
+        (
+          requisition_id,
+          provider_id,
+          folio,
+          oc_incluir_iva,
+          oc_iva_porcentaje,
+          oc_payment_mode,
+          oc_payment_anticipo,
+          oc_delivery_place,
+          oc_delivery_date,
+          oc_payment_start_date,
+          oc_payment_end_date,
+          oc_payment_date,
+          oc_installments_count,
+          oc_advance_percentage,
+          oc_payment_compliance
+        )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         folio = VALUES(folio),
         oc_incluir_iva = VALUES(oc_incluir_iva),
-        oc_iva_porcentaje = VALUES(oc_iva_porcentaje)
+        oc_iva_porcentaje = VALUES(oc_iva_porcentaje),
+        oc_payment_mode = VALUES(oc_payment_mode),
+        oc_payment_anticipo = VALUES(oc_payment_anticipo),
+        oc_delivery_place = VALUES(oc_delivery_place),
+        oc_delivery_date = VALUES(oc_delivery_date),
+        oc_payment_start_date = VALUES(oc_payment_start_date),
+        oc_payment_end_date = VALUES(oc_payment_end_date),
+        oc_payment_date = VALUES(oc_payment_date),
+        oc_installments_count = VALUES(oc_installments_count),
+        oc_advance_percentage = VALUES(oc_advance_percentage),
+        oc_payment_compliance = VALUES(oc_payment_compliance)
       `,
-      [id, providerId, folio || null, incluir, pct]
+      [
+        id,
+        providerId,
+        folioFinal || null,
+        incluir,
+        pct,
+        paymentMode,
+        paymentAdvance,
+        deliveryPlace,
+        deliveryDate,
+        paymentStartDate,
+        paymentEndDate,
+        paymentDate,
+        installmentsCount,
+        advancePercentage,
+        paymentCompliance,
+      ]
     );
 
-    res.json({ message: "Datos de orden actualizados" });
+    res.json({ message: "Datos de orden actualizados", folio: folioFinal || null });
   } catch (error) {
     console.error("Error updateOrdenCompraMeta:", error);
     res.status(500).json({ message: "Error interno" });
@@ -2105,9 +2523,25 @@ export const getOrdenCompraMeta = async (req, res) => {
     const ok = await ensureAssignedOrAdmin(req, res, id);
     if (!ok) return;
 
+    await ensureOrderMetaConditionColumns();
+
     const [rows] = await pool.query(
       `
-      SELECT provider_id, folio, oc_incluir_iva, oc_iva_porcentaje
+      SELECT
+        provider_id,
+        folio,
+        oc_incluir_iva,
+        oc_iva_porcentaje,
+        oc_payment_mode,
+        oc_payment_anticipo,
+        oc_delivery_place,
+        oc_delivery_date,
+        oc_payment_start_date,
+        oc_payment_end_date,
+        oc_payment_date,
+        oc_installments_count,
+        oc_advance_percentage,
+        oc_payment_compliance
       FROM orden_compra_meta
       WHERE requisition_id = ?
       `,
@@ -3991,9 +4425,11 @@ export const getComprasRequisitionTimeline = async (req, res) => {
     }
 
     const statusTimeline = await getRequisitionStatusTimeline(id);
+    const assignmentTimeline = await getRequisitionAssignmentTimeline(id);
     return res.json({
       requisition: reqRow,
       statusTimeline,
+      assignmentTimeline,
     });
   } catch (error) {
     console.error("Error getComprasRequisitionTimeline:", error);

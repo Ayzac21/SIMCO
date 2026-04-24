@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { getAuthHeaders } from "../../../api/auth";
 import { API_BASE_URL } from "../../../api/config";
 import { getRequisitionUnitLabel } from "../../../utils/unitDisplay";
-import { getStatusLabel } from "../../../utils/statusDisplay";
+import { getCompactStatusLabel, getStatusLabel } from "../../../utils/statusDisplay";
 
 const API = API_BASE_URL;
 
@@ -30,13 +30,13 @@ function AppLoader({ label = "Cargando..." }) {
 const STATUS_FLOW = [7, 8, 9, 12, 14, 13, 11, 10];
 const STATUS_LABELS = {
     7: "Borrador",
-    8: "Coordinación",
-    9: "Secretaría",
-    12: "Cotización",
-    14: "Revisión interna",
-    13: "Proceso de compra",
+    8: "Valid. Coord.",
+    9: "Valid. Sria.",
+    12: "Cotizando",
+    14: "Cotizada",
+    13: "Proc. compra",
     11: "Finalizada",
-    10: "Rechazada",
+    10: "Cancelada",
 };
 
 const renderStatusBadge = (statusId, statusName) => {
@@ -76,7 +76,9 @@ const renderStatusBadge = (statusId, statusName) => {
             className={`px-3 py-1 rounded-full text-xs font-extrabold border ${styles} inline-flex items-center gap-1`}
         >
             <span className="w-2 h-2 rounded-full bg-current opacity-50" />
-            {getStatusLabel(statusId, statusName)}
+            <span title={getStatusLabel(statusId, statusName)}>
+                {getCompactStatusLabel(statusId, statusName)}
+            </span>
         </span>
     );
 };
@@ -115,14 +117,14 @@ const ProgressBar = ({ statusId }) => {
 
 const actionHintByStatus = (statusId) => {
     const st = Number(statusId);
-    if (st === 8) return "Acción requerida: revisar y decidir en Coordinación.";
+    if (st === 8) return "Acción requerida: revisar y decidir en validación de Coordinación.";
     if (st === 7) return "Pendiente de corrección por la URE.";
-    if (st === 9) return "En revisión de Secretaría.";
+    if (st === 9) return "En validación de Secretaría.";
     if (st === 12) return "En cotización con proveedores (Compras).";
-    if (st === 14) return "En revisión interna de Compras.";
-    if (st === 13) return "En proceso de compra.";
-    if (st === 11) return "Compra finalizada.";
-    if (st === 10) return "Requisición rechazada en revisión.";
+    if (st === 14) return "Cotizada y en revisión interna de Compras.";
+    if (st === 13) return "En proceso administrativo de compra.";
+    if (st === 11) return "Solicitud finalizada.";
+    if (st === 10) return "Requisición cancelada en revisión.";
     return "Sin acción pendiente.";
 };
 
@@ -311,7 +313,7 @@ export default function Recibidas() {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.message || "No se pudo rechazar");
 
-        toast.success("Requisición rechazada");
+        toast.success("Requisición cancelada");
         setRequisiciones((prev) => prev.filter((r) => r.id !== req.id));
         setSelectedReq(null);
         } catch {
@@ -433,7 +435,7 @@ export default function Recibidas() {
             setRequisiciones((prev) =>
             prev.map((r) =>
                 Number(r.id) === Number(req.id)
-                ? { ...r, statuses_id: 9, nombre_estatus: "Secretaría" }
+                ? { ...r, statuses_id: 9, nombre_estatus: "En validación de Secretaría" }
                 : r
             )
             );
@@ -528,13 +530,13 @@ export default function Recibidas() {
                 >
                     <option value="all">Todos</option>
                     <option value="7">Borrador</option>
-                    <option value="8">Coordinación</option>
-                    <option value="9">Secretaría</option>
-                    <option value="12">Cotización</option>
-                    <option value="14">Revisión</option>
-                    <option value="13">Compra</option>
+                    <option value="8">En validación de Coordinación</option>
+                    <option value="9">En validación de Secretaría</option>
+                    <option value="12">Cotizando</option>
+                    <option value="14">Cotizada (Revisión interna)</option>
+                    <option value="13">Proceso administrativo de compra</option>
                     <option value="11">Finalizada</option>
-                    <option value="10">Rechazada</option>
+                    <option value="10">Cancelada</option>
                 </select>
 
                 <button

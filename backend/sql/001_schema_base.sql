@@ -235,6 +235,16 @@ CREATE TABLE IF NOT EXISTS orden_compra_meta (
   folio VARCHAR(80) NULL,
   oc_incluir_iva TINYINT(1) NOT NULL DEFAULT 0,
   oc_iva_porcentaje DECIMAL(6,2) NULL,
+  oc_payment_mode VARCHAR(20) NOT NULL DEFAULT 'contado',
+  oc_payment_anticipo TINYINT(1) NOT NULL DEFAULT 0,
+  oc_delivery_place VARCHAR(255) NULL,
+  oc_delivery_date DATE NULL,
+  oc_payment_start_date DATE NULL,
+  oc_payment_end_date DATE NULL,
+  oc_payment_date DATE NULL,
+  oc_installments_count INT NULL,
+  oc_advance_percentage DECIMAL(6,2) NULL,
+  oc_payment_compliance TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_ocm_req_provider (requisition_id, provider_id),
@@ -244,6 +254,11 @@ CREATE TABLE IF NOT EXISTS orden_compra_meta (
   CONSTRAINT fk_ocm_provider
     FOREIGN KEY (provider_id) REFERENCES provider(id)
     ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS orden_compra_sequence (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS notifications (

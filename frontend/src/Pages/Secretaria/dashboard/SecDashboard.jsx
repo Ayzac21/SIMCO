@@ -165,7 +165,7 @@ export default function SecDashboard() {
             });
             if (res.ok) {
                 toast.success(
-                    type === 'approve' ? "¡Autorizado!" : type === 'adjust' ? "Reenviada a Coordinación para revisión" : "Rechazada",
+                    type === 'approve' ? "¡Autorizado!" : type === 'adjust' ? "Reenviada a Coordinación para revisión" : "Cancelada",
                     { id: toastId }
                 );
                 setSelectedReq(null);
@@ -328,7 +328,7 @@ export default function SecDashboard() {
                     <div className="p-2 bg-yellow-50 rounded-lg text-yellow-600 h-fit"><Truck size={20} /></div>
                 </div>
                 <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between">
-                    <div><p className="text-[10px] font-bold text-gray-400 uppercase">Rechazadas</p><p className="text-3xl font-bold text-gray-800 mt-1">{rechazadas.length}</p></div>
+                    <div><p className="text-[10px] font-bold text-gray-400 uppercase">Canceladas</p><p className="text-3xl font-bold text-gray-800 mt-1">{rechazadas.length}</p></div>
                     <div className="p-2 bg-gray-50 rounded-lg text-gray-400 h-fit"><XCircle size={20} /></div>
                 </div>
             </div>

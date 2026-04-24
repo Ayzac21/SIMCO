@@ -7,7 +7,7 @@ import { API_BASE_URL } from "../../api/config";
 import useEscapeKey from "../../hooks/useEscapeKey";
 import RequisitionTimelineModal from "../../components/RequisitionTimelineModal";
 import { getUserUnitLabel } from "../../utils/unitDisplay";
-import { getStatusLabel } from "../../utils/statusDisplay";
+import { getCompactStatusLabel } from "../../utils/statusDisplay";
 
 const API = API_BASE_URL;
 const PRIMARY = "#8B1D35";
@@ -84,18 +84,18 @@ function badgeByStatus(statusId, statusName) {
       break;
   }
 
-  return { text: getStatusLabel(statusId, statusName), cls };
+  return { text: getCompactStatusLabel(statusId, statusName), cls };
 }
 
 function nextStepText(statusId) {
   const st = Number(statusId);
   if (st === 7) return "Te falta enviar esta solicitud.";
   if (st === 14) return "Compras está en revisión interna del comparativo.";
-  if (st === 10) return "Fue rechazada. Revisa las notas.";
-  if (st === 13) return "Compras ya está haciendo el pedido.";
+  if (st === 10) return "Fue cancelada. Revisa las notas.";
+  if (st === 13) return "Está en proceso administrativo de compra.";
   if (st === 11) return "Listo: el proceso ya está finalizado.";
-  if (st === 8) return "Está en Coordinación.";
-  if (st === 9) return "Está en Secretaría.";
+  if (st === 8) return "Está en validación de Coordinación.";
+  if (st === 9) return "Está en validación de Secretaría.";
   if (st === 12) return "Compras está cotizando.";
   return "Revisa el detalle.";
 }
@@ -133,7 +133,7 @@ function actionConfigByStatus(statusId, id) {
   if (st === 10) {
     return {
       enabled: false,
-      label: "Rechazada",
+      label: "Cancelada",
       hint: "Revisa el motivo para volver a capturar o ajustar.",
       to: null,
     };
@@ -627,7 +627,7 @@ export default function UreDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatCard label="En trámite" value={summary.pendientes} helper="Aún no finalizadas" iconBg="bg-yellow-50" icon={<Clock3 className="w-6 h-6 text-yellow-600" />} />
         <StatCard label="Listas" value={summary.aprobadas} helper="Ya avanzaron / completadas" iconBg="bg-blue-50" icon={<CheckCircle2 className="w-6 h-6 text-blue-600" />} />
-        <StatCard label="Rechazadas" value={summary.rechazadas} helper="Revisa notas" iconBg="bg-gray-100" icon={<XCircle className="w-6 h-6 text-gray-500" />} />
+        <StatCard label="Canceladas" value={summary.rechazadas} helper="Revisa notas" iconBg="bg-gray-100" icon={<XCircle className="w-6 h-6 text-gray-500" />} />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

@@ -158,6 +158,15 @@ export default function RequisicionesUre() {
             return prev.filter((a) => a.id !== id);
         });
     };
+    const quitarFotoArticulo = (id) => {
+        setArticulos((prev) =>
+            prev.map((a) => {
+                if (a.id !== id) return a;
+                if (a?.foto_preview_url) URL.revokeObjectURL(a.foto_preview_url);
+                return { ...a, foto_partida: null, foto_preview_url: null };
+            })
+        );
+    };
     const eliminarAdjunto = (index) => setAttachments(attachments.filter((_, i) => i !== index));
 
     const procesarAdjuntos = (filesRaw) => {
@@ -470,7 +479,7 @@ export default function RequisicionesUre() {
                                                 {partidaFoto ? ` Seleccionada: ${partidaFoto.name}` : ""}
                                             </p>
                                             {partidaFotoPreviewUrl && (
-                                                <div className="mt-2">
+                                                <div className="mt-2 relative h-16 w-16">
                                                     <button
                                                         type="button"
                                                         onClick={() => window.open(partidaFotoPreviewUrl, "_blank", "noopener,noreferrer")}
@@ -482,6 +491,14 @@ export default function RequisicionesUre() {
                                                             alt="Vista previa de foto de partida"
                                                             className="h-full w-full object-cover"
                                                         />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPartidaFoto(null)}
+                                                        className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-white border border-red-300 text-red-600 text-xs font-bold leading-none hover:bg-red-50"
+                                                        title="Quitar foto"
+                                                    >
+                                                        X
                                                     </button>
                                                 </div>
                                             )}
@@ -548,18 +565,28 @@ export default function RequisicionesUre() {
                                             <div className="mt-2 flex items-center gap-2">
                                                 <p className="text-[11px] text-emerald-700 font-semibold">Con foto de referencia</p>
                                                 {a.foto_preview_url && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => window.open(a.foto_preview_url, "_blank", "noopener,noreferrer")}
-                                                        className="h-10 w-10 rounded border border-[#8B1D35]/20 overflow-hidden bg-white"
-                                                        title="Abrir vista previa"
-                                                    >
-                                                        <img
-                                                            src={a.foto_preview_url}
-                                                            alt="Vista previa de foto por partida"
-                                                            className="h-full w-full object-cover"
-                                                        />
-                                                    </button>
+                                                    <div className="relative h-10 w-10">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => window.open(a.foto_preview_url, "_blank", "noopener,noreferrer")}
+                                                            className="h-10 w-10 rounded border border-[#8B1D35]/20 overflow-hidden bg-white"
+                                                            title="Abrir vista previa"
+                                                        >
+                                                            <img
+                                                                src={a.foto_preview_url}
+                                                                alt="Vista previa de foto por partida"
+                                                                className="h-full w-full object-cover"
+                                                            />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => quitarFotoArticulo(a.id)}
+                                                            className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-white border border-red-300 text-red-600 text-[10px] font-bold leading-none hover:bg-red-50"
+                                                            title="Quitar foto"
+                                                        >
+                                                            X
+                                                        </button>
+                                                    </div>
                                                 )}
                                             </div>
                                         )}

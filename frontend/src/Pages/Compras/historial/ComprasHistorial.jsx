@@ -114,7 +114,7 @@ export default function ComprasHistorial() {
               statusFilter === "10" ? "bg-red-600 text-white border-red-600" : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
             }`}
           >
-            Rechazadas
+            Canceladas
           </button>
         </div>
 

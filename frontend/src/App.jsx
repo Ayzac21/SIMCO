@@ -129,7 +129,7 @@ export default function App() {
           <Route
             path="proveedores"
             element={
-              <ProtectedRoute allowedRoles={["compras_admin"]}>
+              <ProtectedRoute allowedRoles={["compras_admin", "compras_operador", "compras_lector"]}>
                 <ComprasProveedores />
               </ProtectedRoute>
             }

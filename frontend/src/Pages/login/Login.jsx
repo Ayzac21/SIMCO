@@ -3,13 +3,14 @@ import React, { useState } from "react";
 import { API_BASE_URL } from "../../api/config";
 import { useContext } from "react";
 import { AuthContext } from "../../context/auth-context";
-import { LockKeyhole, UserRound, AlertCircle, ArrowLeft } from "lucide-react";
+import { LockKeyhole, UserRound, AlertCircle, ArrowLeft, Eye, EyeOff } from "lucide-react";
 import escudoCualtos from "../../assets/escudo-cualtos-02_0_1.png";
 import Navbar from "../../components/Navbar";
 
 export default function Login() {
     const [user_name, setUserName] = useState("");
     const [password, setPassword] = useState("");
+    const [showPassword, setShowPassword] = useState(false);
     const [mensaje, setMensaje] = useState("");
     const [loading, setLoading] = useState(false);
 
@@ -185,13 +186,21 @@ export default function Login() {
                                     <div className="relative">
                                         <LockKeyhole size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                                         <input
-                                            type="password"
+                                            type={showPassword ? "text" : "password"}
                                             placeholder="********"
                                             value={password}
                                             onChange={(e) => setPassword(e.target.value)}
-                                            className="w-full border border-gray-300 rounded-xl pl-10 pr-4 py-2.5 sm:py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-principal/30 focus:border-principal"
+                                            className="w-full border border-gray-300 rounded-xl pl-10 pr-11 py-2.5 sm:py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-principal/30 focus:border-principal"
                                             required
                                         />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword((prev) => !prev)}
+                                            aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                                        >
+                                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
                                     </div>
                                 </div>
 

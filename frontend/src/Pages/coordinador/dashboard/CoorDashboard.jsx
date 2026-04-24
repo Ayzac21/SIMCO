@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { getAuthHeaders } from "../../../api/auth";
 import { API_BASE_URL } from "../../../api/config";
 import { getRequisitionUnitLabel } from "../../../utils/unitDisplay";
-import { getStatusLabel } from "../../../utils/statusDisplay";
+import { getCompactStatusLabel, getStatusLabel } from "../../../utils/statusDisplay";
 
 const API = API_BASE_URL;
 
@@ -69,21 +69,23 @@ const renderStatusBadge = (statusId, statusName) => {
       className={`px-2 py-1 rounded-full text-[10px] md:text-xs font-bold border ${styles} inline-flex items-center gap-1`}
     >
       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50" />
-      {getStatusLabel(statusId, statusName)}
+      <span title={getStatusLabel(statusId, statusName)}>
+        {getCompactStatusLabel(statusId, statusName)}
+      </span>
     </span>
   );
 };
 
 const actionHintByStatus = (statusId) => {
   const st = Number(statusId);
-  if (st === 8) return "Acción requerida: revisar y decidir en Coordinación.";
+  if (st === 8) return "Acción requerida: revisar y decidir en validación de Coordinación.";
   if (st === 7) return "Pendiente de corrección por la URE.";
-  if (st === 9) return "En revisión de Secretaría.";
+  if (st === 9) return "En validación de Secretaría.";
   if (st === 12) return "En cotización con proveedores (Compras).";
-  if (st === 14) return "En revisión interna de Compras.";
-  if (st === 13) return "En proceso de compra.";
+  if (st === 14) return "Cotizada y en revisión interna de Compras.";
+  if (st === 13) return "En proceso administrativo de compra.";
   if (st === 11) return "Compra finalizada.";
-  if (st === 10) return "Requisición rechazada en revisión.";
+  if (st === 10) return "Requisición cancelada en revisión.";
   return "Sin acción pendiente.";
 };
 
@@ -283,9 +285,9 @@ export default function CoorDashboard() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || "No se pudo rechazar");
 
-      toast.success("Requisición rechazada");
+      toast.success("Requisición cancelada");
 
-      patchReqStatusLocal(req.id, 10, "Rechazada");
+      patchReqStatusLocal(req.id, 10, "Cancelada");
       setSelectedReq(null);
     } catch (e) {
       console.error(e);
@@ -388,7 +390,7 @@ export default function CoorDashboard() {
         if (!res.ok) throw new Error(data?.message || "No se pudo autorizar");
 
         toast.success("Enviada a Secretaría");
-        patchReqStatusLocal(req.id, 9, "Secretaría");
+        patchReqStatusLocal(req.id, 9, "En validación de Secretaría");
         setSelectedReq(null);
       } catch (e) {
         console.error(e);
@@ -410,7 +412,7 @@ export default function CoorDashboard() {
         if (!res.ok) throw new Error(data?.message || "No se pudo enviar");
 
         toast.success("Enviada a Secretaría");
-        patchReqStatusLocal(req.id, 9, "Secretaría");
+        patchReqStatusLocal(req.id, 9, "En validación de Secretaría");
         setSelectedReq(null);
       } catch (e) {
         console.error(e);
@@ -542,7 +544,7 @@ export default function CoorDashboard() {
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">
-              Rechazadas
+              Canceladas
             </p>
             <p className="text-3xl font-bold text-gray-800">{stats.rechazadas}</p>
             <p className="text-[10px] text-gray-500 mt-1">Estatus 10</p>

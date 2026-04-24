@@ -41,15 +41,15 @@ const statusMeta = (statusId, basePath = "/unidad") => {
   }
   if (st === 8) {
     return {
-      label: "En Coordinación",
-      detail: "Ya fue enviada a Coordinación. Está pendiente de validación.",
+      label: "En validación de Coordinación",
+      detail: "Ya fue enviada a Coordinación. Está en etapa de validación.",
       actionLabel: "Ver mis requisiciones",
       actionPath: `${basePath}/mi-requisiciones`,
     };
   }
   if (st === 9) {
     return {
-      label: "En Secretaría",
+      label: "En validación de Secretaría",
       detail: "Ya pasó a Secretaría para revisión administrativa.",
       actionLabel: "Ver mis requisiciones",
       actionPath: `${basePath}/mi-requisiciones`,
@@ -65,7 +65,7 @@ const statusMeta = (statusId, basePath = "/unidad") => {
   }
   if (st === 13) {
     return {
-      label: "En proceso de compra",
+      label: "En proceso administrativo de compra",
       detail: "La compra ya está en proceso y este borrador quedó cerrado.",
       actionLabel: "Ver mis requisiciones",
       actionPath: `${basePath}/mi-requisiciones`,
@@ -81,8 +81,8 @@ const statusMeta = (statusId, basePath = "/unidad") => {
   }
   if (st === 10) {
     return {
-      label: "Rechazada",
-      detail: "Fue rechazada. Revisa el motivo en el detalle y crea/ajusta una nueva.",
+      label: "Cancelada",
+      detail: "Fue cancelada. Revisa el motivo en el detalle y crea/ajusta una nueva.",
       actionLabel: "Ver mis requisiciones",
       actionPath: `${basePath}/mi-requisiciones`,
     };
@@ -404,6 +404,24 @@ export default function EditarRequisicion() {
       window.URL.revokeObjectURL(url);
     } catch {
       toast.error("No se pudo descargar el adjunto");
+    }
+  };
+
+  const removeAttachment = async (attachmentId) => {
+    if (!isBorrador) return;
+    try {
+      const resp = await fetch(`${API}/requisiciones/${id}/attachments/${attachmentId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data?.ok === false) {
+        throw new Error(data?.message || "No se pudo eliminar el adjunto");
+      }
+      setAttachments((prev) => prev.filter((a) => Number(a.id) !== Number(attachmentId)));
+      toast.success("Adjunto eliminado");
+    } catch (e) {
+      toast.error(e?.message || "No se pudo eliminar el adjunto");
     }
   };
 
@@ -810,15 +828,29 @@ export default function EditarRequisicion() {
 
                 <div className="space-y-1.5 max-h-28 overflow-y-auto">
                   {attachments.map((a) => (
-                    <button
-                      type="button"
+                    <div
                       key={a.id}
-                      onClick={() => downloadAttachment(a)}
-                      className="w-full text-left bg-white border border-gray-200 rounded px-2 py-1 hover:bg-gray-50"
+                      className="w-full bg-white border border-gray-200 rounded px-2 py-1 flex items-center justify-between gap-2"
                     >
-                      <p className="text-xs font-semibold text-gray-700 truncate">{a.original_name}</p>
-                      <p className="text-[11px] text-gray-500">{fmtSize(a.size_bytes)}</p>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadAttachment(a)}
+                        className="min-w-0 flex-1 text-left hover:opacity-80"
+                      >
+                        <p className="text-xs font-semibold text-gray-700 truncate">{a.original_name}</p>
+                        <p className="text-[11px] text-gray-500">{fmtSize(a.size_bytes)}</p>
+                      </button>
+                      {isBorrador && (
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(a.id)}
+                          className="h-5 w-5 shrink-0 rounded-full bg-white border border-red-300 text-red-600 text-xs font-bold leading-none hover:bg-red-50"
+                          title="Quitar adjunto"
+                        >
+                          X
+                        </button>
+                      )}
+                    </div>
                   ))}
                   {!attachments.length && (
                     <p className="text-[11px] text-gray-400">Sin adjuntos cargados.</p>
@@ -1003,39 +1035,40 @@ export default function EditarRequisicion() {
                       </div>
                       {partidaPhotoDrafts[p.unique_key]?.previewUrl && (
                         <div className="mt-1.5 flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              window.open(
-                                partidaPhotoDrafts[p.unique_key].previewUrl,
-                                "_blank",
-                                "noopener,noreferrer"
-                              )
-                            }
-                            title="Abrir vista previa"
-                            className="h-14 w-14 shrink-0 rounded border border-[#8B1D35]/20 shadow-sm overflow-hidden bg-white cursor-pointer"
-                          >
-                            <img
-                              src={partidaPhotoDrafts[p.unique_key].previewUrl}
-                              alt="Vista previa de partida"
-                              className="h-full w-full object-cover"
-                            />
-                          </button>
+                          <div className="relative h-14 w-14 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                window.open(
+                                  partidaPhotoDrafts[p.unique_key].previewUrl,
+                                  "_blank",
+                                  "noopener,noreferrer"
+                                )
+                              }
+                              title="Abrir vista previa"
+                              className="h-14 w-14 rounded border border-[#8B1D35]/20 shadow-sm overflow-hidden bg-white cursor-pointer"
+                            >
+                              <img
+                                src={partidaPhotoDrafts[p.unique_key].previewUrl}
+                                alt="Vista previa de partida"
+                                className="h-full w-full object-cover"
+                              />
+                            </button>
+                            {isBorrador && (
+                              <button
+                                type="button"
+                                onClick={() => clearPartidaPhoto(p)}
+                                title="Quitar foto"
+                                className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-white border border-red-300 text-red-600 text-xs font-bold leading-none hover:bg-red-50"
+                              >
+                                X
+                              </button>
+                            )}
+                          </div>
                           <div className="min-w-0 flex-1">
                             <p className="text-[11px] text-gray-700 truncate">
                               {partidaPhotoDrafts[p.unique_key].file?.name || "Adjunto"}
                             </p>
-                            <div className="mt-1 flex items-center gap-1">
-                              {isBorrador && (
-                                <button
-                                  type="button"
-                                  onClick={() => clearPartidaPhoto(p)}
-                                  className="text-[10px] px-1.5 py-0.5 rounded border border-[#8B1D35]/30 bg-white text-[#6F152B] hover:bg-[#8B1D35]/[0.08]"
-                                >
-                                  Quitar
-                                </button>
-                              )}
-                            </div>
                           </div>
                         </div>
                       )}

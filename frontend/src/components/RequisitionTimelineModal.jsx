@@ -27,11 +27,11 @@ function daysBetween(a, b) {
 const STEP_FLOW = [7, 8, 9, 12, 14, 13, 11];
 const STEP_LABELS = {
   7: "Creada",
-  8: "Coordinación",
-  9: "Secretaría",
-  12: "Cotización",
-  14: "Revisión",
-  13: "Proceso de compra",
+  8: "Validación Coordinación",
+  9: "Validación Secretaría",
+  12: "Cotizando",
+  14: "Cotizada (Revisión)",
+  13: "Proceso admvo. de compra",
   11: "Finalizada",
 };
 
@@ -60,6 +60,8 @@ function actorLabel(evt) {
 export default function RequisitionTimelineModal({ open, requisitionId, onClose }) {
   const [loading, setLoading] = useState(false);
   const [timeline, setTimeline] = useState([]);
+  const [assignmentTimeline, setAssignmentTimeline] = useState([]);
+  const [historyFilter, setHistoryFilter] = useState("all");
   const [reqMeta, setReqMeta] = useState(null);
   const [inferred, setInferred] = useState(false);
 
@@ -78,6 +80,7 @@ export default function RequisitionTimelineModal({ open, requisitionId, onClose 
         if (!resp.ok) throw new Error(data?.message || "No se pudo cargar el historial");
         if (cancelled) return;
         setTimeline(Array.isArray(data?.statusTimeline) ? data.statusTimeline : []);
+        setAssignmentTimeline(Array.isArray(data?.assignmentTimeline) ? data.assignmentTimeline : []);
         setReqMeta(data?.requisition || null);
         setInferred(Boolean(data?.inferred));
       } catch (e) {
@@ -97,6 +100,30 @@ export default function RequisitionTimelineModal({ open, requisitionId, onClose 
     const end = timeline.length ? timeline[timeline.length - 1]?.changed_at : null;
     return daysBetween(reqMeta.created_at, end);
   }, [reqMeta, timeline]);
+
+  const combinedHistory = useMemo(() => {
+    const statusEvents = (timeline || []).map((evt) => ({ ...evt, event_type: "status" }));
+    const assignmentEvents = (assignmentTimeline || []).map((evt) => ({
+      ...evt,
+      event_type: "assignment",
+    }));
+    return [...statusEvents, ...assignmentEvents].sort((a, b) => {
+      const aTs = new Date(a?.changed_at || 0).getTime();
+      const bTs = new Date(b?.changed_at || 0).getTime();
+      if (aTs !== bTs) return aTs - bTs;
+      return Number(a?.id || 0) - Number(b?.id || 0);
+    });
+  }, [timeline, assignmentTimeline]);
+
+  const filteredHistory = useMemo(() => {
+    if (historyFilter === "status") {
+      return combinedHistory.filter((evt) => evt?.event_type === "status");
+    }
+    if (historyFilter === "assignment") {
+      return combinedHistory.filter((evt) => evt?.event_type === "assignment");
+    }
+    return combinedHistory;
+  }, [combinedHistory, historyFilter]);
 
   const stepDates = useMemo(() => {
     const dates = {};
@@ -211,25 +238,59 @@ export default function RequisitionTimelineModal({ open, requisitionId, onClose 
                 </div>
 
                 <div className="rounded-xl border border-gray-200 overflow-hidden">
-                  <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                  <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-3">
                     <div className="text-xs font-bold text-gray-600 uppercase">Historial de cambios</div>
-                    {inferred ? (
-                      <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                        Fechas reconstruidas
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-200">
-                        Trazabilidad completa
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setHistoryFilter("all")}
+                          className={`px-2.5 py-1 text-[10px] font-bold rounded ${
+                            historyFilter === "all" ? "bg-sky-100 text-sky-800" : "text-gray-600 hover:bg-gray-100"
+                          }`}
+                        >
+                          Todos
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setHistoryFilter("status")}
+                          className={`px-2.5 py-1 text-[10px] font-bold rounded ${
+                            historyFilter === "status" ? "bg-sky-100 text-sky-800" : "text-gray-600 hover:bg-gray-100"
+                          }`}
+                        >
+                          Estatus
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setHistoryFilter("assignment")}
+                          className={`px-2.5 py-1 text-[10px] font-bold rounded ${
+                            historyFilter === "assignment" ? "bg-sky-100 text-sky-800" : "text-gray-600 hover:bg-gray-100"
+                          }`}
+                        >
+                          Asignaciones
+                        </button>
+                      </div>
+                      {inferred ? (
+                        <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                          Fechas reconstruidas
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-200">
+                          Trazabilidad completa
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  {timeline.length === 0 ? (
+                  {filteredHistory.length === 0 ? (
                     <div className="p-4 text-sm text-gray-500">Aún no hay movimientos registrados.</div>
                   ) : (
                     <div className="p-4 space-y-3">
-                      {timeline.map((evt, idx) => {
-                        const isLast = idx === timeline.length - 1;
+                      {filteredHistory.map((evt, idx) => {
+                        const isLast = idx === filteredHistory.length - 1;
                         const { fromLabel, toLabel } = transitionLabel(evt);
+                        const prevOperator = String(evt?.previous_operator_name || "").trim() || "Sin asignar";
+                        const nextOperator = String(evt?.new_operator_name || "").trim() || "Sin asignar";
+                        const isAssignment = evt?.event_type === "assignment";
                         return (
                           <div key={evt.id} className="flex items-stretch gap-3">
                             <div className="w-4 flex flex-col items-center">
@@ -237,8 +298,19 @@ export default function RequisitionTimelineModal({ open, requisitionId, onClose 
                               {!isLast && <span className="w-[2px] flex-1 bg-sky-100 mt-1" />}
                             </div>
                             <div className="flex-1 rounded-lg border border-gray-200 bg-white p-3">
-                              <div className="text-sm font-bold text-gray-800">Estado actualizado a: {toLabel}</div>
-                              <div className="text-xs text-gray-600 mt-1">Venía de: {fromLabel}</div>
+                              {isAssignment ? (
+                                <>
+                                  <div className="text-sm font-bold text-gray-800">Asignación actualizada</div>
+                                  <div className="text-xs text-gray-600 mt-1">
+                                    De: <b>{prevOperator}</b> → A: <b>{nextOperator}</b>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="text-sm font-bold text-gray-800">Estado actualizado a: {toLabel}</div>
+                                  <div className="text-xs text-gray-600 mt-1">Venía de: {fromLabel}</div>
+                                </>
+                              )}
                               <div className="mt-1 text-xs text-gray-500 flex items-center gap-2 flex-wrap">
                                 <span className="px-2 py-0.5 rounded-full border border-gray-200 bg-gray-50">
                                   {fmt(evt.changed_at)}

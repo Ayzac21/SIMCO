@@ -163,7 +163,7 @@ export default function SecRecibidas() {
 
             if (res.ok) {
                 toast.success(
-                    type === 'approve' ? "¡Autorizado!" : type === 'adjust' ? "Reenviada a Coordinación para revisión" : "Rechazada",
+                    type === 'approve' ? "¡Autorizado!" : type === 'adjust' ? "Reenviada a Coordinación para revisión" : "Cancelada",
                     { id: toastId }
                 );
                 setSelectedReq(null); // Cierra el modal grande
@@ -236,7 +236,7 @@ export default function SecRecibidas() {
                     { id: 'todos', label: 'Todas' },
                     { id: 'pendientes', label: 'Por Validar' },
                     { id: 'aprobadas', label: 'Autorizadas / En Proceso' },
-                    { id: 'rechazadas', label: 'Rechazadas' }
+                    { id: 'rechazadas', label: 'Canceladas' }
                 ].map((tab) => (
                     <button
                         key={tab.id}

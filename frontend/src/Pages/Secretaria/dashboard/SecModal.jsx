@@ -172,7 +172,7 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
                                 statusId === 10 ? 'text-red-600' :
                                 inSecretaria ? 'text-[#8B1D35]' : 'text-gray-300'
                             }`}>
-                                {statusId === 10 ? 'Rechazada' : 'Secretaría'}
+                                {statusId === 10 ? 'Cancelada' : 'Secretaría'}
                             </span>
                         </div>
 
@@ -263,7 +263,7 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
                                             "{motivoRechazo}"
                                         </p>
                                         <p className="text-[11px] mt-1 text-red-800 font-semibold">
-                                            Rechazada por: {rechazadoPor}
+                                            Cancelada por: {rechazadoPor}
                                         </p>
                                     </div>
                                 )}

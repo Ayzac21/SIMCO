@@ -3,7 +3,7 @@ import { Search, RotateCw, Clock3, User, Briefcase, Eye } from "lucide-react";
 import { toast } from "sonner";
 import RequisitionModal from "../requisiciones/RequisitionModal";
 import { API_BASE_URL } from "../../../api/config";
-import { getStatusLabel } from "../../../utils/statusDisplay";
+import { getCompactStatusLabel } from "../../../utils/statusDisplay";
 
 const API = `${API_BASE_URL}/compras/preparacion`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -112,15 +112,15 @@ export default function ComprasPreparacion() {
 
   const statusBadge = (statusId, statusName) => {
     const sid = Number(statusId || 0);
-    if (sid === 7) return { text: getStatusLabel(sid, statusName), cls: "bg-amber-50 text-amber-700 border-amber-200" };
-    if (sid === 8) return { text: getStatusLabel(sid, statusName), cls: "bg-indigo-50 text-indigo-700 border-indigo-200" };
-    if (sid === 9) return { text: getStatusLabel(sid, statusName), cls: "bg-violet-50 text-violet-700 border-violet-200" };
-    if (sid === 10) return { text: getStatusLabel(sid, statusName), cls: "bg-rose-50 text-rose-700 border-rose-200" };
-    if (sid === 11) return { text: getStatusLabel(sid, statusName), cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
-    if (sid === 12) return { text: getStatusLabel(sid, statusName), cls: "bg-orange-50 text-orange-700 border-orange-200" };
-    if (sid === 13) return { text: getStatusLabel(sid, statusName), cls: "bg-blue-50 text-blue-700 border-blue-200" };
-    if (sid === 14) return { text: getStatusLabel(sid, statusName), cls: "bg-[#8B1D35]/10 text-[#8B1D35] border-[#8B1D35]/20" };
-    return { text: getStatusLabel(sid, statusName), cls: "bg-gray-100 text-gray-700 border-gray-200" };
+    if (sid === 7) return { text: getCompactStatusLabel(sid, statusName), cls: "bg-amber-50 text-amber-700 border-amber-200" };
+    if (sid === 8) return { text: getCompactStatusLabel(sid, statusName), cls: "bg-indigo-50 text-indigo-700 border-indigo-200" };
+    if (sid === 9) return { text: getCompactStatusLabel(sid, statusName), cls: "bg-violet-50 text-violet-700 border-violet-200" };
+    if (sid === 10) return { text: getCompactStatusLabel(sid, statusName), cls: "bg-rose-50 text-rose-700 border-rose-200" };
+    if (sid === 11) return { text: getCompactStatusLabel(sid, statusName), cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+    if (sid === 12) return { text: getCompactStatusLabel(sid, statusName), cls: "bg-orange-50 text-orange-700 border-orange-200" };
+    if (sid === 13) return { text: getCompactStatusLabel(sid, statusName), cls: "bg-blue-50 text-blue-700 border-blue-200" };
+    if (sid === 14) return { text: getCompactStatusLabel(sid, statusName), cls: "bg-[#8B1D35]/10 text-[#8B1D35] border-[#8B1D35]/20" };
+    return { text: getCompactStatusLabel(sid, statusName), cls: "bg-gray-100 text-gray-700 border-gray-200" };
   };
 
   return (
@@ -148,7 +148,7 @@ export default function ComprasPreparacion() {
 
         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between">
           <div>
-            <p className="text-[10px] font-bold text-gray-400 uppercase">Coordinación + Secretaría</p>
+            <p className="text-[10px] font-bold text-gray-400 uppercase">Validación Coord. + Sria.</p>
             <p className="text-3xl font-bold text-gray-800 mt-1">{counts.s8 + counts.s9}</p>
           </div>
           <div className="p-2 bg-[#8B1D35]/10 rounded-lg text-[#8B1D35] h-fit">
@@ -190,7 +190,7 @@ export default function ComprasPreparacion() {
                 : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
             }`}
           >
-            Coordinación ({counts.s8})
+            Validación Coord. ({counts.s8})
           </button>
           <button
             type="button"
@@ -201,7 +201,7 @@ export default function ComprasPreparacion() {
                 : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
             }`}
           >
-            Secretaría ({counts.s9})
+            Validación Sria. ({counts.s9})
           </button>
         </div>
         <div className="relative w-full md:w-96">

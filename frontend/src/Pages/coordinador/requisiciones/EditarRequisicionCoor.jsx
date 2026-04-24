@@ -33,7 +33,7 @@ const statusMeta = (statusId) => {
   const st = Number(statusId);
   if (st === 8) {
     return {
-      label: "En Coordinación",
+      label: "En validación de Coordinación",
       detail: "Esta requisición está en validación y no puede editarse desde borrador.",
       actionLabel: "Ver requisiciones",
       actionPath: "/coordinador/requisiciones",
@@ -41,7 +41,7 @@ const statusMeta = (statusId) => {
   }
   if (st === 9) {
     return {
-      label: "En Secretaría",
+      label: "En validación de Secretaría",
       detail: "Ya fue enviada a Secretaría y el borrador quedó cerrado.",
       actionLabel: "Ver requisiciones",
       actionPath: "/coordinador/requisiciones",
@@ -57,7 +57,7 @@ const statusMeta = (statusId) => {
   }
   if (st === 13) {
     return {
-      label: "En proceso de compra",
+      label: "En proceso administrativo de compra",
       detail: "La requisición avanzó a compra y ya no permite edición.",
       actionLabel: "Ver requisiciones",
       actionPath: "/coordinador/requisiciones",
@@ -73,8 +73,8 @@ const statusMeta = (statusId) => {
   }
   if (st === 10) {
     return {
-      label: "Rechazada",
-      detail: "Fue rechazada y no puede editarse desde esta pantalla.",
+      label: "Cancelada",
+      detail: "Fue cancelada y no puede editarse desde esta pantalla.",
       actionLabel: "Ver requisiciones",
       actionPath: "/coordinador/requisiciones",
     };
@@ -167,12 +167,23 @@ export default function EditarRequisicionCoor() {
 
   const [partidas, setPartidas] = useState([]);
   const [units, setUnits] = useState([]);
+  const [attachments, setAttachments] = useState([]);
+  const [pendingAttachments, setPendingAttachments] = useState([]);
+  const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [partidaPhotoDrafts, setPartidaPhotoDrafts] = useState({});
 
   const [confirmSendOpen, setConfirmSendOpen] = useState(false);
 
   const isBorrador = Number(estatusId) === 7;
   const currentStatusMeta = statusMeta(estatusId);
+  const maxAttachments = 5;
+
+  const fmtSize = (bytes) => {
+    const n = Number(bytes || 0);
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  };
 
   const partidaImageEndpoint = useCallback(
     (lineItemId) => `${API}/requisiciones/${id}/partidas/${lineItemId}/image`,
@@ -268,6 +279,7 @@ export default function EditarRequisicionCoor() {
           image_size_bytes: p.image_size_bytes ?? null,
         }));
         setPartidas(mappedPartidas);
+        setAttachments(Array.isArray(dataReq.attachments) ? dataReq.attachments : []);
         await hydratePartidaImages(mappedPartidas);
 
         if (Array.isArray(dataUnits)) setUnits(dataUnits);
@@ -386,6 +398,104 @@ export default function EditarRequisicionCoor() {
       throw new Error(data?.message || "No se pudo guardar imagen de la partida");
     }
     return data;
+  };
+
+  const processPickedAttachments = (rawFiles) => {
+    const files = Array.from(rawFiles || []);
+    if (!files.length) return;
+    const valid = files.filter((f) => {
+      const type = String(f.type || "").toLowerCase();
+      const name = String(f.name || "").toLowerCase();
+      const byMime = type.includes("pdf") || type.startsWith("image/");
+      const byExt = [".pdf", ".png", ".jpg", ".jpeg", ".webp"].some((ext) => name.endsWith(ext));
+      return byMime || byExt;
+    });
+    if (valid.length !== files.length) {
+      toast.warning("Solo se permiten imágenes (PNG/JPG/WEBP) y PDF");
+    }
+    const available = Math.max(0, maxAttachments - attachments.length - pendingAttachments.length);
+    const accepted = valid.slice(0, available);
+    if (accepted.length < valid.length) {
+      toast.warning(`Solo puedes tener ${maxAttachments} adjuntos por requisición`);
+    }
+    setPendingAttachments((prev) => [...prev, ...accepted]);
+  };
+
+  const onPickAttachments = (e) => {
+    processPickedAttachments(e.target.files);
+    e.target.value = "";
+  };
+
+  const removePendingAttachment = (index) => {
+    setPendingAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const uploadAttachments = async () => {
+    if (!pendingAttachments.length) return;
+    if (uploadingAttachments) return;
+    try {
+      setUploadingAttachments(true);
+      const fd = new FormData();
+      pendingAttachments.forEach((file) => fd.append("files", file));
+      const resp = await fetch(`${API}/requisiciones/${id}/attachments`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: fd,
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data?.ok === false) {
+        throw new Error(data?.message || "No se pudieron subir adjuntos");
+      }
+      setPendingAttachments([]);
+      const listResp = await fetch(`${API}/requisiciones/${id}`, { headers: getAuthHeaders() });
+      const listData = await listResp.json().catch(() => ({}));
+      if (listResp.ok) {
+        setAttachments(Array.isArray(listData.attachments) ? listData.attachments : []);
+      }
+      toast.success("Adjuntos cargados");
+    } catch (e) {
+      toast.error(e?.message || "Error al subir adjuntos");
+    } finally {
+      setUploadingAttachments(false);
+    }
+  };
+
+  const downloadAttachment = async (attachment) => {
+    try {
+      const resp = await fetch(`${API}/requisiciones/${id}/attachments/${attachment.id}/download`, {
+        headers: getAuthHeaders(),
+      });
+      if (!resp.ok) throw new Error();
+      const blob = await resp.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = attachment.original_name || "adjunto";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      toast.error("No se pudo descargar el adjunto");
+    }
+  };
+
+  const removeAttachment = async (attachmentId) => {
+    if (!isBorrador) return;
+    try {
+      const resp = await fetch(`${API}/requisiciones/${id}/attachments/${attachmentId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data?.ok === false) {
+        throw new Error(data?.message || "No se pudo eliminar el adjunto");
+      }
+      setAttachments((prev) => prev.filter((a) => Number(a.id) !== Number(attachmentId)));
+      toast.success("Adjunto eliminado");
+    } catch (e) {
+      toast.error(e?.message || "No se pudo eliminar el adjunto");
+    }
   };
 
   useEffect(() => {
@@ -689,6 +799,88 @@ export default function EditarRequisicionCoor() {
                   </button>
                 </div>
               )}
+
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <p className="text-[11px] font-bold text-gray-600 uppercase tracking-wide mb-1.5">
+                  Adjuntos de la requisición (opcional)
+                </p>
+
+                <div className="space-y-1.5 max-h-28 overflow-y-auto">
+                  {attachments.map((a) => (
+                    <div
+                      key={a.id}
+                      className="w-full bg-white border border-gray-200 rounded px-2 py-1 flex items-center justify-between gap-2"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => downloadAttachment(a)}
+                        className="min-w-0 flex-1 text-left hover:opacity-80"
+                      >
+                        <p className="text-xs font-semibold text-gray-700 truncate">{a.original_name}</p>
+                        <p className="text-[11px] text-gray-500">{fmtSize(a.size_bytes)}</p>
+                      </button>
+                      {isBorrador && (
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(a.id)}
+                          className="h-5 w-5 shrink-0 rounded-full bg-white border border-red-300 text-red-600 text-xs font-bold leading-none hover:bg-red-50"
+                          title="Quitar adjunto"
+                        >
+                          X
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {!attachments.length && (
+                    <p className="text-[11px] text-gray-400">Sin adjuntos cargados.</p>
+                  )}
+                </div>
+
+                {isBorrador && (
+                  <div className="mt-2">
+                    <input
+                      id="adjuntos-editar-requisicion-coor"
+                      type="file"
+                      accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
+                      multiple
+                      onChange={onPickAttachments}
+                      className="hidden"
+                    />
+                    <label
+                      htmlFor="adjuntos-editar-requisicion-coor"
+                      className="inline-flex text-xs font-semibold px-2.5 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer"
+                    >
+                      Seleccionar adjuntos
+                    </label>
+
+                    {pendingAttachments.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {pendingAttachments.map((f, idx) => (
+                          <div key={`${f.name}-${idx}`} className="flex items-center justify-between text-xs bg-white border border-gray-200 rounded px-2 py-1">
+                            <span className="truncate text-gray-700">{f.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => removePendingAttachment(idx)}
+                              className="text-gray-400 hover:text-red-600 px-2"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={uploadAttachments}
+                      disabled={!pendingAttachments.length || uploadingAttachments}
+                      className="mt-2 w-full py-2 text-xs font-bold rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {uploadingAttachments ? "Subiendo..." : "Subir adjuntos"}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -819,39 +1011,40 @@ export default function EditarRequisicionCoor() {
                       </div>
                       {partidaPhotoDrafts[p.unique_key]?.previewUrl && (
                         <div className="mt-1.5 flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              window.open(
-                                partidaPhotoDrafts[p.unique_key].previewUrl,
-                                "_blank",
-                                "noopener,noreferrer"
-                              )
-                            }
-                            title="Abrir vista previa"
-                            className="h-14 w-14 shrink-0 rounded border border-[#8B1D35]/20 shadow-sm overflow-hidden bg-white cursor-pointer"
-                          >
-                            <img
-                              src={partidaPhotoDrafts[p.unique_key].previewUrl}
-                              alt="Vista previa de partida"
-                              className="h-full w-full object-cover"
-                            />
-                          </button>
+                          <div className="relative h-14 w-14 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                window.open(
+                                  partidaPhotoDrafts[p.unique_key].previewUrl,
+                                  "_blank",
+                                  "noopener,noreferrer"
+                                )
+                              }
+                              title="Abrir vista previa"
+                              className="h-14 w-14 rounded border border-[#8B1D35]/20 shadow-sm overflow-hidden bg-white cursor-pointer"
+                            >
+                              <img
+                                src={partidaPhotoDrafts[p.unique_key].previewUrl}
+                                alt="Vista previa de partida"
+                                className="h-full w-full object-cover"
+                              />
+                            </button>
+                            {isBorrador && (
+                              <button
+                                type="button"
+                                onClick={() => clearPartidaPhoto(p)}
+                                title="Quitar foto"
+                                className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-white border border-red-300 text-red-600 text-xs font-bold leading-none hover:bg-red-50"
+                              >
+                                X
+                              </button>
+                            )}
+                          </div>
                           <div className="min-w-0 flex-1">
                             <p className="text-[11px] text-gray-700 truncate">
                               {partidaPhotoDrafts[p.unique_key].file?.name || "Adjunto"}
                             </p>
-                            <div className="mt-1 flex items-center gap-1">
-                              {isBorrador && (
-                                <button
-                                  type="button"
-                                  onClick={() => clearPartidaPhoto(p)}
-                                  className="text-[10px] px-1.5 py-0.5 rounded border border-[#8B1D35]/30 bg-white text-[#6F152B] hover:bg-[#8B1D35]/[0.08]"
-                                >
-                                  Quitar
-                                </button>
-                              )}
-                            </div>
                           </div>
                         </div>
                       )}

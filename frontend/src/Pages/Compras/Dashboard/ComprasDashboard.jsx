@@ -535,7 +535,7 @@ export default function ComprasDashboard() {
                 );
                 if (!res.ok) throw new Error();
 
-                toast.success(type === "ajustar" ? "Edición solicitada" : "Rechazada", { id: toastId });
+                toast.success(type === "ajustar" ? "Edición solicitada" : "Cancelada", { id: toastId });
                 await fetchRequisitions({ silent: true });
                 setSelectedReq(null);
                 } catch {

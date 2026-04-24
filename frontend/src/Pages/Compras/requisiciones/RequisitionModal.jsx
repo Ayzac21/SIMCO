@@ -89,7 +89,14 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
         let cancelled = false;
 
         const loadItemImages = async () => {
-            const validItems = (items || []).filter((item) => item?.id);
+            const validItems = (items || []).filter((item) => {
+                if (!item?.id) return false;
+                const hasImage =
+                    item?.has_image === true ||
+                    Number(item?.has_image) === 1 ||
+                    String(item?.has_image || "").toLowerCase() === "true";
+                return hasImage;
+            });
             if (!req?.id || !validItems.length) {
                 setItemImagePreviews((prev) => {
                     Object.values(prev).forEach((url) => {
@@ -106,8 +113,10 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                         const resp = await fetch(`${API_ASSIGN}/${req.id}/items/${item.id}/image`, {
                             headers: getAuthHeaders(),
                         });
+                        if (resp.status === 204) return null;
                         if (!resp.ok) return null;
                         const blob = await resp.blob();
+                        if (!blob || blob.size === 0) return null;
                         const url = URL.createObjectURL(blob);
                         return [String(item.id), url];
                     } catch {
@@ -380,7 +389,7 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                 description={
                     actionType === "adjust"
                         ? "La requisición regresará a borrador para que el solicitante la edite. ¿Deseas continuar?"
-                        : "Esta acción marcará la requisición como rechazada. ¿Deseas continuar?"
+                        : "Esta acción marcará la requisición como cancelada. ¿Deseas continuar?"
                 }
                 confirmText={processingAction ? "Procesando..." : actionType === "adjust" ? "Sí, solicitar edición" : "Sí, rechazar"}
                 cancelText="Cancelar"
@@ -400,7 +409,7 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                         <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                             Requisición #{req.id}
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border bg-orange-50 text-orange-600 border-orange-100">
-                                {getStatusLabel(req.statuses_id, req.nombre_estatus || "EN COTIZACIÓN")}
+                                {getStatusLabel(req.statuses_id, req.nombre_estatus || "Cotizando")}
                             </span>
                         </h2>
                         <p className="text-xs text-gray-400 mt-0.5">

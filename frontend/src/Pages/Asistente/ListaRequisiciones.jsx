@@ -7,7 +7,7 @@ import { API_BASE_URL } from "../../api/config";
 import useEscapeKey from "../../hooks/useEscapeKey";
 import RequisitionTimelineModal from "../../components/RequisitionTimelineModal";
 import { getRequisitionUnitLabel, getUserUnitLabel } from "../../utils/unitDisplay";
-import { getStatusLabel } from "../../utils/statusDisplay";
+import { getCompactStatusLabel, getStatusLabel } from "../../utils/statusDisplay";
 
 const API = API_BASE_URL;
 
@@ -16,13 +16,13 @@ const STATUS_FLOW_SECRETARIA = [7, 9, 12, 14, 13, 11];
 
 const STATUS_LABELS = {
   7: "Borrador",
-  8: "Coordinación",
-  9: "Secretaría",
-  12: "Cotización",
-  14: "Revisión interna",
-  13: "Proceso de compra",
+  8: "Valid. Coord.",
+  9: "Valid. Sria.",
+  12: "Cotizando",
+  14: "Cotizada",
+  13: "Proc. compra",
   11: "Finalizada",
-  10: "Rechazada",
+  10: "Cancelada",
 };
 
 function AppLoader({ label = "Cargando..." }) {
@@ -66,12 +66,12 @@ function safeDate(d) {
 function statusGuidance(statusId) {
   const st = Number(statusId);
   if (st === 7) return "Esta solicitud está en borrador. Puedes editarla y enviarla.";
-  if (st === 8) return "La solicitud está en revisión de Coordinación.";
-  if (st === 9) return "La solicitud está en revisión de Secretaría.";
-  if (st === 10) return "La solicitud fue rechazada. Revisa el motivo para corregirla.";
+  if (st === 8) return "La solicitud está en validación de Coordinación.";
+  if (st === 9) return "La solicitud está en validación de Secretaría.";
+  if (st === 10) return "La solicitud fue cancelada. Revisa el motivo para corregirla.";
   if (st === 12) return "Compras está cotizando con proveedores.";
-  if (st === 13) return "La compra está en proceso. Solo queda esperar cierre.";
-  if (st === 14) return "Compras está en revisión interna del comparativo.";
+  if (st === 13) return "La solicitud está en proceso administrativo de compra.";
+  if (st === 14) return "La solicitud ya está cotizada y en revisión interna de Compras.";
   if (st === 11) return "La compra ya finalizó. Esta solicitud está cerrada.";
   return "Revisa el detalle de la solicitud.";
 }
@@ -101,7 +101,7 @@ function actionConfigByStatus(statusId, id, basePath = "/unidad") {
   if (st === 10) {
     return {
       enabled: false,
-      label: "Rechazada",
+      label: "Cancelada",
       hint: "Consulta el motivo y crea/ajusta una nueva solicitud.",
       to: null,
     };
@@ -224,7 +224,7 @@ const ProgressBar = ({ statusId, trimPast = false, flow = STATUS_FLOW }) => {
 /** ✅ NUEVO: SOLO estatus actual + mini progreso (para MODAL) */
 const CurrentStatus = ({ statusId, statusName }) => {
   const st = Number(statusId);
-  const label = getStatusLabel(st, statusName || STATUS_LABELS[st]);
+  const label = getCompactStatusLabel(st, statusName || STATUS_LABELS[st]);
 
   // Si está en flujo, mostramos barrita; si no (p.ej. rechazada 10), no.
   const idx = STATUS_FLOW.indexOf(st);
@@ -812,13 +812,13 @@ export default function ListaRequisiciones() {
         >
           <option value="all">Todos</option>
           <option value="7">Borrador</option>
-          <option value="8">Coordinación</option>
-          <option value="9">Secretaría</option>
-          <option value="12">Cotización</option>
-          <option value="14">Revisión</option>
-          <option value="13">Compra</option>
+          <option value="8">En validación de Coordinación</option>
+          <option value="9">En validación de Secretaría</option>
+          <option value="12">Cotizando</option>
+          <option value="14">Cotizada (Revisión interna)</option>
+          <option value="13">Proceso administrativo de compra</option>
           <option value="11">Finalizada</option>
-          <option value="10">Rechazada</option>
+          <option value="10">Cancelada</option>
         </select>
 
         <button
@@ -911,7 +911,9 @@ export default function ListaRequisiciones() {
                       <span
                         className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold border ${statusBadgeClasses(st)}`}
                       >
-                        {getStatusLabel(st, req.estatus || STATUS_LABELS[st])}
+                        <span title={getStatusLabel(st, req.estatus || STATUS_LABELS[st])}>
+                          {getCompactStatusLabel(st, req.estatus || STATUS_LABELS[st])}
+                        </span>
                       </span>
 
                     </div>

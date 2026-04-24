@@ -100,7 +100,7 @@ router.put("/orden/:id/meta", requireComprasAdmin, updateOrdenCompraMeta);
 router.put("/orden/:id/type", requireComprasAdmin, updateOrdenCompraType);
 
 router.get("/providers", getAllProviders);
-router.get("/providers/admin", requireComprasAdmin, getProvidersAdmin);
+router.get("/providers/admin", getProvidersAdmin);
 router.get("/providers/export/basic", requireComprasAdmin, exportProvidersBasicExcel);
 router.post("/providers/import", requireComprasAdmin, uploadExcel.single("file"), importProvidersFromExcel);
 router.post("/providers", requireComprasAdmin, createProvider);
