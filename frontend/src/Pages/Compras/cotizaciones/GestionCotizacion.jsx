@@ -166,6 +166,10 @@ export default function GestionCotizacion() {
         const closedAt = requisition?.quotation_closed_at;
         return Boolean(closedAt || st === 14 || st === 13);
     }, [requisition]);
+    const canUseExcelPreview = useMemo(() => {
+        const st = Number(requisition?.statuses_id || 0);
+        return [14, 13, 11].includes(st);
+    }, [requisition?.statuses_id]);
 
     const fetchAllProviders = async (q = "") => {
         try {
@@ -743,6 +747,10 @@ export default function GestionCotizacion() {
     };
 
     const openExcelPreview = () => {
+        if (!canUseExcelPreview) {
+            toast.info("Excel disponible cuando la requisición esté en revisión interna o proceso de compra");
+            return;
+        }
         navigate(`/compras/orden/${id}?vista=excel`);
     };
 
@@ -869,8 +877,17 @@ export default function GestionCotizacion() {
                 <div className="flex items-center gap-3">
                 <button
                     onClick={openExcelPreview}
-                    className="inline-flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
-                    title="Vista previa y descarga del Excel"
+                    disabled={!canUseExcelPreview}
+                    className={`inline-flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-200 ${
+                        canUseExcelPreview
+                            ? "bg-white hover:bg-gray-50"
+                            : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                    }`}
+                    title={
+                        canUseExcelPreview
+                            ? "Vista previa y descarga del Excel"
+                            : "Disponible en revisión interna o proceso de compra"
+                    }
                 >
                     <FileText size={13} />
                     EXCEL

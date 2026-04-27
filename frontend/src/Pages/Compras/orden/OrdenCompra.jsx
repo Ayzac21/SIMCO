@@ -33,6 +33,8 @@ export default function OrdenCompra() {
   const userStr = localStorage.getItem("usuario");
   const user = userStr ? JSON.parse(userStr) : null;
   const isAdmin = user?.role === "compras_admin";
+  const isOperator = user?.role === "compras_operador";
+  const isReader = user?.role === "compras_lector";
   const isExcelPreviewMode = searchParams.get("vista") === "excel";
 
   const [loading, setLoading] = useState(true);
@@ -65,7 +67,7 @@ export default function OrdenCompra() {
   const [refreshingPreview, setRefreshingPreview] = useState(false);
   const [autoAssigningFolios, setAutoAssigningFolios] = useState(false);
   const isFinalized = Number(requisition?.statuses_id || 0) === 11;
-  const canEditOrderSetup = isAdmin && !isFinalized;
+  const canEditOrderSetup = (isAdmin || isOperator) && !isFinalized;
   const editableInputClass =
     "mt-1 w-full px-3 py-2 border rounded-lg text-sm bg-[#fffaf8] border-[#8B1D35]/35 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none";
   const blockedInputClass =
@@ -270,7 +272,7 @@ export default function OrdenCompra() {
   }, [providersList, downloadProviderId]);
 
   useEffect(() => {
-    if (!isAdmin || isFinalized || loading || autoAssigningFolios || providersList.length === 0)
+    if (!canEditOrderSetup || isFinalized || loading || autoAssigningFolios || providersList.length === 0)
       return;
     const missingProviders = providersList.filter(
       (provider) => !String(metaByProvider[provider.id]?.folio || "").trim()
@@ -329,7 +331,7 @@ export default function OrdenCompra() {
 
     assignFolios();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin, isFinalized, loading, autoAssigningFolios, providersList, metaByProvider, id]);
+  }, [canEditOrderSetup, isFinalized, loading, autoAssigningFolios, providersList, metaByProvider, id]);
 
   const totalsByProvider = useMemo(() => {
     const map = new Map();
@@ -357,7 +359,9 @@ export default function OrdenCompra() {
         const info = providerInfoMap.get(Number(provider.id)) || {};
         const missing = [];
         if (!String(info.name || "").trim()) missing.push("Nombre");
+        if (!String(info.razon_social || "").trim()) missing.push("Razón social");
         if (!String(info.rfc || "").trim()) missing.push("RFC");
+        if (!String(info.phones || "").trim()) missing.push("Teléfono");
         if (!String(info.address || "").trim()) missing.push("Dirección");
         return {
           id: provider.id,
@@ -378,10 +382,47 @@ export default function OrdenCompra() {
     const idValue = Number(providersWithMissingData[0]?.id);
     return Number.isFinite(idValue) ? idValue : null;
   }, [providersWithMissingData]);
+
+  const validateFinalizePreconditions = () => {
+    if (providersWithMissingData.length > 0) {
+      const names = providersWithMissingData.map((p) => p.name || `ID ${p.id}`).join(", ");
+      toast.error(`Faltan datos de proveedor (RFC/Dirección/Teléfono/Razón social) para: ${names}`);
+      return false;
+    }
+    const missing = providersList.filter((p) => {
+      const meta = metaByProvider[p.id] || {};
+      return !String(meta.folio || "").trim();
+    });
+    if (missing.length) {
+      const names = missing.map((p) => p.name || `ID ${p.id}`).join(", ");
+      toast.error(`Falta folio para: ${names}`);
+      return false;
+    }
+    return true;
+  };
+
+  const handleRequestFinalize = () => {
+    if (saving) return;
+    if (isReader) {
+      toast.warning("Perfil de solo lectura");
+      return;
+    }
+    if (isFinalized) {
+      toast.warning("La requisición ya está finalizada");
+      return;
+    }
+    if (!summary.is_complete) {
+      toast.error(`Faltan ${summary.missing_items} partida(s) por seleccionar`);
+      return;
+    }
+    if (!validateFinalizePreconditions()) return;
+    setConfirmOpen(true);
+  };
+
   const handleMarkCompleted = async () => {
     if (saving) return;
-    if (!isAdmin) {
-      toast.warning("Solo Jefe de Compras puede finalizar la compra");
+    if (isReader) {
+      toast.warning("Perfil de solo lectura");
       return;
     }
     if (isFinalized) {
@@ -389,29 +430,7 @@ export default function OrdenCompra() {
       return;
     }
     try {
-      if (providersWithMissingData.length > 0) {
-        const names = providersWithMissingData.map((p) => p.name || `ID ${p.id}`).join(", ");
-        toast.error(`Completa RFC y dirección para: ${names}`);
-        return;
-      }
-      const missing = providersList.filter((p) => {
-        const meta = metaByProvider[p.id] || {};
-        return !String(meta.folio || "").trim();
-      });
-      if (missing.length) {
-        const names = missing.map((p) => p.name || `ID ${p.id}`).join(", ");
-        toast.error(`Falta folio para: ${names}`);
-        return;
-      }
-      const missingDeliveryDate = providersList.filter((p) => {
-        const meta = metaByProvider[p.id] || {};
-        return !String(meta.oc_delivery_date || "").trim();
-      });
-      if (missingDeliveryDate.length) {
-        const names = missingDeliveryDate.map((p) => p.name || `ID ${p.id}`).join(", ");
-        toast.error(`Falta fecha de entrega para: ${names}`);
-        return;
-      }
+      if (!validateFinalizePreconditions()) return;
 
       setSaving(true);
       const resp = await fetch(`${API_URL}/requisiciones/${id}/estatus`, {
@@ -464,7 +483,7 @@ export default function OrdenCompra() {
   };
 
   const handleSaveOrderSetup = async () => {
-    if (!isAdmin || savingOrderSetup || isFinalized) return;
+    if (!canEditOrderSetup || savingOrderSetup || isFinalized) return;
     const cleanDeliveryPlace =
       String(deliveryPlace || "").trim() || DEFAULT_DELIVERY_PLACE;
     const cleanDeliveryDate = String(deliveryDate || "").trim();
@@ -747,9 +766,9 @@ export default function OrdenCompra() {
               EXCEL
             </button>
           </div>
-          {isAdmin && !isFinalized && (
+          {!isReader && !isFinalized && (
             <button
-              onClick={() => setConfirmOpen(true)}
+              onClick={handleRequestFinalize}
               disabled={!summary.is_complete}
               className={`px-3 py-2 rounded-lg text-[11px] font-semibold flex items-center gap-1.5 border transition-colors ${
                 summary.is_complete
@@ -766,7 +785,7 @@ export default function OrdenCompra() {
       </div>
       </div>
 
-      {!isAdmin && (
+      {isReader && (
         <div className="mb-4 bg-blue-50 border border-blue-100 rounded-xl p-4 text-xs text-blue-800 shadow-sm">
           Vista de consulta. Los pasos finales del proceso de compra solo los puede ejecutar Jefatura de Compras.
         </div>
@@ -1136,7 +1155,7 @@ export default function OrdenCompra() {
               </div>
             </div>
 
-            {isAdmin && !isFinalized && (
+            {canEditOrderSetup && (
               <button
                 onClick={handleSaveOrderSetup}
                 disabled={savingOrderSetup || providersList.length === 0}
@@ -1204,16 +1223,18 @@ export default function OrdenCompra() {
               const deliveryDateValue = String(meta.oc_delivery_date || "").trim();
               const checks = {
                 folio: Boolean(folioValue),
+                razonSocial: Boolean(String(info.razon_social || "").trim()),
                 rfc: Boolean(String(info.rfc || "").trim()),
+                phone: Boolean(String(info.phones || "").trim()),
                 address: Boolean(String(info.address || "").trim()),
-                deliveryDate: Boolean(deliveryDateValue),
               };
               const isComplete = Object.values(checks).every(Boolean);
               const missingFields = [];
               if (!checks.folio) missingFields.push("Folio");
+              if (!checks.razonSocial) missingFields.push("Razón social");
               if (!checks.rfc) missingFields.push("RFC");
+              if (!checks.phone) missingFields.push("Teléfono");
               if (!checks.address) missingFields.push("Dirección");
-              if (!checks.deliveryDate) missingFields.push("Fecha de entrega");
               return (
                 <div key={provider.id} className="rounded-xl border border-gray-200 bg-gradient-to-b from-gray-50 to-white p-3 text-xs">
                   <div className="flex items-center justify-between gap-2">
@@ -1241,6 +1262,10 @@ export default function OrdenCompra() {
                       <div className="mt-1 text-gray-800">
                         {orderType === "servicio" ? "Orden de servicio" : "Orden de compra"}
                       </div>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 bg-white p-2">
+                      <div className="text-[10px] font-bold uppercase text-gray-500">Razón social</div>
+                      <div className="mt-1 text-gray-800">{info.razon_social || "—"}</div>
                     </div>
                     <div className="rounded-lg border border-gray-200 bg-white p-2">
                       <div className="text-[10px] font-bold uppercase text-gray-500">RFC</div>

@@ -129,6 +129,20 @@ const normalizeTaxPercent = (value) => {
   if (!Number.isFinite(n) || n < 0 || n > 100) return null;
   return n;
 };
+const initialsFromName = (value, maxLetters = 4) =>
+  String(value || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, maxLetters)
+    .map((w) => w.charAt(0).toUpperCase())
+    .join("");
+const getUserInitialsById = async (userId, connOrPool = pool) => {
+  const parsedId = Number(userId || 0);
+  if (!parsedId) return "";
+  const [rows] = await connOrPool.query(`SELECT name FROM users WHERE id = ? LIMIT 1`, [parsedId]);
+  return initialsFromName(rows?.[0]?.name || "");
+};
 
 const parseSelectionTaxesFromNotes = (notes) => {
   if (!notes) return { vatPct: null, isrPct: null };
@@ -256,6 +270,8 @@ const ensureOrderMetaConditionColumns = async (connOrPool = pool) => {
     ["oc_installments_count", "INT NULL"],
     ["oc_advance_percentage", "DECIMAL(6,2) NULL"],
     ["oc_payment_compliance", "TINYINT(1) NOT NULL DEFAULT 0"],
+    ["oc_buyer_initials", "VARCHAR(12) NULL"],
+    ["oc_buyer_user_id", "INT NULL"],
   ];
   for (const [columnName, columnType] of requiredColumns) {
     const [existsRows] = await connOrPool.query(
@@ -768,6 +784,15 @@ export const assignRequisitionOperator = async (req, res) => {
       return res.json({ ok: true, unchanged: true });
     }
 
+    let previousOperatorIdForHistory = currentAssignedId;
+    if (previousOperatorIdForHistory) {
+      const [prevOpRows] = await conn.query(
+        `SELECT 1 FROM users WHERE id = ? LIMIT 1`,
+        [previousOperatorIdForHistory]
+      );
+      if (!prevOpRows.length) previousOperatorIdForHistory = null;
+    }
+
     const [result] = await conn.query(
       `
       UPDATE requisition
@@ -783,11 +808,11 @@ export const assignRequisitionOperator = async (req, res) => {
     }
 
     const actorId = Number(req.user?.id || 0) || null;
-    const noteRaw = String(req.body?.note || "").trim();
+    const noteRaw = String(req.body?.note || "").trim().slice(0, 500);
     await logRequisitionAssignmentChange(
       {
         requisitionId,
-        previousOperatorId: currentAssignedId,
+        previousOperatorId: previousOperatorIdForHistory,
         newOperatorId: nextAssignedId,
         changedBy: actorId,
         note: noteRaw || null,
@@ -797,30 +822,36 @@ export const assignRequisitionOperator = async (req, res) => {
     await conn.commit();
 
     const requestName = String(reqRows[0].request_name || "").trim();
-    const reqLabel = requestName ? `#${requisitionId} - ${requestName}` : `#${requisitionId}`;
+    const safeRequestName =
+      requestName.length > 120 ? `${requestName.slice(0, 117)}...` : requestName;
+    const reqLabel = safeRequestName ? `#${requisitionId} - ${safeRequestName}` : `#${requisitionId}`;
 
-    if (nextAssignedId && nextAssignedId !== currentAssignedId) {
-      await createNotification({
-        recipientUserId: nextAssignedId,
-        actorUserId: actorId,
-        title: "Nueva requisición asignada",
-        message: `Se te asignó la requisición ${reqLabel}.`,
-        entityType: "requisition",
-        entityId: requisitionId,
-        actionPath: "/compras/dashboard",
-      });
-    }
+    try {
+      if (nextAssignedId && nextAssignedId !== currentAssignedId) {
+        await createNotification({
+          recipientUserId: nextAssignedId,
+          actorUserId: actorId,
+          title: "Nueva requisición asignada",
+          message: `Se te asignó la requisición ${reqLabel}.`,
+          entityType: "requisition",
+          entityId: requisitionId,
+          actionPath: "/compras/dashboard",
+        });
+      }
 
-    if (currentAssignedId && currentAssignedId !== nextAssignedId) {
-      await createNotification({
-        recipientUserId: currentAssignedId,
-        actorUserId: actorId,
-        title: "Requisición reasignada",
-        message: `La requisición ${reqLabel} fue reasignada a otro operador.`,
-        entityType: "requisition",
-        entityId: requisitionId,
-        actionPath: "/compras/dashboard",
-      });
+      if (previousOperatorIdForHistory && previousOperatorIdForHistory !== nextAssignedId) {
+        await createNotification({
+          recipientUserId: previousOperatorIdForHistory,
+          actorUserId: actorId,
+          title: "Requisición reasignada",
+          message: `La requisición ${reqLabel} fue reasignada a otro operador.`,
+          entityType: "requisition",
+          entityId: requisitionId,
+          actionPath: "/compras/dashboard",
+        });
+      }
+    } catch (notifError) {
+      console.error("Error enviando notificaciones de asignación:", notifError);
     }
 
     res.json({ ok: true });
@@ -857,8 +888,11 @@ export const updateEstatusCompras = async (req, res) => {
       });
     }
 
-    if ((targetStatusId === 10 || targetStatusId === 7 || targetStatusId === 11) && req.user?.role !== "compras_admin") {
+    if ((targetStatusId === 10 || targetStatusId === 7) && req.user?.role !== "compras_admin") {
       return res.status(403).json({ message: "Solo admin puede ejecutar esta acción" });
+    }
+    if (targetStatusId === 11 && !["compras_admin", "compras_operador"].includes(req.user?.role || "")) {
+      return res.status(403).json({ message: "Solo admin u operador asignado puede finalizar" });
     }
 
     if ((targetStatusId === 10 || targetStatusId === 7) && !String(comentarios || "").trim()) {
@@ -902,17 +936,21 @@ export const updateEstatusCompras = async (req, res) => {
         SELECT
           qs.provider_id,
           p.name AS provider_name,
+          p.razon_social,
           p.rfc,
           p.address,
+          GROUP_CONCAT(ph.phone SEPARATOR ', ') AS phones,
           m.folio,
           m.oc_delivery_date
         FROM quotation_selections qs
         LEFT JOIN provider p ON p.id = qs.provider_id
+        LEFT JOIN provider_has_phones php ON php.provider_id = p.id
+        LEFT JOIN phones ph ON ph.id = php.phones_id
         LEFT JOIN orden_compra_meta m
           ON m.requisition_id = qs.requisition_id
          AND m.provider_id = qs.provider_id
         WHERE qs.requisition_id = ? AND qs.provider_id IS NOT NULL
-        GROUP BY qs.provider_id, p.name, p.rfc, p.address, m.folio, m.oc_delivery_date
+        GROUP BY qs.provider_id, p.name, p.razon_social, p.rfc, p.address, m.folio, m.oc_delivery_date
         `,
         [id]
       );
@@ -934,26 +972,21 @@ export const updateEstatusCompras = async (req, res) => {
       }
 
       const missingProviderData = rows.filter(
-        (r) => !String(r.rfc || "").trim() || !String(r.address || "").trim()
+        (r) =>
+          !String(r.rfc || "").trim() ||
+          !String(r.address || "").trim() ||
+          !String(r.razon_social || "").trim() ||
+          !String(r.phones || "").trim()
       );
       if (missingProviderData.length) {
         const names = missingProviderData
           .map((r) => r.provider_name || `ID ${r.provider_id}`)
           .join(", ");
         return res.status(400).json({
-          message: `Faltan datos de proveedor (RFC/Dirección) para: ${names}`,
+          message: `Faltan datos de proveedor (RFC/Dirección/Teléfono/Razón social) para: ${names}`,
         });
       }
 
-      const missingDeliveryDate = rows.filter((r) => !String(r.oc_delivery_date || "").trim());
-      if (missingDeliveryDate.length) {
-        const names = missingDeliveryDate
-          .map((r) => r.provider_name || `ID ${r.provider_id}`)
-          .join(", ");
-        return res.status(400).json({
-          message: `Falta fecha de entrega para: ${names}`,
-        });
-      }
     }
 
     const [result] = await pool.query(
@@ -1012,6 +1045,20 @@ export const updateEstatusCompras = async (req, res) => {
     }
 
     if (targetStatusId === 11 || targetStatusId === 10) {
+      if (targetStatusId === 11) {
+        const comprasAdminIds = (await getUsersByRole("compras_admin")).filter(
+          (uid) => uid !== actorId
+        );
+        await createNotificationsForUsers(comprasAdminIds, {
+          actorUserId: actorId,
+          title: "Requisición finalizada en Compras",
+          message: `La requisición #${id} fue marcada como finalizada.`,
+          entityType: "requisition",
+          entityId: Number(id),
+          actionPath: `/compras/historial`,
+        });
+      }
+
       const coordinatorIds = await getCoordinatorUsersForRequisition(id);
       await createNotificationsForUsers(coordinatorIds, {
         actorUserId: actorId,
@@ -1872,14 +1919,30 @@ export const getOrdenCompraPdf = async (req, res) => {
         r.statuses_id,
         r.folio,
         r.order_type,
+        r.assigned_operator_id,
         u.name as solicitante,
+        u.role as solicitante_role,
         u.ure as ure_solicitante,
-        COALESCE(
-          NULLIF(TRIM(ho.name), ''),
-          NULLIF(TRIM(sec.name), ''),
-          NULLIF(TRIM(c2.name), ''),
-          u.ure
-        ) as nombre_unidad,
+        CASE
+          WHEN u.role = 'secretaria' THEN COALESCE(
+            NULLIF(TRIM(sec.name), ''),
+            NULLIF(TRIM(c2.name), ''),
+            NULLIF(TRIM(ho.name), ''),
+            u.ure
+          )
+          WHEN u.role = 'coordinador' THEN COALESCE(
+            NULLIF(TRIM(c2.name), ''),
+            NULLIF(TRIM(sec.name), ''),
+            NULLIF(TRIM(ho.name), ''),
+            u.ure
+          )
+          ELSE COALESCE(
+            NULLIF(TRIM(ho.name), ''),
+            NULLIF(TRIM(c2.name), ''),
+            NULLIF(TRIM(sec.name), ''),
+            u.ure
+          )
+        END as nombre_unidad,
         COALESCE(
           NULLIF(TRIM(c.name), ''),
           NULLIF(TRIM(csec.name), ''),
@@ -2055,7 +2118,9 @@ export const getOrdenCompraPdf = async (req, res) => {
         oc_payment_date,
         oc_installments_count,
         oc_advance_percentage,
-        oc_payment_compliance
+        oc_payment_compliance,
+        oc_buyer_initials,
+        oc_buyer_user_id
       FROM orden_compra_meta
       WHERE requisition_id = ? AND provider_id = ?
       LIMIT 1
@@ -2097,23 +2162,28 @@ export const getOrdenCompraPdf = async (req, res) => {
       return raw;
     };
     const deliveryDateMeta = formatMetaDate(meta.oc_delivery_date);
+    const preferredBuyerUserId =
+      Number(meta.oc_buyer_user_id || 0) ||
+      Number(requisition.assigned_operator_id || 0) ||
+      Number(req.user?.id || 0) ||
+      0;
     let buyerInitials = "";
     try {
-      const buyerUserId = Number(req.user?.id || 0);
-      if (buyerUserId) {
-        const [buyerRows] = await pool.query(
-          `SELECT name FROM users WHERE id = ? LIMIT 1`,
-          [buyerUserId]
+      const assignedInitials = await getUserInitialsById(preferredBuyerUserId, pool);
+      buyerInitials =
+        String(assignedInitials || "").trim().toUpperCase() ||
+        String(meta.oc_buyer_initials || "").trim().toUpperCase();
+      if (buyerInitials) {
+        await pool.query(
+          `
+          INSERT INTO orden_compra_meta (requisition_id, provider_id, oc_buyer_initials, oc_buyer_user_id)
+          VALUES (?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE
+            oc_buyer_initials = COALESCE(NULLIF(oc_buyer_initials, ''), VALUES(oc_buyer_initials)),
+            oc_buyer_user_id = COALESCE(oc_buyer_user_id, VALUES(oc_buyer_user_id))
+          `,
+          [id, providerId, buyerInitials, preferredBuyerUserId || null]
         );
-        const buyerName = String(buyerRows?.[0]?.name || "").trim();
-        if (buyerName) {
-          buyerInitials = buyerName
-            .split(/\s+/)
-            .filter(Boolean)
-            .slice(0, 4)
-            .map((w) => w.charAt(0).toUpperCase())
-            .join("");
-        }
       }
     } catch {}
     const orderType =
@@ -2292,7 +2362,9 @@ export const getOrdenCompraPdf = async (req, res) => {
           .filter((n) => Number.isFinite(n) && n > 0)
       )
     ).join(", ");
-    const obsWhoLine = `Quien solicita: ${resolvedUnitName || ""}`.trimEnd();
+    const requesterDisplay =
+      requesterName || cleanText(requisition.ure_solicitante) || resolvedUnitName || "—";
+    const obsWhoLine = `Responsable de la solicitud: ${requesterDisplay}`.trimEnd();
     const obsReqLine = `REQ: ${partidas || ""}`.trimEnd();
     const obsInitialsLine = String(buyerInitials || "").trim();
 
@@ -2433,6 +2505,8 @@ export const updateOrdenCompraMeta = async (req, res) => {
     ) {
       return res.status(400).json({ message: "Porcentaje de anticipo inválido" });
     }
+    const buyerProcessUserId = Number(req.user?.id || 0) || null;
+    const actorInitials = await getUserInitialsById(buyerProcessUserId, pool);
 
     let folioFinal = String(folio || "").trim();
     if (!folioFinal) {
@@ -2473,9 +2547,11 @@ export const updateOrdenCompraMeta = async (req, res) => {
           oc_payment_date,
           oc_installments_count,
           oc_advance_percentage,
-          oc_payment_compliance
+          oc_payment_compliance,
+          oc_buyer_initials,
+          oc_buyer_user_id
         )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         folio = VALUES(folio),
         oc_incluir_iva = VALUES(oc_incluir_iva),
@@ -2489,7 +2565,9 @@ export const updateOrdenCompraMeta = async (req, res) => {
         oc_payment_date = VALUES(oc_payment_date),
         oc_installments_count = VALUES(oc_installments_count),
         oc_advance_percentage = VALUES(oc_advance_percentage),
-        oc_payment_compliance = VALUES(oc_payment_compliance)
+        oc_payment_compliance = VALUES(oc_payment_compliance),
+        oc_buyer_initials = COALESCE(NULLIF(oc_buyer_initials, ''), VALUES(oc_buyer_initials)),
+        oc_buyer_user_id = COALESCE(oc_buyer_user_id, VALUES(oc_buyer_user_id))
       `,
       [
         id,
@@ -2507,6 +2585,8 @@ export const updateOrdenCompraMeta = async (req, res) => {
         installmentsCount,
         advancePercentage,
         paymentCompliance,
+        actorInitials || null,
+        buyerProcessUserId,
       ]
     );
 
@@ -2541,7 +2621,9 @@ export const getOrdenCompraMeta = async (req, res) => {
         oc_payment_date,
         oc_installments_count,
         oc_advance_percentage,
-        oc_payment_compliance
+        oc_payment_compliance,
+        oc_buyer_initials,
+        oc_buyer_user_id
       FROM orden_compra_meta
       WHERE requisition_id = ?
       `,
@@ -4330,7 +4412,9 @@ export const getComprasReviewData = async (req, res) => {
     }
 
     const requisition = reqRows[0];
-    if (Number(requisition.statuses_id) !== 14) {
+    const statusId = Number(requisition.statuses_id || 0);
+    const canEdit = statusId === 14;
+    if (![14, 13].includes(statusId)) {
       return res.status(400).json({
         message: "La requisición no está en revisión interna de compras",
         current_status: requisition.statuses_id,
@@ -4397,7 +4481,7 @@ export const getComprasReviewData = async (req, res) => {
       invitedProviders,
       savedPrices,
       selections,
-      canEdit: true,
+      canEdit,
     });
   } catch (error) {
     console.error("Error getComprasReviewData:", error);

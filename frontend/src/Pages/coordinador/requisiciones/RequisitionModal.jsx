@@ -126,6 +126,9 @@ export default function RequisitionModal({
 
   if (!req) return null;
   const statusId = Number(req.statuses_id);
+  const authUserId = Number(localStorage.getItem("users_id") || 0);
+  const isOwnerCoordinatorReq = Number(req.users_id || 0) === authUserId;
+  const canEditInCoordination = statusId === 8 && isOwnerCoordinatorReq;
   const isPurchasedStatus = statusId === 11;
   const canDownloadSignaturePdf = [12, 13, 14].includes(statusId) && !isPurchasedStatus;
   const isAdjustMode = actionMode === "adjust";
@@ -515,6 +518,15 @@ export default function RequisitionModal({
                 </>
               ) : (
                 <>
+                  {canEditInCoordination && (
+                    <button
+                      onClick={() => onEditDraft?.(req)}
+                      className="px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-60"
+                      disabled={loadingItems}
+                    >
+                      Editar requisición
+                    </button>
+                  )}
                   <button
                     onClick={() => setActionMode("adjust")}
                     className="px-4 py-2 border border-amber-300 text-amber-700 hover:bg-amber-50 rounded-lg flex gap-2 items-center transition-colors disabled:opacity-60"

@@ -135,6 +135,7 @@ export const getRequisicionesCoordinador = async (req, res) => {
                 r.request_name,
                 r.created_at,
                 r.statuses_id,
+                r.users_id,
                 r.area_folio,
                 r.observation,
                 r.justification,
@@ -404,12 +405,12 @@ export const enviarBorradorCoordinador = async (req, res) => {
         const reqScope = await ensureCoordinatorScopeByRequisition(req, res, id);
         if (!reqScope) return;
         const currentStatus = Number(reqScope.statuses_id);
-        if (currentStatus !== 7) {
-            return res.status(400).json({ ok: false, message: "Solo se pueden enviar requisiciones en borrador" });
+        if (![7, 8].includes(currentStatus)) {
+            return res.status(400).json({ ok: false, message: "Solo se pueden enviar requisiciones en estatus editable (borrador/coordinación)" });
         }
 
         const [[row]] = await pool.query(
-            `SELECT notes FROM requisition WHERE id = ? AND statuses_id = 7 LIMIT 1`,
+            `SELECT notes FROM requisition WHERE id = ? AND statuses_id IN (7, 8) LIMIT 1`,
             [id]
         );
         const currentNote = String(row?.notes || "");
@@ -423,7 +424,7 @@ export const enviarBorradorCoordinador = async (req, res) => {
             `
             UPDATE requisition
             SET statuses_id = ?, notes = NULL, sent_on = COALESCE(sent_on, NOW())
-            WHERE id = ? AND statuses_id = 7
+            WHERE id = ? AND statuses_id IN (7, 8)
             `,
             [resumeTo, id]
         );
@@ -434,7 +435,7 @@ export const enviarBorradorCoordinador = async (req, res) => {
 
         await logRequisitionStatusChange({
             requisitionId: id,
-            fromStatusId: 7,
+            fromStatusId: currentStatus,
             toStatusId: resumeTo,
             changedBy: getAuthUserId(req),
             note: "Envío de borrador por coordinación",

@@ -34,7 +34,7 @@ const statusMeta = (statusId) => {
   if (st === 8) {
     return {
       label: "En validación de Coordinación",
-      detail: "Esta requisición está en validación y no puede editarse desde borrador.",
+      detail: "Esta requisición está en validación de Coordinación.",
       actionLabel: "Ver requisiciones",
       actionPath: "/coordinador/requisiciones",
     };
@@ -174,7 +174,8 @@ export default function EditarRequisicionCoor() {
 
   const [confirmSendOpen, setConfirmSendOpen] = useState(false);
 
-  const isBorrador = Number(estatusId) === 7;
+  const canEditDraft = Number(estatusId) === 7 || Number(estatusId) === 8;
+  const canSendFromEditor = Number(estatusId) === 7 || Number(estatusId) === 8;
   const currentStatusMeta = statusMeta(estatusId);
   const maxAttachments = 5;
 
@@ -295,7 +296,7 @@ export default function EditarRequisicionCoor() {
   }, [id, hydratePartidaImages]);
 
   const agregarPartida = () => {
-    if (!isBorrador) return;
+    if (!canEditDraft) return;
     setPartidas([
       ...partidas,
       {
@@ -310,7 +311,7 @@ export default function EditarRequisicionCoor() {
   };
 
   const eliminarPartida = (index) => {
-    if (!isBorrador) return;
+    if (!canEditDraft) return;
     const key = partidas[index]?.unique_key;
     const copia = [...partidas];
     copia.splice(index, 1);
@@ -325,7 +326,7 @@ export default function EditarRequisicionCoor() {
   };
 
   const actualizarPartida = (index, field, value) => {
-    if (!isBorrador) return;
+    if (!canEditDraft) return;
     const copia = [...partidas];
     copia[index][field] = value;
     setPartidas(copia);
@@ -481,7 +482,7 @@ export default function EditarRequisicionCoor() {
   };
 
   const removeAttachment = async (attachmentId) => {
-    if (!isBorrador) return;
+    if (!canEditDraft) return;
     try {
       const resp = await fetch(`${API}/requisiciones/${id}/attachments/${attachmentId}`, {
         method: "DELETE",
@@ -542,7 +543,7 @@ export default function EditarRequisicionCoor() {
   };
 
   const guardarCambios = async ({ silent = false, navigateOnSuccess = true } = {}) => {
-    if (!isBorrador) {
+    if (!canEditDraft) {
       toast.warning("No editable");
       return false;
     }
@@ -627,7 +628,7 @@ export default function EditarRequisicionCoor() {
       }
 
       if (!silent) {
-        toast.success("Cambios guardados. La requisición quedó en borrador.");
+        toast.success("Cambios guardados correctamente.");
       }
 
       if (navigateOnSuccess) {
@@ -645,7 +646,7 @@ export default function EditarRequisicionCoor() {
   };
 
   const pedirConfirmacionEnviar = () => {
-    if (!isBorrador) {
+    if (!canSendFromEditor) {
       toast.warning("No se puede enviar");
       return;
     }
@@ -703,7 +704,7 @@ export default function EditarRequisicionCoor() {
   return (
     <>
       <ConfirmModal
-        open={confirmSendOpen}
+        open={confirmSendOpen && canSendFromEditor}
         loading={sending}
         title={resumeTo === 12 ? "Reenviar a Compras" : "Reenviar a Secretaría"}
         description={
@@ -725,7 +726,7 @@ export default function EditarRequisicionCoor() {
               <h2 className="text-lg font-bold text-gray-800">
                 Editar Requisición
               </h2>
-              {isBorrador && (
+              {canEditDraft && (
                 <span className="text-xs font-semibold text-orange-600 bg-orange-50 px-2 py-1 rounded border border-orange-100">
                   Editando Borrador
                 </span>
@@ -758,7 +759,7 @@ export default function EditarRequisicionCoor() {
                   className={inputStyle}
                   value={requestName}
                   onChange={(e) => setRequestName(e.target.value)}
-                  disabled={!isBorrador}
+                  disabled={!canEditDraft}
                 />
               </div>
 
@@ -769,7 +770,7 @@ export default function EditarRequisicionCoor() {
                   className={inputStyle}
                   value={justification}
                   onChange={(e) => setJustification(e.target.value)}
-                  disabled={!isBorrador}
+                  disabled={!canEditDraft}
                 />
               </div>
 
@@ -780,14 +781,14 @@ export default function EditarRequisicionCoor() {
                   className={inputStyle}
                   value={observation}
                   onChange={(e) => setObservation(e.target.value)}
-                  disabled={!isBorrador}
+                  disabled={!canEditDraft}
                 />
               </div>
 
-              {!isBorrador && (
+              {!canEditDraft && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
                   <p className="text-xs font-bold text-amber-800">
-                    Esta requisición ya no está en borrador ({currentStatusMeta.label}).
+                    Esta requisición no está en un estatus editable ({currentStatusMeta.label}).
                   </p>
                   <p className="text-xs text-amber-700 mt-1">{currentStatusMeta.detail}</p>
                   <button
@@ -819,7 +820,7 @@ export default function EditarRequisicionCoor() {
                         <p className="text-xs font-semibold text-gray-700 truncate">{a.original_name}</p>
                         <p className="text-[11px] text-gray-500">{fmtSize(a.size_bytes)}</p>
                       </button>
-                      {isBorrador && (
+                      {canEditDraft && (
                         <button
                           type="button"
                           onClick={() => removeAttachment(a.id)}
@@ -836,7 +837,7 @@ export default function EditarRequisicionCoor() {
                   )}
                 </div>
 
-                {isBorrador && (
+                {canEditDraft && (
                   <div className="mt-2">
                     <input
                       id="adjuntos-editar-requisicion-coor"
@@ -908,7 +909,7 @@ export default function EditarRequisicionCoor() {
                     <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1.5">
                       Partida #{index + 1}
                     </p>
-                    {isBorrador && (
+                    {canEditDraft && (
                       <button
                         onClick={() => eliminarPartida(index)}
                         className="absolute top-2 right-2 text-gray-300 hover:text-red-500"
@@ -925,7 +926,7 @@ export default function EditarRequisicionCoor() {
                           className="mt-1 w-full font-semibold border border-gray-300 rounded p-1.5 focus:outline-none focus:border-gray-400"
                           placeholder="Producto"
                           value={p.product_name}
-                          disabled={!isBorrador}
+                          disabled={!canEditDraft}
                           onChange={(e) =>
                             actualizarPartida(index, "product_name", e.target.value)
                           }
@@ -937,7 +938,7 @@ export default function EditarRequisicionCoor() {
                           type="number"
                           className="mt-1 w-full p-2 border border-gray-300 rounded focus:outline-none focus:border-gray-400"
                           value={p.quantity}
-                          disabled={!isBorrador}
+                          disabled={!canEditDraft}
                           onChange={(e) =>
                             actualizarPartida(index, "quantity", e.target.value)
                           }
@@ -948,7 +949,7 @@ export default function EditarRequisicionCoor() {
                         <select
                           className="mt-1 w-full p-2 border border-gray-300 rounded bg-white focus:outline-none focus:border-gray-400"
                           value={p.units_id}
-                          disabled={!isBorrador}
+                          disabled={!canEditDraft}
                           onChange={(e) =>
                             actualizarPartida(index, "units_id", e.target.value)
                           }
@@ -977,7 +978,7 @@ export default function EditarRequisicionCoor() {
                         rows="2"
                         placeholder="Descripción"
                         value={p.description}
-                        disabled={!isBorrador}
+                        disabled={!canEditDraft}
                         onChange={(e) =>
                           actualizarPartida(index, "description", e.target.value)
                         }
@@ -994,7 +995,7 @@ export default function EditarRequisicionCoor() {
                             Solo imagen (clic para vista previa).
                           </p>
                         </div>
-                        {isBorrador && (
+                        {canEditDraft && (
                           <label className="text-[10px] font-semibold px-1.5 py-0.5 rounded border border-[#8B1D35]/30 bg-white hover:bg-[#8B1D35]/[0.08] text-[#6F152B] cursor-pointer">
                             Seleccionar
                             <input
@@ -1030,7 +1031,7 @@ export default function EditarRequisicionCoor() {
                                 className="h-full w-full object-cover"
                               />
                             </button>
-                            {isBorrador && (
+                            {canEditDraft && (
                               <button
                                 type="button"
                                 onClick={() => clearPartidaPhoto(p)}
@@ -1055,7 +1056,7 @@ export default function EditarRequisicionCoor() {
 
               <button
                 onClick={agregarPartida}
-                disabled={!isBorrador || saving || sending}
+                disabled={!canEditDraft || saving || sending}
                 className="w-full py-3 text-sm font-semibold border border-gray-300 rounded bg-white hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 + Agregar Artículo
@@ -1065,13 +1066,13 @@ export default function EditarRequisicionCoor() {
             <div className="p-4 sm:p-5 lg:p-6 border-t border-gray-200 bg-white space-y-3">
               <button
                 onClick={() => guardarCambios()}
-                disabled={!isBorrador || saving || sending}
+                disabled={!canEditDraft || saving || sending}
                 className="w-full py-3 bg-principal text-white font-bold rounded shadow hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {saving ? "Guardando..." : "Confirmar y Guardar Cambios →"}
               </button>
 
-              {isBorrador && (
+              {canSendFromEditor && (
                 <button
                   onClick={pedirConfirmacionEnviar}
                   disabled={saving || sending}

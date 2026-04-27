@@ -96,8 +96,8 @@ router.post("/revision/:id/select", requireComprasAdmin, submitComprasReviewSele
 router.get("/orden/:id/pdf", getOrdenCompraPdf);
 router.get("/orden/:id/providers", getOrdenCompraProviders);
 router.get("/orden/:id/meta", getOrdenCompraMeta);
-router.put("/orden/:id/meta", requireComprasAdmin, updateOrdenCompraMeta);
-router.put("/orden/:id/type", requireComprasAdmin, updateOrdenCompraType);
+router.put("/orden/:id/meta", blockReader, updateOrdenCompraMeta);
+router.put("/orden/:id/type", blockReader, updateOrdenCompraType);
 
 router.get("/providers", getAllProviders);
 router.get("/providers/admin", getProvidersAdmin);

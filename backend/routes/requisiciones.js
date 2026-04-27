@@ -1801,7 +1801,12 @@ router.put("/:id", async (req, res) => {
 
     await conn.beginTransaction();
 
-    await conn.query(
+    const role = String(req.user?.role || "");
+    const canEditInCoordination = role === "coordinador";
+    const editableStatuses = canEditInCoordination ? [7, 8] : [7];
+    const statusPlaceholders = editableStatuses.map(() => "?").join(", ");
+
+    const [updateReqResult] = await conn.query(
       `
       UPDATE requisition
       SET
@@ -1809,10 +1814,19 @@ router.put("/:id", async (req, res) => {
         request_name = ?,
         justification = ?,
         observation = ?
-      WHERE id = ? AND statuses_id = 7
+      WHERE id = ? AND statuses_id IN (${statusPlaceholders})
       `,
-      [notes, request_name, justification, observation, id]
+      [notes, request_name, justification, observation, id, ...editableStatuses]
     );
+
+    if (!updateReqResult?.affectedRows) {
+      await conn.rollback();
+      return res.status(400).json({
+        ok: false,
+        message: "La requisición no está en un estatus editable para este perfil",
+        editable_statuses: editableStatuses,
+      });
+    }
 
     const [actuales] = await conn.query(`SELECT id FROM line_items WHERE requisition_id = ?`, [id]);
     const idsActuales = actuales.map((p) => Number(p.id)).filter((v) => Number.isInteger(v) && v > 0);

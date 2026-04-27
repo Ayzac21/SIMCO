@@ -81,6 +81,7 @@ function CuadroComparativo({
   priceMap,
   selectedByItem,
   setSelectedByItem,
+  canEdit = true,
 }) {
   const cols = useMemo(() => {
     return (providers || []).filter((p) => {
@@ -185,12 +186,16 @@ function CuadroComparativo({
                         ) : (
                           <button
                             type="button"
-                            onClick={() => setSelectedByItem((prev) => ({ ...prev, [it.id]: p.id }))}
+                            onClick={() => {
+                              if (!canEdit) return;
+                              setSelectedByItem((prev) => ({ ...prev, [it.id]: p.id }));
+                            }}
+                            disabled={!canEdit}
                             className={`w-full text-left rounded-lg border p-3 transition-colors ${
                               isSelected
                                 ? "border-[#8B1D35] bg-[#8B1D35]/5"
                                 : "border-gray-200 bg-white hover:bg-gray-50"
-                            }`}
+                            } ${!canEdit ? "opacity-80 cursor-not-allowed" : ""}`}
                           >
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                               <div className="min-w-0">
@@ -241,6 +246,7 @@ export default function ComprasRevision() {
   const [invitedProviders, setInvitedProviders] = useState([]);
   const [savedPrices, setSavedPrices] = useState([]);
   const [selectedByItem, setSelectedByItem] = useState({});
+  const [canEdit, setCanEdit] = useState(true);
 
   const loadData = async () => {
     try {
@@ -249,10 +255,17 @@ export default function ComprasRevision() {
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data?.message || "Error cargando revisión");
 
+      if (data?.canEdit === false) {
+        toast.info("Esta requisición ya está en proceso de compra. Redirigiendo...");
+        navigate(`/compras/orden/${id}`, { replace: true });
+        return;
+      }
+
       setRequisition(data.requisition || null);
       setItems(Array.isArray(data.items) ? data.items : []);
       setInvitedProviders(Array.isArray(data.invitedProviders) ? data.invitedProviders : []);
       setSavedPrices(Array.isArray(data.savedPrices) ? data.savedPrices : []);
+      setCanEdit(Boolean(data?.canEdit));
 
       const pre = {};
       if (Array.isArray(data.selections)) {
@@ -310,7 +323,7 @@ export default function ComprasRevision() {
     });
 
   const handleSaveSelection = async () => {
-    if (saving || !canSave) return;
+    if (!canEdit || saving || !canSave) return;
     try {
       setConfirmOpen(false);
       setSaving(true);
@@ -334,7 +347,7 @@ export default function ComprasRevision() {
   };
 
   const handleBackToCotizacion = async () => {
-    if (reopening || saving) return;
+    if (!canEdit || reopening || saving) return;
     try {
       setReopening(true);
       const resp = await fetch(`${API_URL}/cotizacion/${id}/reopen`, {
@@ -402,9 +415,9 @@ export default function ComprasRevision() {
         <div className="flex items-center gap-2">
           <button
             onClick={handleBackToCotizacion}
-            disabled={reopening || saving}
+            disabled={!canEdit || reopening || saving}
             className={`px-4 py-2 rounded-lg text-xs font-bold border border-amber-200 text-amber-700 flex items-center gap-2 transition-colors ${
-              reopening || saving ? "opacity-60 cursor-not-allowed" : "hover:bg-amber-50"
+              !canEdit || reopening || saving ? "opacity-60 cursor-not-allowed" : "hover:bg-amber-50"
             }`}
             title="Regresar a cotización para agregar o ajustar proveedores"
           >
@@ -413,9 +426,9 @@ export default function ComprasRevision() {
           </button>
           <button
             onClick={() => setConfirmOpen(true)}
-            disabled={!canSave || saving || reopening}
+            disabled={!canEdit || !canSave || saving || reopening}
             className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm transition-colors ${
-              !canSave || saving || reopening
+              !canEdit || !canSave || saving || reopening
                 ? "bg-gray-300 text-gray-600 cursor-not-allowed"
                 : "bg-[#8B1D35] hover:bg-[#72182b] text-white"
             }`}
@@ -431,9 +444,13 @@ export default function ComprasRevision() {
           <Info size={18} />
         </div>
         <div>
-          <div className="text-sm font-bold text-gray-800">Selección final de proveedores</div>
+          <div className="text-sm font-bold text-gray-800">
+            {canEdit ? "Selección final de proveedores" : "Resumen de selección final"}
+          </div>
           <p className="text-xs text-gray-600 leading-relaxed mt-0.5">
-            Este cuadro comparativo es interno de Compras. Selecciona un proveedor por partida y confirma para pasar a proceso de compra.
+            {canEdit
+              ? "Este cuadro comparativo es interno de Compras. Selecciona un proveedor por partida y confirma para pasar a proceso de compra."
+              : "La requisición ya avanzó a proceso de compra. Puedes consultar la selección guardada en modo lectura."}
           </p>
         </div>
       </div>
@@ -444,6 +461,7 @@ export default function ComprasRevision() {
         priceMap={priceMap}
         selectedByItem={selectedByItem}
         setSelectedByItem={setSelectedByItem}
+        canEdit={canEdit}
       />
     </div>
   );
