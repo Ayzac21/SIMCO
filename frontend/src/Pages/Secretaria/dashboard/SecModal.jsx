@@ -85,6 +85,21 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
 
     if (!req) return null;
 
+    const getReqLabel = (data) => {
+        const candidates = [
+            data?.request_name,
+            data?.nombre_solicitud,
+            data?.categoria,
+            data?.category_name,
+        ];
+        for (const value of candidates) {
+            const clean = String(value || "").trim();
+            if (clean) return clean;
+        }
+        const id = Number(data?.id || 0);
+        return id ? `Requisición #${id}` : "Requisición";
+    };
+
     const jefatura = getRequisitionUnitLabel(req, "Unidad solicitante");
     const coordinacion = req.coordinacion;
     
@@ -230,7 +245,7 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
                                 <div className="flex items-center gap-2 mb-1 text-gray-400 text-[10px] font-bold uppercase tracking-wider">
                                     <FileText size={12} /> Proyecto
                                 </div>
-                                <div className="font-bold text-gray-800 text-base">{req.request_name}</div>
+                                <div className="font-bold text-gray-800 text-base">{getReqLabel(req)}</div>
                             </div>
 
                             <div className="w-full h-px bg-gray-200"></div>

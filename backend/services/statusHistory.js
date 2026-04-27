@@ -15,7 +15,7 @@ export const ensureStatusHistoryTable = async () => {
         requisition_id INT NOT NULL,
         from_status_id INT NULL,
         to_status_id INT NOT NULL,
-        changed_by INT UNSIGNED NULL,
+        changed_by BIGINT NULL,
         change_note TEXT NULL,
         changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_rsh_req_changed (requisition_id, changed_at),

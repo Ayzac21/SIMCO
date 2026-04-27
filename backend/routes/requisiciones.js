@@ -1463,7 +1463,10 @@ router.get("/:id/pdf-firma", async (req, res) => {
       align: "center",
       fontSize: 8,
     });
-    drawCell(contentX + labelW, y, contentW - labelW, 18, "", {
+    const etiquetaTexto =
+      safe(reqRow.request_name) ||
+      `REQUISICIÓN #${Number(reqRow.id || 0)}`;
+    drawCell(contentX + labelW, y, contentW - labelW, 18, safeUpper(etiquetaTexto), {
       fontSize: 9,
     });
 

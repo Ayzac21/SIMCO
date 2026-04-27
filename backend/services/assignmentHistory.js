@@ -7,23 +7,15 @@ export const ensureAssignmentHistoryTable = async (connOrPool = pool) => {
     ensureAssignmentHistoryTablePromise = (async () => {
       await connOrPool.query(`
         CREATE TABLE IF NOT EXISTS requisition_assignment_history (
-          id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-          requisition_id INT NOT NULL,
-          previous_operator_id INT NULL,
-          new_operator_id INT NULL,
-          changed_by INT NULL,
+          id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          requisition_id BIGINT NOT NULL,
+          previous_operator_id BIGINT NULL,
+          new_operator_id BIGINT NULL,
+          changed_by BIGINT NULL,
           change_note VARCHAR(500) NULL,
           created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           INDEX idx_req_assign_hist_req (requisition_id),
-          INDEX idx_req_assign_hist_created (created_at),
-          CONSTRAINT fk_req_assign_hist_req
-            FOREIGN KEY (requisition_id) REFERENCES requisition(id) ON DELETE CASCADE,
-          CONSTRAINT fk_req_assign_hist_prev_user
-            FOREIGN KEY (previous_operator_id) REFERENCES users(id) ON DELETE SET NULL,
-          CONSTRAINT fk_req_assign_hist_new_user
-            FOREIGN KEY (new_operator_id) REFERENCES users(id) ON DELETE SET NULL,
-          CONSTRAINT fk_req_assign_hist_actor_user
-            FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
+          INDEX idx_req_assign_hist_created (created_at)
         )
       `);
     })().catch((error) => {
@@ -86,4 +78,3 @@ export const getRequisitionAssignmentTimeline = async (requisitionId, connOrPool
     event_type: "assignment",
   }));
 };
-

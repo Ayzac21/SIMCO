@@ -6,7 +6,9 @@ const isTokenExpired = (token) => {
     try {
         const parts = String(token || "").split(".");
         if (parts.length < 2) return true;
-        const payloadJson = atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"));
+        const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+        const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+        const payloadJson = atob(padded);
         const payload = JSON.parse(payloadJson);
         const exp = Number(payload?.exp || 0);
         if (!exp) return false;

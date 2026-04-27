@@ -2355,17 +2355,10 @@ export const getOrdenCompraPdf = async (req, res) => {
     const mergedQty = itemValues.map((it) => formatQty(it.qty) || "-").join(multilineGap);
     const mergedUnits = itemValues.map((it) => it.unidad || "-").join(multilineGap);
     const mergedUnitPrices = itemValues.map((it) => (it.unit ? formatMoney(it.unit) : "-")).join(multilineGap);
-    const partidas = Array.from(
-      new Set(
-        itemsByProvider
-          .map((it) => Number(it.id))
-          .filter((n) => Number.isFinite(n) && n > 0)
-      )
-    ).join(", ");
     const requesterDisplay =
       requesterName || cleanText(requisition.ure_solicitante) || resolvedUnitName || "—";
     const obsWhoLine = `Responsable de la solicitud: ${requesterDisplay}`.trimEnd();
-    const obsReqLine = `REQ: ${partidas || ""}`.trimEnd();
+    const obsReqLine = `REQ: ${Number(requisition.id || id) || ""}`.trimEnd();
     const obsInitialsLine = String(buyerInitials || "").trim();
 
     setText(form, "CANTIDADRow1", single ? (single.qty ? formatQty(single.qty) : "") : mergedQty);

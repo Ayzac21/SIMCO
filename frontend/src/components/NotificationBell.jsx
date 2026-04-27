@@ -23,13 +23,32 @@ function formatWhen(value) {
 function normalizeActionPath(notification) {
   let base = String(notification?.action_path || "").trim();
   const reqId = Number(notification?.entity_id || 0);
+  let role = "";
   if (!base) return "";
 
   try {
     const user = JSON.parse(localStorage.getItem("usuario"));
-    const role = String(user?.role || "");
+    role = String(user?.role || "");
     if (role === "secretaria" && base.startsWith("/unidad/")) {
       base = base.replace("/unidad/", "/secretaria/");
+    }
+    if (role === "coordinador") {
+      if (base.startsWith("/unidad/mi-requisiciones")) {
+        base = base.replace("/unidad/mi-requisiciones", "/coordinador/requisiciones");
+      } else if (base.startsWith("/unidad/requisiciones/editar/")) {
+        base = base.replace("/unidad/requisiciones/editar/", "/coordinador/requisiciones/editar/");
+      } else if (base.startsWith("/secretaria/")) {
+        base = "/coordinador/requisiciones";
+      }
+    }
+    if (role.startsWith("compras_") && role !== "compras_admin") {
+      if (
+        base.startsWith("/compras/revision/") ||
+        base.startsWith("/compras/empleados") ||
+        base.startsWith("/compras/unidades")
+      ) {
+        base = "/compras/dashboard";
+      }
     }
   } catch {
     // noop
@@ -50,6 +69,12 @@ function normalizeActionPath(notification) {
   ) {
     const joiner = base.includes("?") ? "&" : "?";
     return `${base}${joiner}openReq=${reqId}`;
+  }
+  if (isRequisition && reqId) {
+    if (role === "coordinador") return `/coordinador/requisiciones?openReq=${reqId}`;
+    if (role === "secretaria") return `/secretaria/recibidas?openReq=${reqId}`;
+    if (role === "head_office") return `/unidad/mi-requisiciones?openReq=${reqId}`;
+    if (role.startsWith("compras_")) return `/compras/dashboard?openReq=${reqId}`;
   }
   return base;
 }

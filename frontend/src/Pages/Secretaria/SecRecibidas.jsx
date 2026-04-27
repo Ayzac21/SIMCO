@@ -176,17 +176,33 @@ export default function SecRecibidas() {
         }
     };
 
+    const getReqLabel = (req) => {
+        const candidates = [
+            req?.request_name,
+            req?.nombre_solicitud,
+            req?.categoria,
+            req?.category_name,
+        ];
+        for (const value of candidates) {
+            const clean = String(value || "").trim();
+            if (clean) return clean;
+        }
+        const id = Number(req?.id || 0);
+        return id ? `Requisición #${id}` : "Requisición";
+    };
+
     // --- RENDERIZADO DE BADGES ---
     const renderStatusBadge = (statusId) => {
+        const sid = Number(statusId);
         const label = getStatusLabel(statusId);
-        switch(statusId) {
+        switch(sid) {
             case 9: return <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit"><Clock size={10} /> {label}</span>;
             case 12: return <span className="bg-yellow-50 text-yellow-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit"><Truck size={10} /> {label}</span>;
             case 14: return <span className="bg-slate-100 text-slate-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit"><Clock size={10} /> {label}</span>;
             case 13: return <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit"><Truck size={10} /> {label}</span>;
             case 11: return <span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit"><CheckCircle size={10} /> {label}</span>;
             case 10: return <span className="bg-red-50 text-red-600 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit"><XCircle size={10} /> {label}</span>;
-            default: return null;
+            default: return <span className="bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit"><Clock size={10} /> {label}</span>;
         }
     };
 
@@ -276,7 +292,7 @@ export default function SecRecibidas() {
                                     <tr key={req.id} onClick={() => handleRowClick(req)} className="hover:bg-gray-50 cursor-pointer group transition-colors">
                                         <td className="px-6 py-4 font-bold text-gray-700">#{req.id}</td>
                                         <td className="px-6 py-4">
-                                            <div className="font-bold text-gray-800 text-sm mb-1">{req.request_name}</div>
+                                            <div className="font-bold text-gray-800 text-sm mb-1">{getReqLabel(req)}</div>
                                             <div className="flex items-center gap-1.5">
                                                 <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-[#8B1D35]/10 text-[#8B1D35] border border-[#8B1D35]/10 flex items-center gap-1">
                                                     <Building2 size={10} /> {getRequisitionUnitLabel(req, "Unidad solicitante")}
