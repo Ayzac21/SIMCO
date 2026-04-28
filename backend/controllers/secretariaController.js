@@ -61,23 +61,45 @@ const ensureSameSecretaria = (req, res, requestedId) => {
     return true;
 };
 
-const canSecretariaAccessRequisition = async (requisitionId) => {
+const getSecretariaUreByUserId = async (userId, connOrPool = pool) => {
+    const uid = parseUserId(userId);
+    if (!uid) return "";
+    const [[row]] = await connOrPool.query(
+        `SELECT TRIM(UPPER(ure)) AS ure FROM users WHERE id = ? AND role = 'secretaria' LIMIT 1`,
+        [uid]
+    );
+    return String(row?.ure || "").trim();
+};
+
+const canSecretariaAccessRequisition = async (requisitionId, secretariaUserId) => {
     const reqId = parseUserId(requisitionId);
     if (!reqId) return false;
+    const secUre = await getSecretariaUreByUserId(secretariaUserId);
+    if (!secUre) return false;
     await ensureStatusHistoryTable();
     const [rows] = await pool.query(
         `
         SELECT r.id
         FROM requisition r
+        JOIN users u ON u.id = r.users_id
+        LEFT JOIN secretary sec_scope
+          ON sec_scope.id = (
+            SELECT s2.id
+            FROM secretary s2
+            WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+            ORDER BY LENGTH(TRIM(s2.ure)) DESC
+            LIMIT 1
+          )
         ${secretariaScopeRejectedJoin}
         WHERE r.id = ?
+          AND TRIM(UPPER(COALESCE(sec_scope.ure, ''))) = ?
           AND (
             r.statuses_id IN (9, 11, 12, 13, 14)
             OR (r.statuses_id = 10 AND COALESCE(ru.role, '') = 'secretaria')
           )
         LIMIT 1
         `,
-        [reqId]
+        [reqId, secUre]
     );
     return Array.isArray(rows) && rows.length > 0;
 };
@@ -86,6 +108,11 @@ const canSecretariaAccessRequisition = async (requisitionId) => {
 export const getRequisicionesSecretaria = async (req, res) => {
     try {
         if (!ensureSameSecretaria(req, res, req.params.id)) return;
+        const authId = getAuthUserId(req);
+        const secretariaUre = await getSecretariaUreByUserId(authId);
+        if (!secretariaUre) {
+            return res.status(403).json({ message: "No se encontró URE para la secretaría autenticada" });
+        }
         await ensureStatusHistoryTable();
 
         const page = Math.max(1, Number(req.query.page || 1));
@@ -97,8 +124,9 @@ export const getRequisicionesSecretaria = async (req, res) => {
 
         const whereParts = [
             "(r.statuses_id IN (9, 11, 12, 13, 14) OR (r.statuses_id = 10 AND COALESCE(ru.role, '') = 'secretaria'))",
+            "TRIM(UPPER(COALESCE(sec_scope.ure, ''))) = ?",
         ];
-        const params = [];
+        const params = [secretariaUre];
 
         if (status === "pendientes") whereParts.push("r.statuses_id = 9");
         if (status === "aprobadas") whereParts.push("r.statuses_id IN (12, 13, 14, 11)");
@@ -144,6 +172,14 @@ export const getRequisicionesSecretaria = async (req, res) => {
                     FROM coordination c3
                     WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(c3.ure)), '%')
                     ORDER BY LENGTH(TRIM(c3.ure)) DESC
+                    LIMIT 1
+                )
+            LEFT JOIN secretary sec_scope
+                ON sec_scope.id = (
+                    SELECT s2.id
+                    FROM secretary s2
+                    WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+                    ORDER BY LENGTH(TRIM(s2.ure)) DESC
                     LIMIT 1
                 )
             LEFT JOIN (
@@ -206,6 +242,14 @@ export const getRequisicionesSecretaria = async (req, res) => {
                     ORDER BY LENGTH(TRIM(c3.ure)) DESC
                     LIMIT 1
                 )
+            LEFT JOIN secretary sec_scope
+                ON sec_scope.id = (
+                    SELECT s2.id
+                    FROM secretary s2
+                    WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+                    ORDER BY LENGTH(TRIM(s2.ure)) DESC
+                    LIMIT 1
+                )
             LEFT JOIN (
                 SELECT h.requisition_id, h.changed_by, h.change_note, h.changed_at
                 FROM requisition_status_history h
@@ -254,9 +298,31 @@ export const updateEstatusSecretaria = async (req, res) => {
         conn = await pool.getConnection();
         await conn.beginTransaction();
 
+        const authId = getAuthUserId(req);
+        const secretariaUre = await getSecretariaUreByUserId(authId, conn);
+        if (!secretariaUre) {
+            await conn.rollback();
+            return res.status(403).json({ message: "No se encontró URE para la secretaría autenticada" });
+        }
         const [[current]] = await conn.query(
-            `SELECT statuses_id, users_id FROM requisition WHERE id = ? LIMIT 1 FOR UPDATE`,
-            [id]
+            `
+            SELECT r.statuses_id, r.users_id
+            FROM requisition r
+            JOIN users u ON u.id = r.users_id
+            LEFT JOIN secretary sec_scope
+              ON sec_scope.id = (
+                SELECT s2.id
+                FROM secretary s2
+                WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+                ORDER BY LENGTH(TRIM(s2.ure)) DESC
+                LIMIT 1
+              )
+            WHERE r.id = ?
+              AND TRIM(UPPER(COALESCE(sec_scope.ure, ''))) = ?
+            LIMIT 1
+            FOR UPDATE
+            `,
+            [id, secretariaUre]
         );
         if (!current) {
             await conn.rollback();
@@ -383,7 +449,7 @@ export const getSecretariaItems = async (req, res) => {
         const { id } = req.params;
         const authId = getAuthUserId(req);
         if (!authId) return res.status(401).json({ message: "No autorizado" });
-        const allowed = await canSecretariaAccessRequisition(id);
+        const allowed = await canSecretariaAccessRequisition(id, authId);
         if (!allowed) return res.status(403).json({ message: "Acceso denegado" });
         const query = `
             SELECT 
@@ -406,7 +472,7 @@ export const getSecretariaItemImage = async (req, res) => {
         const { id, line_item_id } = req.params;
         const authId = getAuthUserId(req);
         if (!authId) return res.status(401).json({ message: "No autorizado" });
-        const allowed = await canSecretariaAccessRequisition(id);
+        const allowed = await canSecretariaAccessRequisition(id, authId);
         if (!allowed) return res.status(403).json({ message: "Acceso denegado" });
         const [[itemRow]] = await pool.query(
             `

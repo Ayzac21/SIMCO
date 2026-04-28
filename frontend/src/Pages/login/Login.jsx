@@ -170,7 +170,7 @@ export default function Login() {
                                         <UserRound size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                                         <input
                                             type="text"
-                                            placeholder="Ej: jefe.compras"
+                                            placeholder="Ej: 223456789"
                                             value={user_name}
                                             onChange={(e) => setUserName(e.target.value)}
                                             className="w-full border border-gray-300 rounded-xl pl-10 pr-4 py-2.5 sm:py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-principal/30 focus:border-principal"
