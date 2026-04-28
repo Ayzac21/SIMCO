@@ -22,6 +22,9 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const templatesDir = path.resolve(__dirname, "..", "templates");
+const excelComparativoLogoPath = path.resolve(
+  "/Users/umi/Documents/udg-07.png"
+);
 const requisitionUploadsDir = path.resolve(__dirname, "..", "uploads", "requisiciones");
 const resolveStoredRequisitionImagePath = async (storedPath) => {
   if (!storedPath) return null;
@@ -144,6 +147,101 @@ const getUserInitialsById = async (userId, connOrPool = pool) => {
   return initialsFromName(rows?.[0]?.name || "");
 };
 
+const numberToSpanishWords = (amount) => {
+  const n = Number(amount);
+  if (!Number.isFinite(n) || n < 0) return "";
+
+  const UNITS = [
+    "CERO",
+    "UNO",
+    "DOS",
+    "TRES",
+    "CUATRO",
+    "CINCO",
+    "SEIS",
+    "SIETE",
+    "OCHO",
+    "NUEVE",
+  ];
+  const TEN_TO_FIFTEEN = [
+    "DIEZ",
+    "ONCE",
+    "DOCE",
+    "TRECE",
+    "CATORCE",
+    "QUINCE",
+  ];
+  const TENS = [
+    "",
+    "",
+    "VEINTE",
+    "TREINTA",
+    "CUARENTA",
+    "CINCUENTA",
+    "SESENTA",
+    "SETENTA",
+    "OCHENTA",
+    "NOVENTA",
+  ];
+  const HUNDREDS = [
+    "",
+    "CIENTO",
+    "DOSCIENTOS",
+    "TRESCIENTOS",
+    "CUATROCIENTOS",
+    "QUINIENTOS",
+    "SEISCIENTOS",
+    "SETECIENTOS",
+    "OCHOCIENTOS",
+    "NOVECIENTOS",
+  ];
+
+  const toWordsBelow100 = (value) => {
+    if (value < 10) return UNITS[value];
+    if (value >= 10 && value <= 15) return TEN_TO_FIFTEEN[value - 10];
+    if (value < 20) return `DIECI${UNITS[value - 10].toLowerCase()}`.toUpperCase();
+    if (value === 20) return "VEINTE";
+    if (value < 30) return `VEINTI${UNITS[value - 20].toLowerCase()}`.toUpperCase();
+    const ten = Math.floor(value / 10);
+    const unit = value % 10;
+    return unit === 0 ? TENS[ten] : `${TENS[ten]} Y ${UNITS[unit]}`;
+  };
+
+  const toWordsBelow1000 = (value) => {
+    if (value === 0) return "CERO";
+    if (value === 100) return "CIEN";
+    if (value < 100) return toWordsBelow100(value);
+    const hundred = Math.floor(value / 100);
+    const rest = value % 100;
+    return rest === 0 ? HUNDREDS[hundred] : `${HUNDREDS[hundred]} ${toWordsBelow100(rest)}`;
+  };
+
+  const toWordsInt = (value) => {
+    if (value === 0) return "CERO";
+    if (value < 1000) return toWordsBelow1000(value);
+    if (value < 1000000) {
+      const thousands = Math.floor(value / 1000);
+      const rest = value % 1000;
+      const thousandsWord = thousands === 1 ? "MIL" : `${toWordsBelow1000(thousands)} MIL`;
+      return rest === 0 ? thousandsWord : `${thousandsWord} ${toWordsBelow1000(rest)}`;
+    }
+    const millions = Math.floor(value / 1000000);
+    const rest = value % 1000000;
+    const millionWord = millions === 1 ? "UN MILLON" : `${toWordsInt(millions)} MILLONES`;
+    if (rest === 0) return millionWord;
+    return `${millionWord} ${toWordsInt(rest)}`;
+  };
+
+  const rounded = Math.round((n + Number.EPSILON) * 100) / 100;
+  const integerPart = Math.floor(rounded);
+  const decimalPart = Math.round((rounded - integerPart) * 100);
+  const integerWords = toWordsInt(integerPart)
+    .replace(/\bUNO\b/g, "UN")
+    .replace(/\bVEINTIUN\b/g, "VEINTIUN");
+
+  return `${integerWords} PESOS ${String(decimalPart).padStart(2, "0")}/100 M.N.`;
+};
+
 const parseSelectionTaxesFromNotes = (notes) => {
   if (!notes) return { vatPct: null, isrPct: null };
   try {
@@ -198,6 +296,8 @@ const getComprasAdminIds = async (connOrPool = pool) => {
 let selectionTaxColumnsAvailableCache = null;
 let ensureAttachmentsTablePromise = null;
 let ensureOrderFolioSequenceTablePromise = null;
+let hasRequisitionFolioColumnPromise = null;
+let ensureComparativeHistoryTablePromise = null;
 let lineItemImageColumnsAvailableCache = null;
 const hasLineItemImageColumns = async (connOrPool = pool) => {
   if (lineItemImageColumnsAvailableCache !== null) return lineItemImageColumnsAvailableCache;
@@ -301,6 +401,109 @@ const ensureOrderFolioSequenceTable = async (connOrPool = pool) => {
       });
   }
   await ensureOrderFolioSequenceTablePromise;
+};
+
+const hasRequisitionFolioColumn = async () => {
+  if (!hasRequisitionFolioColumnPromise) {
+    hasRequisitionFolioColumnPromise = (async () => {
+      try {
+        const [rows] = await pool.query(`SHOW COLUMNS FROM requisition LIKE 'folio'`);
+        return Array.isArray(rows) && rows.length > 0;
+      } catch {
+        return false;
+      }
+    })().catch((error) => {
+      hasRequisitionFolioColumnPromise = null;
+      throw error;
+    });
+  }
+  return hasRequisitionFolioColumnPromise;
+};
+
+const ensureComparativeHistoryTable = async (connOrPool = pool) => {
+  if (!ensureComparativeHistoryTablePromise) {
+    ensureComparativeHistoryTablePromise = (async () => {
+      await connOrPool.query(`
+        CREATE TABLE IF NOT EXISTS requisition_comparative_history (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          requisition_id INT NOT NULL,
+          version_no INT UNSIGNED NOT NULL,
+          generated_by INT UNSIGNED NULL,
+          trigger_event VARCHAR(40) NOT NULL DEFAULT 'excel_download',
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_rch_req (requisition_id),
+          INDEX idx_rch_created (created_at),
+          UNIQUE KEY uq_rch_req_version (requisition_id, version_no)
+        )
+      `);
+    })().catch((error) => {
+      ensureComparativeHistoryTablePromise = null;
+      throw error;
+    });
+  }
+  await ensureComparativeHistoryTablePromise;
+};
+
+const createComparativeHistoryEntry = async ({
+  requisitionId,
+  generatedBy = null,
+  triggerEvent = "excel_download",
+}) => {
+  const reqId = Number(requisitionId || 0);
+  if (!reqId) return null;
+
+  await ensureComparativeHistoryTable();
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[maxRow]] = await conn.query(
+      `
+      SELECT COALESCE(MAX(version_no), 0) AS max_version
+      FROM requisition_comparative_history
+      WHERE requisition_id = ?
+      FOR UPDATE
+      `,
+      [reqId]
+    );
+    const nextVersion = Number(maxRow?.max_version || 0) + 1;
+    const [ins] = await conn.query(
+      `
+      INSERT INTO requisition_comparative_history
+        (requisition_id, version_no, generated_by, trigger_event)
+      VALUES (?, ?, ?, ?)
+      `,
+      [reqId, nextVersion, Number(generatedBy || 0) || null, String(triggerEvent || "excel_download").slice(0, 40)]
+    );
+    await conn.commit();
+    return {
+      id: Number(ins?.insertId || 0) || null,
+      version_no: nextVersion,
+    };
+  } catch (error) {
+    try {
+      await conn.rollback();
+    } catch {}
+    throw error;
+  } finally {
+    conn.release();
+  }
+};
+
+const getLatestComparativeHistoryEntry = async (requisitionId) => {
+  const reqId = Number(requisitionId || 0);
+  if (!reqId) return null;
+  await ensureComparativeHistoryTable();
+  const [rows] = await pool.query(
+    `
+    SELECT id, requisition_id, version_no, generated_by, trigger_event, created_at
+    FROM requisition_comparative_history
+    WHERE requisition_id = ?
+    ORDER BY version_no DESC, id DESC
+    LIMIT 1
+    `,
+    [reqId]
+  );
+  return rows?.[0] || null;
 };
 
 /* =============================
@@ -1696,6 +1899,7 @@ export const getCompraSeleccion = async (req, res) => {
         r.justification,
         r.notes,
         r.created_at,
+        r.order_type,
         r.statuses_id,
         s.name as nombre_estatus,
         u.name as solicitante,
@@ -2162,6 +2366,9 @@ export const getOrdenCompraPdf = async (req, res) => {
       return raw;
     };
     const deliveryDateMeta = formatMetaDate(meta.oc_delivery_date);
+    const serviceStartDateMeta = formatMetaDate(meta.oc_payment_start_date);
+    const serviceEndDateMeta = formatMetaDate(meta.oc_payment_end_date);
+    const servicePaymentDateMeta = formatMetaDate(meta.oc_payment_date);
     const preferredBuyerUserId =
       Number(meta.oc_buyer_user_id || 0) ||
       Number(requisition.assigned_operator_id || 0) ||
@@ -2290,9 +2497,9 @@ export const getOrdenCompraPdf = async (req, res) => {
       "LUGAR DE ENTREGA": deliveryPlaceMeta || DEFAULT_DELIVERY_PLACE,
       "OBSERVACIONES": requisition.observation || requisition.notes || "",
       "FECHA DE ENTREGA": deliveryDateMeta,
-      "FECHA DE INICIO": "",
-      "FECHA DE CONCLUCION": "",
-      "FECHA DE PAGO": "",
+      "FECHA DE INICIO": orderType === "servicio" ? serviceStartDateMeta : "",
+      "FECHA DE CONCLUCION": orderType === "servicio" ? serviceEndDateMeta : "",
+      "FECHA DE PAGO": orderType === "servicio" ? servicePaymentDateMeta : "",
       "No DE PARCIALIDADES": installmentsCountMeta,
       "PORCENTAJE DE ANTICIPO": advancePercentageMeta,
       "Vo Bo": requesterName || resolvedUnitName,
@@ -2355,9 +2562,9 @@ export const getOrdenCompraPdf = async (req, res) => {
     const mergedQty = itemValues.map((it) => formatQty(it.qty) || "-").join(multilineGap);
     const mergedUnits = itemValues.map((it) => it.unidad || "-").join(multilineGap);
     const mergedUnitPrices = itemValues.map((it) => (it.unit ? formatMoney(it.unit) : "-")).join(multilineGap);
-    const requesterDisplay =
-      requesterName || cleanText(requisition.ure_solicitante) || resolvedUnitName || "—";
-    const obsWhoLine = `Responsable de la solicitud: ${requesterDisplay}`.trimEnd();
+    const requesterAreaDisplay =
+      resolvedUnitName || cleanText(requisition.ure_solicitante) || "—";
+    const obsWhoLine = `Área solicitante: ${requesterAreaDisplay}`.trimEnd();
     const obsReqLine = `REQ: ${Number(requisition.id || id) || ""}`.trimEnd();
     const obsInitialsLine = String(buyerInitials || "").trim();
 
@@ -2369,7 +2576,7 @@ export const getOrdenCompraPdf = async (req, res) => {
     setText(form, "IMPORTE TOTALSUBTOTAL IVA TOTAL", subtotalBase ? formatMoney(subtotalBase) : "");
     setText(form, "IMPORTE TOTALSUBTOTAL IVA TOTAL_2", iva ? formatMoney(iva) : "0.00");
     setText(form, "IMPORTE TOTALSUBTOTAL IVA TOTAL_3", totalConIva ? formatMoney(totalConIva) : "");
-    setText(form, "IMPORTE CON LETRA", "");
+    setText(form, "IMPORTE CON LETRA", numberToSpanishWords(totalConIva));
     setText(form, "OBSERVACIONES", [obsWhoLine, obsReqLine, obsInitialsLine].join("\n"));
 
     form.flatten();
@@ -2485,6 +2692,29 @@ export const updateOrdenCompraMeta = async (req, res) => {
     }
     if (paymentDateRaw && !paymentDate) {
       return res.status(400).json({ message: "Fecha de pago inválida" });
+    }
+    const toDateValue = (value) => {
+      if (!value) return null;
+      const dateValue = new Date(`${value}T00:00:00`);
+      return Number.isNaN(dateValue.getTime()) ? null : dateValue;
+    };
+    const startDateValue = toDateValue(paymentStartDate);
+    const endDateValue = toDateValue(paymentEndDate);
+    const paymentDateValue = toDateValue(paymentDate);
+    if (startDateValue && endDateValue && startDateValue > endDateValue) {
+      return res.status(400).json({
+        message: "La fecha de inicio no puede ser mayor a la fecha de conclusión",
+      });
+    }
+    if (startDateValue && paymentDateValue && paymentDateValue < startDateValue) {
+      return res.status(400).json({
+        message: "La fecha de pago no puede ser menor a la fecha de inicio",
+      });
+    }
+    if (endDateValue && paymentDateValue && paymentDateValue < endDateValue) {
+      return res.status(400).json({
+        message: "La fecha de pago no puede ser menor a la fecha de conclusión",
+      });
     }
     if (
       installmentsCount != null &&
@@ -2758,15 +2988,57 @@ export const downloadCotizacionExcel = async (req, res) => {
       });
     }
 
+    const withReqFolio = await hasRequisitionFolioColumn();
+    let comparativeEntry = await getLatestComparativeHistoryEntry(Number(id));
+    if (!comparativeEntry) {
+      comparativeEntry = await createComparativeHistoryEntry({
+        requisitionId: Number(id),
+        generatedBy: Number(req.user?.id || 0) || null,
+        triggerEvent: "excel_init",
+      });
+    }
     const [reqRows] = await pool.query(
       `
       SELECT
         r.id,
+        ${withReqFolio ? "r.folio" : "NULL AS folio"},
         r.request_name,
         r.created_at,
-        c.name AS category_name
+        c.name AS category_name,
+        u.ure AS ure_solicitante,
+        COALESCE(
+          NULLIF(TRIM(ho.name), ''),
+          NULLIF(TRIM(sec.name), ''),
+          NULLIF(TRIM(c2.name), ''),
+          u.ure
+        ) AS nombre_unidad
       FROM requisition r
       LEFT JOIN categories c ON c.id = r.categories_id
+      LEFT JOIN users u ON u.id = r.users_id
+      LEFT JOIN head_offices ho
+        ON ho.id = (
+          SELECT ho2.id
+          FROM head_offices ho2
+          WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(ho2.ure)), '%')
+          ORDER BY LENGTH(TRIM(ho2.ure)) DESC
+          LIMIT 1
+        )
+      LEFT JOIN secretary sec
+        ON sec.id = (
+          SELECT s2.id
+          FROM secretary s2
+          WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+          ORDER BY LENGTH(TRIM(s2.ure)) DESC
+          LIMIT 1
+        )
+      LEFT JOIN coordination c2
+        ON c2.id = (
+          SELECT c3.id
+          FROM coordination c3
+          WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(c3.ure)), '%')
+          ORDER BY LENGTH(TRIM(c3.ure)) DESC
+          LIMIT 1
+        )
       WHERE r.id = ?
       LIMIT 1
       `,
@@ -2776,6 +3048,12 @@ export const downloadCotizacionExcel = async (req, res) => {
       return res.status(404).json({ message: "Requisición no encontrada" });
     }
     const requisition = reqRows[0];
+    const reqIdLabel = Number(requisition.id || id);
+    const reqFolioLabel = String(requisition.folio || "").trim();
+    const comparativeLabel = comparativeEntry?.id ? String(comparativeEntry.id) : "";
+    const compareHeaderLabel = comparativeLabel
+      ? `CUADRO COMPARATIVO ${comparativeLabel} - REQ ${reqIdLabel}`
+      : `CUADRO COMPARATIVO ${reqFolioLabel || reqIdLabel} - REQ ${reqIdLabel}`;
 
     const [items] = await pool.query(
       `
@@ -2934,14 +3212,32 @@ export const downloadCotizacionExcel = async (req, res) => {
     const now = new Date();
     const series = `${id}-${now.getFullYear()}`;
 
+    try {
+      const logoBuffer = await fs.readFile(excelComparativoLogoPath);
+      const logoId = workbook.addImage({
+        buffer: logoBuffer,
+        extension: "png",
+      });
+      ws.addImage(logoId, {
+        tl: { col: 0.2, row: 0.1 },
+        ext: { width: 92, height: 74 },
+        editAs: "oneCell",
+      });
+    } catch {
+      // Si no existe el archivo de logo, se mantiene la exportación sin imagen.
+    }
+
     ws.getCell("D1").value = "UNIVERSIDAD DE GUADALAJARA";
     ws.getCell("D2").value = "CENTRO UNIVERSITARIO DE LOS ALTOS";
-    ws.getCell("H4").value = "CUADRO COMPARATIVO";
-    ws.getCell("I4").value = series;
+    ws.getCell("H4").value = compareHeaderLabel;
+    ws.getCell("I4").value = "";
     ws.getCell("E6").value = "FECHA CUADRO:";
     ws.getCell("F6").value = safeDate(now);
     ws.getCell("H6").value = "DEPENDENCIA:";
-    ws.getCell("I6").value = requisition.request_name || requisition.category_name || "";
+    ws.getCell("I6").value =
+      String(requisition.nombre_unidad || "").trim() ||
+      String(requisition.ure_solicitante || "").trim() ||
+      "";
 
     ws.getRow(8).values = ["Partida", "Cantidad", "Unidad", "DESCRIPCION DEL BIEN O SERVICIO"];
     providers.forEach((p, idx) => {
@@ -2981,6 +3277,13 @@ export const downloadCotizacionExcel = async (req, res) => {
       bottom: { style: "thin", color: { argb: "FFBDBDBD" } },
       right: { style: "thin", color: { argb: "FFBDBDBD" } },
     };
+    const safeMergeCells = (...args) => {
+      try {
+        ws.mergeCells(...args);
+      } catch {
+        // Evita romper la exportación por choques de merges.
+      }
+    };
 
     let rowIndex = 10;
     items.forEach((item, idx) => {
@@ -3017,8 +3320,12 @@ export const downloadCotizacionExcel = async (req, res) => {
           ws.getCell(rowIndex, unitCol).numFmt = currencyFmt;
           ws.getCell(rowIndex, totalCol).numFmt = currencyFmt;
         } else {
-          ws.getCell(rowIndex, unitCol).value = "";
-          ws.getCell(rowIndex, totalCol).value = "";
+          ws.getCell(rowIndex, unitCol).value = "NO COTIZA";
+          ws.getCell(rowIndex, totalCol).value = "NO COTIZA";
+          ws.getCell(rowIndex, unitCol).alignment = { vertical: "middle", horizontal: "center" };
+          ws.getCell(rowIndex, totalCol).alignment = { vertical: "middle", horizontal: "center" };
+          ws.getCell(rowIndex, unitCol).font = { bold: true, color: { argb: "FF6B7280" } };
+          ws.getCell(rowIndex, totalCol).font = { bold: true, color: { argb: "FF6B7280" } };
         }
 
         const selectedProviderId = Number(selectedProviderByItem[item.id] || 0);
@@ -3080,7 +3387,28 @@ export const downloadCotizacionExcel = async (req, res) => {
     writeAssignedSummary("Total Seleccionado", "total", assignedStart + 2);
     const lastCol = 4 + providers.length * 2;
 
-    const signatureLineRow = assignedStart + 10;
+    const observationsTitleRow = assignedStart + 6;
+    const observationsBodyStartRow = observationsTitleRow + 1;
+    const observationsBodyEndRow = observationsBodyStartRow + 2;
+    safeMergeCells(observationsTitleRow, 1, observationsTitleRow, lastCol);
+    const obsTitleCell = ws.getCell(observationsTitleRow, 1);
+    obsTitleCell.value = "OBSERVACIONES";
+    obsTitleCell.font = { bold: true, size: 10, color: { argb: "FF1F2937" } };
+    obsTitleCell.alignment = { horizontal: "left", vertical: "middle" };
+    obsTitleCell.fill = summaryFill;
+    obsTitleCell.border = borderThin;
+
+    safeMergeCells(observationsBodyStartRow, 1, observationsBodyEndRow, lastCol);
+    const obsBodyCell = ws.getCell(observationsBodyStartRow, 1);
+    obsBodyCell.value = String(requisition.observation || requisition.request_name || "").trim();
+    obsBodyCell.font = { size: 10, color: { argb: "FF374151" } };
+    obsBodyCell.alignment = { horizontal: "left", vertical: "top", wrapText: true };
+    obsBodyCell.border = borderThin;
+    ws.getRow(observationsBodyStartRow).height = 20;
+    ws.getRow(observationsBodyStartRow + 1).height = 20;
+    ws.getRow(observationsBodyEndRow).height = 20;
+
+    const signatureLineRow = observationsBodyEndRow + 4;
     const signatureLabelRow = signatureLineRow + 1;
     const signatureNameRow = signatureLineRow + 2;
     const signatureRoleRow = signatureLineRow + 3;
@@ -3161,14 +3489,16 @@ export const downloadCotizacionExcel = async (req, res) => {
     ws.getRow(signatureNameRow).height = 20;
     ws.getRow(signatureRoleRow).height = 22;
 
-    ws.mergeCells("D1:I1");
-    ws.mergeCells("D2:I2");
-    ws.mergeCells("H4:I4");
-    ws.mergeCells("I6:L6");
+    safeMergeCells("D1:I1");
+    safeMergeCells("D2:I2");
+    safeMergeCells(4, 8, 4, Math.max(8, lastCol));
+    const depStartCol = Math.min(9, lastCol);
+    const depEndCol = Math.min(lastCol, depStartCol + 3);
+    safeMergeCells(6, depStartCol, 6, depEndCol);
     providers.forEach((_, idx) => {
       const unitCol = 5 + idx * 2;
       const totalCol = unitCol + 1;
-      ws.mergeCells(8, unitCol, 8, totalCol);
+      safeMergeCells(8, unitCol, 8, totalCol);
     });
 
     ws.getColumn(1).width = 8;
@@ -3182,10 +3512,19 @@ export const downloadCotizacionExcel = async (req, res) => {
 
     ws.getCell("D1").font = { bold: true, size: 13 };
     ws.getCell("D2").font = { bold: true, size: 11 };
-    ws.getCell("H4").font = { bold: true };
+    ws.getCell("H4").font = { bold: true, size: 10, color: { argb: "FF111827" } };
+    ws.getCell("H4").alignment = { horizontal: "right", vertical: "middle", wrapText: true };
     ws.getCell("I4").font = { bold: true };
     ws.getCell("E6").font = { bold: true };
     ws.getCell("H6").font = { bold: true };
+    ws.getCell("I6").alignment = { horizontal: "left", vertical: "middle", wrapText: true };
+    ws.getCell("I6").font = { bold: true, size: 9 };
+    const dependencyText = String(ws.getCell("I6").value || "").trim();
+    const dependencyLines = Math.max(1, Math.ceil(dependencyText.length / 56));
+    ws.getRow(6).height = Math.max(26, dependencyLines * 14);
+    const headerText = String(ws.getCell("H4").value || "").trim();
+    const headerLines = Math.max(1, Math.ceil(headerText.length / 64));
+    ws.getRow(4).height = Math.max(20, headerLines * 14);
     ws.getRow(8).height = 26;
     ws.getRow(9).height = 24;
 
@@ -3442,6 +3781,11 @@ export const saveCotizacionPrices = async (req, res) => {
       ]);
     });
 
+    const hasChangesToPersist = filtered.some((p) => {
+      const raw = p?.unit_price;
+      return !(raw === "" || raw === null || raw === undefined);
+    });
+
     await Promise.all(insertQueries);
 
     const respondedProviderIds = Array.from(
@@ -3468,6 +3812,14 @@ export const saveCotizacionPrices = async (req, res) => {
         `,
         [id, ...respondedProviderIds]
       );
+    }
+
+    if (hasChangesToPersist) {
+      await createComparativeHistoryEntry({
+        requisitionId: Number(id),
+        generatedBy: Number(req.user?.id || 0) || null,
+        triggerEvent: "quote_update",
+      });
     }
 
     res.json({

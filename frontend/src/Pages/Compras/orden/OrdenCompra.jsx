@@ -60,6 +60,9 @@ export default function OrdenCompra() {
   const [paymentAdvance, setPaymentAdvance] = useState(false);
   const [deliveryPlace, setDeliveryPlace] = useState(DEFAULT_DELIVERY_PLACE);
   const [deliveryDate, setDeliveryDate] = useState("");
+  const [paymentStartDate, setPaymentStartDate] = useState("");
+  const [paymentEndDate, setPaymentEndDate] = useState("");
+  const [paymentDate, setPaymentDate] = useState("");
   const [installmentsCount, setInstallmentsCount] = useState("");
   const [advancePercentage, setAdvancePercentage] = useState("");
   const [paymentCompliance, setPaymentCompliance] = useState(false);
@@ -151,6 +154,9 @@ export default function OrdenCompra() {
         const uniquePaymentModes = new Set();
         const uniqueDeliveryPlaces = new Set();
         const uniqueDeliveryDates = new Set();
+        const uniquePaymentStartDates = new Set();
+        const uniquePaymentEndDates = new Set();
+        const uniquePaymentDates = new Set();
         const uniqueInstallments = new Set();
         const uniqueAdvancePercentages = new Set();
         let hasAdvance = false;
@@ -165,6 +171,9 @@ export default function OrdenCompra() {
             oc_payment_anticipo: Number(m.oc_payment_anticipo || 0) === 1,
             oc_delivery_place: m.oc_delivery_place || "",
             oc_delivery_date: toInputDate(m.oc_delivery_date),
+            oc_payment_start_date: toInputDate(m.oc_payment_start_date),
+            oc_payment_end_date: toInputDate(m.oc_payment_end_date),
+            oc_payment_date: toInputDate(m.oc_payment_date),
             oc_installments_count:
               m.oc_installments_count == null ? "" : String(m.oc_installments_count),
             oc_advance_percentage:
@@ -181,11 +190,17 @@ export default function OrdenCompra() {
           const place = String(m.oc_delivery_place || "").trim();
           if (place) uniqueDeliveryPlaces.add(place);
           const delDate = toInputDate(m.oc_delivery_date);
+          const startDate = toInputDate(m.oc_payment_start_date);
+          const endDate = toInputDate(m.oc_payment_end_date);
+          const payDate = toInputDate(m.oc_payment_date);
           const installments =
             m.oc_installments_count == null ? "" : String(m.oc_installments_count).trim();
           const advancePct =
             m.oc_advance_percentage == null ? "" : String(m.oc_advance_percentage).trim();
           if (delDate) uniqueDeliveryDates.add(delDate);
+          if (startDate) uniquePaymentStartDates.add(startDate);
+          if (endDate) uniquePaymentEndDates.add(endDate);
+          if (payDate) uniquePaymentDates.add(payDate);
           if (installments) uniqueInstallments.add(installments);
           if (advancePct) uniqueAdvancePercentages.add(advancePct);
           if (Number(m.oc_payment_anticipo || 0) === 1) hasAdvance = true;
@@ -201,6 +216,11 @@ export default function OrdenCompra() {
             : DEFAULT_DELIVERY_PLACE
         );
         setDeliveryDate(uniqueDeliveryDates.size ? Array.from(uniqueDeliveryDates)[0] : "");
+        setPaymentStartDate(
+          uniquePaymentStartDates.size ? Array.from(uniquePaymentStartDates)[0] : ""
+        );
+        setPaymentEndDate(uniquePaymentEndDates.size ? Array.from(uniquePaymentEndDates)[0] : "");
+        setPaymentDate(uniquePaymentDates.size ? Array.from(uniquePaymentDates)[0] : "");
         setInstallmentsCount(uniqueInstallments.size ? Array.from(uniqueInstallments)[0] : "");
         setAdvancePercentage(
           uniqueAdvancePercentages.size ? Array.from(uniqueAdvancePercentages)[0] : ""
@@ -213,6 +233,9 @@ export default function OrdenCompra() {
         setPaymentAdvance(false);
         setDeliveryPlace(DEFAULT_DELIVERY_PLACE);
         setDeliveryDate("");
+        setPaymentStartDate("");
+        setPaymentEndDate("");
+        setPaymentDate("");
         setInstallmentsCount("");
         setAdvancePercentage("");
         setPaymentCompliance(false);
@@ -303,6 +326,10 @@ export default function OrdenCompra() {
                 String(deliveryPlace || "").trim() ||
                 DEFAULT_DELIVERY_PLACE,
               oc_delivery_date: String(existing.oc_delivery_date || "").trim() || null,
+              oc_payment_start_date:
+                String(existing.oc_payment_start_date || "").trim() || null,
+              oc_payment_end_date: String(existing.oc_payment_end_date || "").trim() || null,
+              oc_payment_date: String(existing.oc_payment_date || "").trim() || null,
               oc_installments_count:
                 String(existing.oc_installments_count || "").trim() || null,
               oc_advance_percentage:
@@ -487,6 +514,9 @@ export default function OrdenCompra() {
     const cleanDeliveryPlace =
       String(deliveryPlace || "").trim() || DEFAULT_DELIVERY_PLACE;
     const cleanDeliveryDate = String(deliveryDate || "").trim();
+    const cleanPaymentStartDate = String(paymentStartDate || "").trim();
+    const cleanPaymentEndDate = String(paymentEndDate || "").trim();
+    const cleanPaymentDate = String(paymentDate || "").trim();
     const cleanInstallmentsCount = String(installmentsCount || "").trim();
     const cleanAdvancePercentage = String(advancePercentage || "").trim();
     if (providersList.length === 0) {
@@ -519,6 +549,9 @@ export default function OrdenCompra() {
                 oc_payment_anticipo: paymentAdvance ? 1 : 0,
                 oc_delivery_place: cleanDeliveryPlace || null,
                 oc_delivery_date: cleanDeliveryDate || null,
+                oc_payment_start_date: cleanPaymentStartDate || null,
+                oc_payment_end_date: cleanPaymentEndDate || null,
+                oc_payment_date: cleanPaymentDate || null,
                 oc_installments_count: cleanInstallmentsCount || null,
                 oc_advance_percentage: cleanAdvancePercentage || null,
                 oc_payment_compliance: paymentCompliance ? 1 : 0,
@@ -537,6 +570,9 @@ export default function OrdenCompra() {
             oc_payment_anticipo: paymentAdvance,
             oc_delivery_place: cleanDeliveryPlace,
             oc_delivery_date: cleanDeliveryDate,
+            oc_payment_start_date: cleanPaymentStartDate,
+            oc_payment_end_date: cleanPaymentEndDate,
+            oc_payment_date: cleanPaymentDate,
             oc_installments_count: cleanInstallmentsCount,
             oc_advance_percentage: cleanAdvancePercentage,
             oc_payment_compliance: paymentCompliance,
@@ -1067,6 +1103,41 @@ export default function OrdenCompra() {
                     disabled={!canEditOrderSetup}
                   />
                 </div>
+
+                {orderType === "servicio" && (
+                  <>
+                    <div className="xl:col-span-4 rounded-lg border border-gray-200 bg-white p-3">
+                      <label className="text-[10px] font-bold text-gray-500 uppercase">Fecha de inicio</label>
+                      <input
+                        type="date"
+                        value={paymentStartDate}
+                        onChange={(e) => setPaymentStartDate(e.target.value)}
+                        className={canEditOrderSetup ? editableInputClass : blockedInputClass}
+                        disabled={!canEditOrderSetup}
+                      />
+                    </div>
+                    <div className="xl:col-span-4 rounded-lg border border-gray-200 bg-white p-3">
+                      <label className="text-[10px] font-bold text-gray-500 uppercase">Fecha de conclusión</label>
+                      <input
+                        type="date"
+                        value={paymentEndDate}
+                        onChange={(e) => setPaymentEndDate(e.target.value)}
+                        className={canEditOrderSetup ? editableInputClass : blockedInputClass}
+                        disabled={!canEditOrderSetup}
+                      />
+                    </div>
+                    <div className="xl:col-span-4 rounded-lg border border-gray-200 bg-white p-3">
+                      <label className="text-[10px] font-bold text-gray-500 uppercase">Fecha de pago</label>
+                      <input
+                        type="date"
+                        value={paymentDate}
+                        onChange={(e) => setPaymentDate(e.target.value)}
+                        className={canEditOrderSetup ? editableInputClass : blockedInputClass}
+                        disabled={!canEditOrderSetup}
+                      />
+                    </div>
+                  </>
+                )}
 
                 <div className="xl:col-span-4 rounded-lg border border-gray-200 bg-white p-3">
                   <label className="text-[10px] font-bold text-gray-500 uppercase">Condiciones de pago</label>
