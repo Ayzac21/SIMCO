@@ -22,9 +22,25 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const templatesDir = path.resolve(__dirname, "..", "templates");
-const excelComparativoLogoPath = path.resolve(
-  "/Users/umi/Documents/udg-07.png"
-);
+const excelComparativoLogoCandidates = [
+  process.env.EXCEL_COMPARATIVO_LOGO_PATH
+    ? path.resolve(process.env.EXCEL_COMPARATIVO_LOGO_PATH)
+    : null,
+  path.resolve(templatesDir, "udg-07.png"),
+  path.resolve(templatesDir, "logo-requisi.png"),
+  path.resolve(templatesDir, "logo-requisi.jpeg"),
+].filter(Boolean);
+const resolveExcelComparativoLogoPath = async () => {
+  for (const candidate of excelComparativoLogoCandidates) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      // probar siguiente ruta
+    }
+  }
+  return null;
+};
 const requisitionUploadsDir = path.resolve(__dirname, "..", "uploads", "requisiciones");
 const resolveStoredRequisitionImagePath = async (storedPath) => {
   if (!storedPath) return null;
@@ -3213,10 +3229,16 @@ export const downloadCotizacionExcel = async (req, res) => {
     const series = `${id}-${now.getFullYear()}`;
 
     try {
-      const logoBuffer = await fs.readFile(excelComparativoLogoPath);
+      const logoPath = await resolveExcelComparativoLogoPath();
+      if (!logoPath) throw new Error("logo no encontrado");
+      const logoBuffer = await fs.readFile(logoPath);
+      const extension = String(path.extname(logoPath || "").toLowerCase()).includes("jpg")
+        || String(path.extname(logoPath || "").toLowerCase()).includes("jpeg")
+        ? "jpeg"
+        : "png";
       const logoId = workbook.addImage({
         buffer: logoBuffer,
-        extension: "png",
+        extension,
       });
       ws.addImage(logoId, {
         tl: { col: 0.2, row: 0.1 },
