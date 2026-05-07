@@ -189,6 +189,31 @@ export default function EditarRequisicion() {
   const isBorrador = Number(estatusId) === 7;
   const currentStatusMeta = statusMeta(estatusId, basePath);
   const maxAttachments = 5;
+  const isSecretariaInitialSend =
+    isSecretariaView && resumeTo === 12 && !adjustmentMessage;
+  const sendTitle = isSecretariaInitialSend
+    ? "Enviar a Compras"
+    : resumeTo === 12
+    ? "Reenviar a Compras"
+    : resumeTo === 9
+    ? "Reenviar a Secretaría"
+    : "Enviar a Coordinación";
+  const sendDescription = isSecretariaInitialSend
+    ? `¿Deseas enviar la requisición #${id} a Compras? Al confirmar, ya no podrás editar el borrador.`
+    : resumeTo === 12
+    ? `¿Deseas reenviar la requisición #${id} a Compras con los ajustes solicitados?`
+    : resumeTo === 9
+    ? `¿Deseas reenviar la requisición #${id} a Secretaría con los ajustes solicitados?`
+    : `¿Deseas enviar la requisición #${id} a Coordinación? Al confirmar, ya no podrás editar el borrador.`;
+  const sendButtonLabel = sending
+    ? "Enviando..."
+    : isSecretariaInitialSend
+    ? "Guardar y Enviar a Compras →"
+    : resumeTo === 12
+    ? "Guardar y Reenviar a Compras →"
+    : resumeTo === 9
+    ? "Guardar y Reenviar a Secretaría →"
+    : "Guardar y Enviar a Coordinación →";
 
   const fmtSize = (bytes) => {
     const n = Number(bytes || 0);
@@ -723,14 +748,8 @@ export default function EditarRequisicion() {
       <ConfirmModal
         open={confirmSendOpen}
         loading={sending}
-        title={resumeTo === 12 ? "Reenviar a Compras" : resumeTo === 9 ? "Reenviar a Secretaría" : "Enviar a Coordinación"}
-        description={
-          resumeTo === 12
-            ? `¿Deseas reenviar la requisición #${id} a Compras con los ajustes solicitados?`
-            : resumeTo === 9
-            ? `¿Deseas reenviar la requisición #${id} a Secretaría con los ajustes solicitados?`
-            : `¿Deseas enviar la requisición #${id} a Coordinación? Al confirmar, ya no podrás editar el borrador.`
-        }
+        title={sendTitle}
+        description={sendDescription}
         confirmText="Sí, enviar"
         cancelText="Revisar"
         onCancel={() => setConfirmSendOpen(false)}
@@ -1103,21 +1122,9 @@ export default function EditarRequisicion() {
                   disabled={saving || sending}
                   className="w-full py-3 font-bold rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
                   style={{ color: PRIMARY }}
-                  title={
-                    resumeTo === 12
-                      ? "Reenviar a Compras"
-                      : resumeTo === 9
-                      ? "Reenviar a Secretaría"
-                      : "Enviar a Coordinación"
-                  }
+                  title={sendTitle}
                 >
-                  {sending
-                    ? "Enviando..."
-                    : resumeTo === 12
-                    ? "Guardar y Reenviar a Compras →"
-                    : resumeTo === 9
-                    ? "Guardar y Reenviar a Secretaría →"
-                    : "Guardar y Enviar a Coordinación →"}
+                  {sendButtonLabel}
                 </button>
               )}
             </div>

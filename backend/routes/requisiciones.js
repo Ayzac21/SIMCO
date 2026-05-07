@@ -1668,9 +1668,12 @@ router.get("/:id/pdf-firma", async (req, res) => {
     };
 
     const firstRowTop = Math.max(y + 34, pageHeight - 220);
-    drawSignatureRow(signatures, firstRowTop, 155);
+    const shouldRenderDynamicSignatures = requesterRole !== "secretaria";
+    if (shouldRenderDynamicSignatures) {
+      drawSignatureRow(signatures, firstRowTop, 155);
+    }
 
-    const secondRowTop = firstRowTop + 98;
+    const secondRowTop = shouldRenderDynamicSignatures ? firstRowTop + 98 : firstRowTop;
     drawSignatureRow(fixedSignatures, secondRowTop, 220);
 
     const { start, count } = doc.bufferedPageRange();
