@@ -49,6 +49,7 @@ export const listUsers = async (req, res) => {
 export const createUser = async (req, res) => {
   try {
     const { name, user_name, ure, email = null, password, role } = req.body;
+    const cleanUre = String(ure || "").trim();
 
     if (!name || !user_name || !role) {
       return res.status(400).json({ message: "Faltan campos requeridos" });
@@ -57,7 +58,7 @@ export const createUser = async (req, res) => {
     const comprasRoles = new Set(["compras_admin", "compras_operador", "compras_lector"]);
     const isCompras = comprasRoles.has(role);
 
-    if (!isCompras && !ure) {
+    if (!isCompras && !cleanUre) {
       return res.status(400).json({ message: "URE obligatoria para este rol" });
     }
 
@@ -72,7 +73,7 @@ export const createUser = async (req, res) => {
     if (!isCompras) {
       const [ureExists] = await pool.query(
         `SELECT 1 FROM users WHERE ure = ? LIMIT 1`,
-        [ure]
+        [cleanUre]
       );
       if (ureExists.length > 0) {
         return res.status(409).json({ message: "La URE ya está asignada" });
@@ -84,10 +85,29 @@ export const createUser = async (req, res) => {
 
       const [ureRows] = await pool.query(
         `SELECT 1 FROM ${table} WHERE ure = ? LIMIT 1`,
-        [ure]
+        [cleanUre]
       );
       if (ureRows.length === 0) {
         return res.status(400).json({ message: "URE inválida" });
+      }
+    } else if (cleanUre) {
+      const [ureRows] = await pool.query(
+        `
+        SELECT 1
+        FROM (
+          SELECT ure FROM head_offices
+          UNION ALL
+          SELECT ure FROM secretary
+          UNION ALL
+          SELECT ure FROM coordination
+        ) x
+        WHERE TRIM(UPPER(x.ure)) = TRIM(UPPER(?))
+        LIMIT 1
+        `,
+        [cleanUre]
+      );
+      if (ureRows.length === 0) {
+        return res.status(400).json({ message: "URE inválida para Compras" });
       }
     }
 
@@ -104,7 +124,7 @@ export const createUser = async (req, res) => {
       INSERT INTO users (name, user_name, ure, statuses_id, email, password, role)
       VALUES (?, ?, ?, 1, ?, ?, ?)
       `,
-      [name, user_name, isCompras ? null : ure, email, hashedPassword, role]
+      [name, user_name, cleanUre || null, email, hashedPassword, role]
     );
 
     res.json({ ok: true, id: result.insertId });
@@ -118,6 +138,7 @@ export const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
     const { name, user_name, ure, email = null, role } = req.body;
+    const cleanUre = String(ure || "").trim();
 
     if (!name || !user_name || !role) {
       return res.status(400).json({ message: "Faltan campos requeridos" });
@@ -126,7 +147,7 @@ export const updateUser = async (req, res) => {
     const comprasRoles = new Set(["compras_admin", "compras_operador", "compras_lector"]);
     const isCompras = comprasRoles.has(role);
 
-    if (!isCompras && !ure) {
+    if (!isCompras && !cleanUre) {
       return res.status(400).json({ message: "URE obligatoria para este rol" });
     }
 
@@ -141,7 +162,7 @@ export const updateUser = async (req, res) => {
     if (!isCompras) {
       const [ureExists] = await pool.query(
         `SELECT 1 FROM users WHERE ure = ? AND id != ? LIMIT 1`,
-        [ure, id]
+        [cleanUre, id]
       );
       if (ureExists.length > 0) {
         return res.status(409).json({ message: "La URE ya está asignada" });
@@ -153,10 +174,29 @@ export const updateUser = async (req, res) => {
 
       const [ureRows] = await pool.query(
         `SELECT 1 FROM ${table} WHERE ure = ? LIMIT 1`,
-        [ure]
+        [cleanUre]
       );
       if (ureRows.length === 0) {
         return res.status(400).json({ message: "URE inválida" });
+      }
+    } else if (cleanUre) {
+      const [ureRows] = await pool.query(
+        `
+        SELECT 1
+        FROM (
+          SELECT ure FROM head_offices
+          UNION ALL
+          SELECT ure FROM secretary
+          UNION ALL
+          SELECT ure FROM coordination
+        ) x
+        WHERE TRIM(UPPER(x.ure)) = TRIM(UPPER(?))
+        LIMIT 1
+        `,
+        [cleanUre]
+      );
+      if (ureRows.length === 0) {
+        return res.status(400).json({ message: "URE inválida para Compras" });
       }
     }
 
@@ -166,7 +206,7 @@ export const updateUser = async (req, res) => {
       SET name = ?, user_name = ?, ure = ?, email = ?, role = ?
       WHERE id = ?
       `,
-      [name, user_name, isCompras ? null : ure, email, role, id]
+      [name, user_name, cleanUre || null, email, role, id]
     );
 
     if (!result.affectedRows) {

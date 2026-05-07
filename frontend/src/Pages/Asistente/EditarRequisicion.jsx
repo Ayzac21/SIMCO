@@ -161,7 +161,8 @@ export default function EditarRequisicion() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const isSecretariaView = pathname.startsWith("/secretaria");
-  const basePath = isSecretariaView ? "/secretaria" : "/unidad";
+  const isComprasView = pathname.startsWith("/compras");
+  const basePath = isSecretariaView ? "/secretaria" : isComprasView ? "/compras" : "/unidad";
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -191,8 +192,12 @@ export default function EditarRequisicion() {
   const maxAttachments = 5;
   const isSecretariaInitialSend =
     isSecretariaView && resumeTo === 12 && !adjustmentMessage;
+  const isComprasInitialSend =
+    isComprasView && resumeTo === 9 && !adjustmentMessage;
   const sendTitle = isSecretariaInitialSend
     ? "Enviar a Compras"
+    : isComprasInitialSend
+    ? "Enviar a Secretaría"
     : resumeTo === 12
     ? "Reenviar a Compras"
     : resumeTo === 9
@@ -200,6 +205,8 @@ export default function EditarRequisicion() {
     : "Enviar a Coordinación";
   const sendDescription = isSecretariaInitialSend
     ? `¿Deseas enviar la requisición #${id} a Compras? Al confirmar, ya no podrás editar el borrador.`
+    : isComprasInitialSend
+    ? `¿Deseas enviar la requisición #${id} a Secretaría? Al confirmar, ya no podrás editar el borrador.`
     : resumeTo === 12
     ? `¿Deseas reenviar la requisición #${id} a Compras con los ajustes solicitados?`
     : resumeTo === 9
@@ -209,6 +216,8 @@ export default function EditarRequisicion() {
     ? "Enviando..."
     : isSecretariaInitialSend
     ? "Guardar y Enviar a Compras →"
+    : isComprasInitialSend
+    ? "Guardar y Enviar a Secretaría →"
     : resumeTo === 12
     ? "Guardar y Reenviar a Compras →"
     : resumeTo === 9
@@ -296,15 +305,15 @@ export default function EditarRequisicion() {
           setAdjustmentSource("Compras");
           setAdjustmentMessage(rawNotes.replace("AJUSTE_COMPRAS:", "").trim());
         } else if (rawNotes.startsWith("AJUSTE_SECRETARIA:")) {
-          setResumeTo(isSecretariaView ? 12 : 9);
+          setResumeTo(isSecretariaView ? 12 : isComprasView ? 9 : 9);
           setAdjustmentSource("Secretaría");
           setAdjustmentMessage(rawNotes.replace("AJUSTE_SECRETARIA:", "").trim());
         } else if (rawNotes.startsWith("AJUSTE_COORDINACION:")) {
-          setResumeTo(isSecretariaView ? 12 : 8);
+          setResumeTo(isSecretariaView ? 12 : isComprasView ? 9 : 8);
           setAdjustmentSource("Coordinación");
           setAdjustmentMessage(rawNotes.replace("AJUSTE_COORDINACION:", "").trim());
         } else {
-          setResumeTo(isSecretariaView ? 12 : 8);
+          setResumeTo(isSecretariaView ? 12 : isComprasView ? 9 : 8);
           setAdjustmentSource("");
           setAdjustmentMessage("");
         }
@@ -334,7 +343,7 @@ export default function EditarRequisicion() {
     };
 
     fetchAll();
-  }, [id, hydratePartidaImages, isSecretariaView]);
+  }, [id, hydratePartidaImages, isSecretariaView, isComprasView]);
 
   /* ===== ACCIONES ===== */
   const agregarPartida = () => {

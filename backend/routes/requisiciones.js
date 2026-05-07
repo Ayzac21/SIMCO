@@ -317,7 +317,12 @@ const ensureCanDownloadSignaturePdf = async (req, res, requisitionId, connOrPool
 
 router.use((req, res, next) => {
   const role = String(req.user?.role || "");
-  if (role === "head_office" || role === "coordinador" || role === "secretaria") {
+  if (
+    role === "head_office" ||
+    role === "coordinador" ||
+    role === "secretaria" ||
+    role === "compras_admin"
+  ) {
     return next();
   }
   return res.status(403).json({ ok: false, message: "Acceso denegado" });
@@ -1083,6 +1088,9 @@ router.patch("/:id/enviar", async (req, res) => {
     if (actorRole === "secretaria") {
       // Flujo de Secretaría: sale de borrador directo a Compras.
       resumeTo = 12;
+    } else if (actorRole === "compras_admin") {
+      // Flujo de Compras Admin: pasa directo a Secretaría para validación administrativa.
+      resumeTo = 9;
     } else if (currentNote.startsWith("AJUSTE_COORDINACION:")) {
       resumeTo = 8;
     } else if (currentNote.startsWith("AJUSTE_SECRETARIA:")) {

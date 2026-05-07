@@ -185,7 +185,7 @@ export default function ComprasPersonal() {
         name: form.name.trim(),
         user_name: form.user_name.trim(),
         role: form.role,
-        ure: isComprasRole ? null : form.ure,
+        ure: form.ure || null,
         email: form.email.trim() || null,
       };
       if (passwordValue) {
@@ -484,7 +484,9 @@ export default function ComprasPersonal() {
         </div>
 
         <div>
-          <label className="text-xs font-bold text-gray-600">URE</label>
+          <label className="text-xs font-bold text-gray-600">
+            URE {isComprasRole ? "(operativa, opcional)" : ""}
+          </label>
           <select
             className={`mt-1 w-full px-3 py-2 border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 ${
               ureError
@@ -496,10 +498,10 @@ export default function ComprasPersonal() {
               setField("ure", e.target.value);
               if (ureError) setUreError("");
             }}
-            disabled={loadingUres || isComprasRole}
+            disabled={loadingUres}
           >
             <option value="">
-              {isComprasRole ? "No aplica" : loadingUres ? "Cargando..." : "Seleccionar..."}
+              {loadingUres ? "Cargando..." : isComprasRole ? "Sin URE (opcional)" : "Seleccionar..."}
             </option>
               {ures.map((u) => (
               <option key={u.ure} value={u.ure}>
@@ -507,7 +509,7 @@ export default function ComprasPersonal() {
               </option>
             ))}
           </select>
-          {!isComprasRole && selectedUre?.coordinacion && (
+          {selectedUre?.coordinacion && (
             <p className="text-[11px] text-gray-500 mt-1">
               Coordinación: <b>{selectedUre.coordinacion}</b>
             </p>
@@ -660,7 +662,7 @@ export default function ComprasPersonal() {
                         )}
                       </td>
                       <td className="px-3 py-2 text-gray-600">
-                        {u.ure_name || (u.role?.startsWith("compras_") ? "Departamento de Compras" : u.ure || "—")}
+                        {u.ure_name || u.ure || (u.role?.startsWith("compras_") ? "Departamento de Compras" : "—")}
                       </td>
                       <td className="px-3 py-2 text-gray-600">{u.email || "—"}</td>
                       {isAdmin && (

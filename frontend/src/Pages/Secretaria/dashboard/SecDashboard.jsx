@@ -155,10 +155,15 @@ export default function SecDashboard() {
     const executeAction = async () => {
         const { type, req, motivo } = confirmDialog;
         if (!req) return;
+        const isComprasOrigin = String(req?.solicitante_role || "").startsWith("compras_");
 
         const needsComment = type === 'reject' || type === 'adjust';
         if (needsComment && !motivo.trim()) {
-            toast.error(type === 'adjust' ? "Debes escribir qué debe revisar Coordinación." : "Debes escribir un motivo para rechazar.");
+            toast.error(
+                type === 'adjust'
+                    ? `Debes escribir qué debe revisar ${isComprasOrigin ? "Compras" : "Coordinación"}.`
+                    : "Debes escribir un motivo para rechazar."
+            );
             return;
         }
 
@@ -180,7 +185,11 @@ export default function SecDashboard() {
             });
             if (res.ok) {
                 toast.success(
-                    type === 'approve' ? "¡Autorizado!" : type === 'adjust' ? "Reenviada a Coordinación para revisión" : "Cancelada",
+                    type === 'approve'
+                        ? "¡Autorizado!"
+                        : type === 'adjust'
+                        ? `Reenviada a ${isComprasOrigin ? "Compras" : "Coordinación"} para revisión`
+                        : "Cancelada",
                     { id: toastId }
                 );
                 setSelectedReq(null);
@@ -259,7 +268,7 @@ export default function SecDashboard() {
                             {confirmDialog.type === "approve"
                                 ? "¿Autorizar solicitud?"
                                 : confirmDialog.type === "adjust"
-                                ? "¿Reenviar a Coordinación?"
+                                ? `¿Reenviar a ${String(confirmDialog.req?.solicitante_role || "").startsWith("compras_") ? "Compras" : "Coordinación"}?`
                                 : "¿Rechazar solicitud?"}
                         </h3>
 
@@ -277,7 +286,11 @@ export default function SecDashboard() {
                                     }`}
                                 >
                                     {confirmDialog.type === "adjust"
-                                        ? "Describe qué debe revisar Coordinación. Si aplica, Coordinación la devolverá a URE para edición."
+                                        ? (
+                                            String(confirmDialog.req?.solicitante_role || "").startsWith("compras_")
+                                                ? "Describe qué debe revisar Compras. La requisición regresará al usuario de Compras para edición."
+                                                : "Describe qué debe revisar Coordinación. Si aplica, Coordinación la devolverá a URE para edición."
+                                          )
                                         : "Indica el motivo del rechazo de la requisición."}
                                 </p>
                                 <textarea
@@ -325,7 +338,7 @@ export default function SecDashboard() {
                                 {confirmDialog.type === "approve"
                                     ? "Confirmar"
                                     : confirmDialog.type === "adjust"
-                                    ? "Reenviar a Coordinación"
+                                    ? `Reenviar a ${String(confirmDialog.req?.solicitante_role || "").startsWith("compras_") ? "Compras" : "Coordinación"}`
                                     : "Rechazar"}
                             </button>
                         </div>

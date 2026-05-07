@@ -100,6 +100,30 @@ export default function App() {
         >
           <Route path="dashboard" element={<ComprasDashboard />} />
           <Route
+            path="requisiciones/nueva"
+            element={
+              <ProtectedRoute allowedRoles={["compras_admin"]}>
+                <RequisicionesUre />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="mi-requisiciones"
+            element={
+              <ProtectedRoute allowedRoles={["compras_admin"]}>
+                <ListaRequisiciones />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="requisiciones/editar/:id"
+            element={
+              <ProtectedRoute allowedRoles={["compras_admin"]}>
+                <EditarRequisicion />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="preparacion"
             element={
               <ProtectedRoute allowedRoles={["compras_admin"]}>

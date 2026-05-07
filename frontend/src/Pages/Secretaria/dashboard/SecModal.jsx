@@ -109,6 +109,7 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
     const motivoRechazo = req.notas || "Sin información";
     const rechazadoPor = req.rejected_by_name || "No disponible";
     const statusId = Number(req.statuses_id || 0);
+    const isComprasOrigin = String(req?.solicitante_role || "").startsWith("compras_");
     const inSecretaria = [9, 10, 12, 13, 14, 11].includes(statusId);
     const inCompras = [12, 13, 14, 11].includes(statusId);
     const isFinalized = statusId === 11;
@@ -361,7 +362,7 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
                                 onClick={() => onAction('adjust', req)}
                                 className="px-4 py-2 rounded-lg border border-amber-200 text-amber-700 font-bold text-xs hover:bg-amber-50 transition-all flex items-center gap-2 shadow-sm"
                             >
-                                <XCircle size={14}/> REENVIAR A COORDINACIÓN
+                                <XCircle size={14}/> {isComprasOrigin ? "REENVIAR A COMPRAS" : "REENVIAR A COORDINACIÓN"}
                             </button>
                             <button 
                                 onClick={() => onAction('reject', req)}

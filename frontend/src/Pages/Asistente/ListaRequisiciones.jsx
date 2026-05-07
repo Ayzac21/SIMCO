@@ -13,6 +13,7 @@ const API = API_BASE_URL;
 
 const STATUS_FLOW = [7, 8, 9, 12, 14, 13, 11];
 const STATUS_FLOW_SECRETARIA = [7, 9, 12, 14, 13, 11];
+const STATUS_FLOW_COMPRAS = [7, 9, 12, 14, 13, 11];
 
 const STATUS_LABELS = {
   7: "Borrador",
@@ -222,15 +223,16 @@ const ProgressBar = ({ statusId, trimPast = false, flow = STATUS_FLOW }) => {
 };
 
 /** ✅ NUEVO: SOLO estatus actual + mini progreso (para MODAL) */
-const CurrentStatus = ({ statusId, statusName }) => {
+const CurrentStatus = ({ statusId, statusName, flow = STATUS_FLOW }) => {
   const st = Number(statusId);
   const label = getCompactStatusLabel(st, statusName || STATUS_LABELS[st]);
 
   // Si está en flujo, mostramos barrita; si no (p.ej. rechazada 10), no.
-  const idx = STATUS_FLOW.indexOf(st);
+  const activeFlow = Array.isArray(flow) && flow.length ? flow : STATUS_FLOW;
+  const idx = activeFlow.indexOf(st);
   const hasFlow = idx !== -1;
 
-  const pct = hasFlow ? Math.round(((idx + 1) / STATUS_FLOW.length) * 100) : 0;
+  const pct = hasFlow ? Math.round(((idx + 1) / activeFlow.length) * 100) : 0;
 
   return (
     <div className="mt-2">
@@ -241,7 +243,7 @@ const CurrentStatus = ({ statusId, statusName }) => {
 
         {hasFlow && (
           <span className="text-xs text-gray-500">
-            Paso <b>{idx + 1}</b> de <b>{STATUS_FLOW.length}</b>
+            Paso <b>{idx + 1}</b> de <b>{activeFlow.length}</b>
           </span>
         )}
       </div>
@@ -272,9 +274,18 @@ export default function ListaRequisiciones() {
       return null;
     }
   }, []);
-  const unitLabel = getUserUnitLabel(currentUser, "Unidad solicitante");
-  const basePath = userRole === "secretaria" ? "/secretaria" : "/unidad";
+  const isComprasView = location.pathname.startsWith("/compras");
+  const unitLabel = getUserUnitLabel(
+    currentUser,
+    isComprasView ? "Departamento de Compras" : "Unidad solicitante"
+  );
+  const basePath = userRole === "secretaria" ? "/secretaria" : isComprasView ? "/compras" : "/unidad";
   const isSecretariaView = location.pathname.startsWith("/secretaria");
+  const activeStatusFlow = isSecretariaView
+    ? STATUS_FLOW_SECRETARIA
+    : isComprasView
+    ? STATUS_FLOW_COMPRAS
+    : STATUS_FLOW;
 
   const [requisiciones, setRequisiciones] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -566,6 +577,7 @@ export default function ListaRequisiciones() {
                   <CurrentStatus
                     statusId={selected.statuses_id}
                     statusName={selected.estatus}
+                    flow={activeStatusFlow}
                   />
                 </div>
 
@@ -812,7 +824,7 @@ export default function ListaRequisiciones() {
         >
           <option value="all">Todos</option>
           <option value="7">Borrador</option>
-          <option value="8">En validación de Coordinación</option>
+          {!isComprasView && <option value="8">En validación de Coordinación</option>}
           <option value="9">En validación de Secretaría</option>
           <option value="12">Cotizando</option>
           <option value="14">Cotizada (Revisión interna)</option>
@@ -877,7 +889,7 @@ export default function ListaRequisiciones() {
                         <ProgressBar
                           statusId={st}
                           trimPast={isSecretariaView}
-                          flow={isSecretariaView ? STATUS_FLOW_SECRETARIA : STATUS_FLOW}
+                          flow={activeStatusFlow}
                         />
                       </div>
 

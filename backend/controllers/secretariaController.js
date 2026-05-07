@@ -82,12 +82,24 @@ const canSecretariaAccessRequisition = async (requisitionId, secretariaUserId) =
         SELECT r.id
         FROM requisition r
         JOIN users u ON u.id = r.users_id
+        LEFT JOIN coordination c2
+          ON c2.id = (
+            SELECT c3.id
+            FROM coordination c3
+            WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(c3.ure)), '%')
+            ORDER BY LENGTH(TRIM(c3.ure)) DESC
+            LIMIT 1
+          )
         LEFT JOIN secretary sec_scope
           ON sec_scope.id = (
             SELECT s2.id
             FROM secretary s2
-            WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
-            ORDER BY LENGTH(TRIM(s2.ure)) DESC
+            WHERE
+              (c2.ure IS NOT NULL AND TRIM(UPPER(s2.ure)) = TRIM(UPPER(c2.ure)))
+              OR TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+            ORDER BY
+              CASE WHEN c2.ure IS NOT NULL AND TRIM(UPPER(s2.ure)) = TRIM(UPPER(c2.ure)) THEN 0 ELSE 1 END,
+              LENGTH(TRIM(s2.ure)) DESC
             LIMIT 1
           )
         ${secretariaScopeRejectedJoin}
@@ -178,8 +190,12 @@ export const getRequisicionesSecretaria = async (req, res) => {
                 ON sec_scope.id = (
                     SELECT s2.id
                     FROM secretary s2
-                    WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
-                    ORDER BY LENGTH(TRIM(s2.ure)) DESC
+                    WHERE
+                      (c2.ure IS NOT NULL AND TRIM(UPPER(s2.ure)) = TRIM(UPPER(c2.ure)))
+                      OR TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+                    ORDER BY
+                      CASE WHEN c2.ure IS NOT NULL AND TRIM(UPPER(s2.ure)) = TRIM(UPPER(c2.ure)) THEN 0 ELSE 1 END,
+                      LENGTH(TRIM(s2.ure)) DESC
                     LIMIT 1
                 )
             LEFT JOIN (
@@ -214,6 +230,7 @@ export const getRequisicionesSecretaria = async (req, res) => {
                 rh.changed_at as rejected_at,
 
                 u.name as solicitante,
+                u.role as solicitante_role,
                 u.ure as ure_solicitante,
 
                 COALESCE(NULLIF(TRIM(ho.name), ''), NULLIF(TRIM(c2.name), ''), u.ure) as nombre_unidad,
@@ -246,8 +263,12 @@ export const getRequisicionesSecretaria = async (req, res) => {
                 ON sec_scope.id = (
                     SELECT s2.id
                     FROM secretary s2
-                    WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
-                    ORDER BY LENGTH(TRIM(s2.ure)) DESC
+                    WHERE
+                      (c2.ure IS NOT NULL AND TRIM(UPPER(s2.ure)) = TRIM(UPPER(c2.ure)))
+                      OR TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+                    ORDER BY
+                      CASE WHEN c2.ure IS NOT NULL AND TRIM(UPPER(s2.ure)) = TRIM(UPPER(c2.ure)) THEN 0 ELSE 1 END,
+                      LENGTH(TRIM(s2.ure)) DESC
                     LIMIT 1
                 )
             LEFT JOIN (
@@ -306,15 +327,27 @@ export const updateEstatusSecretaria = async (req, res) => {
         }
         const [[current]] = await conn.query(
             `
-            SELECT r.statuses_id, r.users_id
+            SELECT r.statuses_id, r.users_id, u.role AS owner_role
             FROM requisition r
             JOIN users u ON u.id = r.users_id
+            LEFT JOIN coordination c2
+              ON c2.id = (
+                SELECT c3.id
+                FROM coordination c3
+                WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(c3.ure)), '%')
+                ORDER BY LENGTH(TRIM(c3.ure)) DESC
+                LIMIT 1
+              )
             LEFT JOIN secretary sec_scope
               ON sec_scope.id = (
                 SELECT s2.id
                 FROM secretary s2
-                WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
-                ORDER BY LENGTH(TRIM(s2.ure)) DESC
+                WHERE
+                  (c2.ure IS NOT NULL AND TRIM(UPPER(s2.ure)) = TRIM(UPPER(c2.ure)))
+                  OR TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+                ORDER BY
+                  CASE WHEN c2.ure IS NOT NULL AND TRIM(UPPER(s2.ure)) = TRIM(UPPER(c2.ure)) THEN 0 ELSE 1 END,
+                  LENGTH(TRIM(s2.ure)) DESC
                 LIMIT 1
               )
             WHERE r.id = ?
@@ -329,6 +362,9 @@ export const updateEstatusSecretaria = async (req, res) => {
             return res.status(404).json({ message: "Requisición no encontrada" });
         }
         const currentStatus = Number(current.statuses_id);
+        const ownerRole = String(current.owner_role || "").trim().toLowerCase();
+        const shouldReturnToComprasOwner = targetStatus === 8 && ownerRole.startsWith("compras_");
+        const nextStatus = shouldReturnToComprasOwner ? 7 : targetStatus;
         if (currentStatus === 11 || currentStatus === 13) {
             await conn.rollback();
             return res.status(400).json({ message: "La requisición ya no puede modificarse en secretaría" });
@@ -344,7 +380,7 @@ export const updateEstatusSecretaria = async (req, res) => {
             WHERE id = ?
         `;
 
-        const [result] = await conn.query(query, [targetStatus, comentarios, id]);
+        const [result] = await conn.query(query, [nextStatus, comentarios, id]);
 
         if (result.affectedRows === 0) {
             await conn.rollback();
@@ -354,7 +390,7 @@ export const updateEstatusSecretaria = async (req, res) => {
         await logRequisitionStatusChange({
             requisitionId: id,
             fromStatusId: currentStatus,
-            toStatusId: targetStatus,
+            toStatusId: nextStatus,
             changedBy: getAuthUserId(req),
             note: comentarios || null,
         }, conn);
@@ -367,25 +403,39 @@ export const updateEstatusSecretaria = async (req, res) => {
         const ownerId = parseUserId(current.users_id);
         try {
             if (targetStatus === 8) {
-                const coordinatorIds = await getCoordinatorUsersForRequisition(id);
-                await createNotificationsForUsers(coordinatorIds, {
-                    actorUserId: actorId,
-                    title: "Secretaría solicitó ajustes",
-                    message: `La requisición #${id} necesita revisión de Coordinación antes de volver a URE.`,
-                    entityType: "requisition",
-                    entityId: Number(id),
-                    actionPath: `/coordinador/requisiciones?openReq=${id}`,
-                });
-                if (ownerId) {
-                    await createNotification({
-                        recipientUserId: ownerId,
+                if (shouldReturnToComprasOwner) {
+                    if (ownerId) {
+                        await createNotification({
+                            recipientUserId: ownerId,
+                            actorUserId: actorId,
+                            title: "Secretaría solicitó ajustes",
+                            message: `La requisición #${id} regresó a Compras para corrección.`,
+                            entityType: "requisition",
+                            entityId: Number(id),
+                            actionPath: `/compras/mi-requisiciones?openReq=${id}`,
+                        });
+                    }
+                } else {
+                    const coordinatorIds = await getCoordinatorUsersForRequisition(id);
+                    await createNotificationsForUsers(coordinatorIds, {
                         actorUserId: actorId,
                         title: "Secretaría solicitó ajustes",
-                        message: `La requisición #${id} regresó a Coordinación para ajustes previos.`,
+                        message: `La requisición #${id} necesita revisión de Coordinación antes de volver a URE.`,
                         entityType: "requisition",
                         entityId: Number(id),
-                        actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+                        actionPath: `/coordinador/requisiciones?openReq=${id}`,
                     });
+                    if (ownerId) {
+                        await createNotification({
+                            recipientUserId: ownerId,
+                            actorUserId: actorId,
+                            title: "Secretaría solicitó ajustes",
+                            message: `La requisición #${id} regresó a Coordinación para ajustes previos.`,
+                            entityType: "requisition",
+                            entityId: Number(id),
+                            actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+                        });
+                    }
                 }
             } else if (targetStatus === 12) {
                 const comprasIds = await getUsersByRolePrefix("compras_");

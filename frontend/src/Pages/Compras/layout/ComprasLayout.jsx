@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Menu, X, Archive, LayoutGrid, Users, Truck, Ruler, Eye } from "lucide-react";
+import { Menu, X, Archive, LayoutGrid, Users, Truck, Ruler, Eye, PlusCircle, ChevronDown } from "lucide-react";
 import { canManageUnits } from "../unidades/unitsAccess";
 import NotificationBell from "../../../components/NotificationBell";
 import escudoCualtos from "../../../assets/escudo-cualtos-02_0_1.png";
@@ -9,6 +9,7 @@ import { getUserUnitLabel } from "../../../utils/unitDisplay";
 
 export default function ComprasLayout() {
     const [open, setOpen] = useState(false);
+    const [menuOpen, setMenuOpen] = useState("operacion");
     const { pathname } = useLocation();
     const navigate = useNavigate();
 
@@ -34,9 +35,17 @@ export default function ComprasLayout() {
             title: "Requisiciones por Cotizar",
             subtitle: "Solicitudes autorizadas pendientes de precio",
         },
+        "/compras/mi-requisiciones": {
+            title: "Mis Requisiciones",
+            subtitle: "Seguimiento y envío de borradores de Compras",
+        },
         "/compras/preparacion": {
             title: "Vista de Preparación",
             subtitle: "Borradores en creación para anticipar carga de trabajo",
+        },
+        "/compras/requisiciones/nueva": {
+            title: "Nueva Requisición",
+            subtitle: "Crear solicitud de compra desde Jefatura",
         },
         "/compras/historial": {
             title: "Historial de Órdenes",
@@ -122,6 +131,8 @@ export default function ComprasLayout() {
     const linkClass = ({ isActive }) =>
         `flex items-center gap-2 py-2 px-4 rounded transition
         ${isActive ? "bg-white text-secundario font-semibold shadow-sm" : "hover:bg-white/20"}`;
+    const sectionButtonClass =
+        "w-full flex items-center justify-between py-2 px-4 rounded transition font-semibold hover:bg-white/20";
 
     const handleLogout = () => {
         localStorage.clear();
@@ -169,36 +180,80 @@ export default function ComprasLayout() {
                     Por Cotizar
                 </NavLink>
 
+                {isAdmin && (
+                    <>
+                        <button
+                            type="button"
+                            className={sectionButtonClass}
+                            onClick={() => setMenuOpen((prev) => (prev === "operacion" ? "" : "operacion"))}
+                        >
+                            <span className="flex items-center gap-2">
+                                <PlusCircle size={18} />
+                                Operación
+                            </span>
+                            <ChevronDown
+                                size={16}
+                                className={`transition-transform ${menuOpen === "operacion" ? "rotate-180" : ""}`}
+                            />
+                        </button>
+                        {menuOpen === "operacion" && (
+                            <div className="ml-3 space-y-1 border-l border-white/25 pl-2">
+                                <NavLink to="/compras/requisiciones/nueva" className={linkClass}>
+                                    <PlusCircle size={18} />
+                                    Nueva requisición
+                                </NavLink>
+                                <NavLink to="/compras/mi-requisiciones" className={linkClass}>
+                                    <Archive size={18} />
+                                    Mis requisiciones
+                                </NavLink>
+                                <NavLink to="/compras/preparacion" className={linkClass}>
+                                    <Eye size={18} />
+                                    Preparación
+                                </NavLink>
+                            </div>
+                        )}
+                    </>
+                )}
+
+                <button
+                    type="button"
+                    className={sectionButtonClass}
+                    onClick={() => setMenuOpen((prev) => (prev === "admin" ? "" : "admin"))}
+                >
+                    <span className="flex items-center gap-2">
+                        <Users size={18} />
+                        Administración
+                    </span>
+                    <ChevronDown
+                        size={16}
+                        className={`transition-transform ${menuOpen === "admin" ? "rotate-180" : ""}`}
+                    />
+                </button>
+                {menuOpen === "admin" && (
+                    <div className="ml-3 space-y-1 border-l border-white/25 pl-2">
+                        {isAdmin && (
+                            <NavLink to="/compras/empleados" className={linkClass}>
+                                <Users size={18} />
+                                Personal
+                            </NavLink>
+                        )}
+                        <NavLink to="/compras/proveedores" className={linkClass}>
+                            <Truck size={18} />
+                            Proveedores
+                        </NavLink>
+                        {canAccessUnits && (
+                            <NavLink to="/compras/unidades" className={linkClass}>
+                                <Ruler size={18} />
+                                Unidades
+                            </NavLink>
+                        )}
+                    </div>
+                )}
+
                 <NavLink to="/compras/historial" className={linkClass}>
                     <Archive size={20} />
                     Historial OC
                 </NavLink>
-
-                {isAdmin && (
-                    <NavLink to="/compras/preparacion" className={linkClass}>
-                        <Eye size={20} />
-                        Preparación
-                    </NavLink>
-                )}
-
-                {isAdmin && (
-                    <NavLink to="/compras/empleados" className={linkClass}>
-                        <Users size={20} />
-                        Personal
-                    </NavLink>
-                )}
-
-                <NavLink to="/compras/proveedores" className={linkClass}>
-                    <Truck size={20} />
-                    Proveedores
-                </NavLink>
-
-                {canAccessUnits && (
-                    <NavLink to="/compras/unidades" className={linkClass}>
-                        <Ruler size={20} />
-                        Unidades
-                    </NavLink>
-                )}
             </nav>
 
             <div className="p-2 border-t border-white/20 relative overflow-hidden">
