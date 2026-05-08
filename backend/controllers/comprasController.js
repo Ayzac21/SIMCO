@@ -435,6 +435,7 @@ const ensureOrderMetaConditionColumns = async (connOrPool = pool) => {
     ["oc_payment_compliance", "TINYINT(1) NOT NULL DEFAULT 0"],
     ["oc_buyer_initials", "VARCHAR(12) NULL"],
     ["oc_buyer_user_id", "INT NULL"],
+    ["oc_requester_vobo_name", "VARCHAR(255) NULL"],
   ];
   for (const [columnName, columnType] of requiredColumns) {
     const [existsRows] = await connOrPool.query(
@@ -2387,7 +2388,8 @@ export const getOrdenCompraPdf = async (req, res) => {
         oc_advance_percentage,
         oc_payment_compliance,
         oc_buyer_initials,
-        oc_buyer_user_id
+        oc_buyer_user_id,
+        oc_requester_vobo_name
       FROM orden_compra_meta
       WHERE requisition_id = ? AND provider_id = ?
       LIMIT 1
@@ -2405,6 +2407,7 @@ export const getOrdenCompraPdf = async (req, res) => {
     const paymentAdvanceMeta = Number(meta.oc_payment_anticipo || 0) === 1;
     const deliveryPlaceMeta = String(meta.oc_delivery_place || "").trim();
     const paymentComplianceMeta = Number(meta.oc_payment_compliance || 0) === 1;
+    const requesterVoBoMeta = String(meta.oc_requester_vobo_name || "").trim().toUpperCase();
     const installmentsCountMeta =
       meta.oc_installments_count == null ? "" : String(meta.oc_installments_count);
     const advancePercentageMeta =
@@ -2565,7 +2568,7 @@ export const getOrdenCompraPdf = async (req, res) => {
       "FECHA DE PAGO": orderType === "servicio" ? servicePaymentDateMeta : "",
       "No DE PARCIALIDADES": installmentsCountMeta,
       "PORCENTAJE DE ANTICIPO": advancePercentageMeta,
-      "Vo Bo": requesterName || resolvedUnitName,
+      "Vo Bo": requesterVoBoMeta || requesterName || resolvedUnitName,
     };
 
     const srcDoc = await PDFLibDocument.load(templateBytes);
@@ -2574,10 +2577,19 @@ export const getOrdenCompraPdf = async (req, res) => {
     Object.entries(common).forEach(([k, v]) => setText(form, k, v));
     try {
       const voBoField = form.getTextField("Vo Bo");
-      // Evita recortes en apellidos largos por límites del campo en la plantilla.
+      const rawVoBo = String(
+        requesterVoBoMeta || requesterName || resolvedUnitName || ""
+      )
+        .replace(/\s+/g, " ")
+        .trim()
+        .toUpperCase();
+      const safeVoBo = rawVoBo.slice(0, 120);
+
       voBoField.removeMaxLength();
-      voBoField.setFontSize(7);
-      voBoField.setText(requesterName || resolvedUnitName);
+      if (safeVoBo.length > 58) voBoField.setFontSize(6.2);
+      else if (safeVoBo.length > 46) voBoField.setFontSize(6.6);
+      else voBoField.setFontSize(7);
+      voBoField.setText(safeVoBo);
     } catch {}
     setCheck(form, "PAGO DE CONTADO", paymentModeMeta === "contado");
     setCheck(form, "PAGO EN PARCIALIDADES", paymentModeMeta === "parcialidades");
@@ -2708,6 +2720,7 @@ export const updateOrdenCompraMeta = async (req, res) => {
       oc_installments_count,
       oc_advance_percentage,
       oc_payment_compliance,
+      oc_requester_vobo_name,
     } = req.body || {};
     const providerId = Number(provider_id || 0);
     if (!providerId) {
@@ -2793,6 +2806,7 @@ export const updateOrdenCompraMeta = async (req, res) => {
     }
     const buyerProcessUserId = Number(req.user?.id || 0) || null;
     const actorInitials = await getUserInitialsById(buyerProcessUserId, pool);
+    const requesterVoBoName = String(oc_requester_vobo_name || "").trim().toUpperCase() || null;
 
     let folioFinal = String(folio || "").trim();
     if (!folioFinal) {
@@ -2835,9 +2849,10 @@ export const updateOrdenCompraMeta = async (req, res) => {
           oc_advance_percentage,
           oc_payment_compliance,
           oc_buyer_initials,
-          oc_buyer_user_id
+          oc_buyer_user_id,
+          oc_requester_vobo_name
         )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         folio = VALUES(folio),
         oc_incluir_iva = VALUES(oc_incluir_iva),
@@ -2853,7 +2868,8 @@ export const updateOrdenCompraMeta = async (req, res) => {
         oc_advance_percentage = VALUES(oc_advance_percentage),
         oc_payment_compliance = VALUES(oc_payment_compliance),
         oc_buyer_initials = COALESCE(NULLIF(oc_buyer_initials, ''), VALUES(oc_buyer_initials)),
-        oc_buyer_user_id = COALESCE(oc_buyer_user_id, VALUES(oc_buyer_user_id))
+        oc_buyer_user_id = COALESCE(oc_buyer_user_id, VALUES(oc_buyer_user_id)),
+        oc_requester_vobo_name = VALUES(oc_requester_vobo_name)
       `,
       [
         id,
@@ -2873,6 +2889,7 @@ export const updateOrdenCompraMeta = async (req, res) => {
         paymentCompliance,
         actorInitials || null,
         buyerProcessUserId,
+        requesterVoBoName,
       ]
     );
 
@@ -2909,7 +2926,8 @@ export const getOrdenCompraMeta = async (req, res) => {
         oc_advance_percentage,
         oc_payment_compliance,
         oc_buyer_initials,
-        oc_buyer_user_id
+        oc_buyer_user_id,
+        oc_requester_vobo_name
       FROM orden_compra_meta
       WHERE requisition_id = ?
       `,

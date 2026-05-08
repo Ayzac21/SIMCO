@@ -66,6 +66,7 @@ export default function OrdenCompra() {
   const [installmentsCount, setInstallmentsCount] = useState("");
   const [advancePercentage, setAdvancePercentage] = useState("");
   const [paymentCompliance, setPaymentCompliance] = useState(false);
+  const [requesterVoBoName, setRequesterVoBoName] = useState("");
   const [savingOrderSetup, setSavingOrderSetup] = useState(false);
   const [refreshingPreview, setRefreshingPreview] = useState(false);
   const [autoAssigningFolios, setAutoAssigningFolios] = useState(false);
@@ -159,6 +160,7 @@ export default function OrdenCompra() {
         const uniquePaymentDates = new Set();
         const uniqueInstallments = new Set();
         const uniqueAdvancePercentages = new Set();
+        const uniqueVoBoNames = new Set();
         let hasAdvance = false;
         let hasCompliance = false;
         metaData.forEach((m) => {
@@ -179,6 +181,7 @@ export default function OrdenCompra() {
             oc_advance_percentage:
               m.oc_advance_percentage == null ? "" : String(m.oc_advance_percentage),
             oc_payment_compliance: Number(m.oc_payment_compliance || 0) === 1,
+            oc_requester_vobo_name: String(m.oc_requester_vobo_name || "").trim(),
           };
           const folio = String(m.folio || "").trim();
           if (folio) uniqueFolios.add(folio);
@@ -197,12 +200,14 @@ export default function OrdenCompra() {
             m.oc_installments_count == null ? "" : String(m.oc_installments_count).trim();
           const advancePct =
             m.oc_advance_percentage == null ? "" : String(m.oc_advance_percentage).trim();
+          const voBoName = String(m.oc_requester_vobo_name || "").trim();
           if (delDate) uniqueDeliveryDates.add(delDate);
           if (startDate) uniquePaymentStartDates.add(startDate);
           if (endDate) uniquePaymentEndDates.add(endDate);
           if (payDate) uniquePaymentDates.add(payDate);
           if (installments) uniqueInstallments.add(installments);
           if (advancePct) uniqueAdvancePercentages.add(advancePct);
+          if (voBoName) uniqueVoBoNames.add(voBoName);
           if (Number(m.oc_payment_anticipo || 0) === 1) hasAdvance = true;
           if (Number(m.oc_payment_compliance || 0) === 1) hasCompliance = true;
         });
@@ -226,6 +231,11 @@ export default function OrdenCompra() {
           uniqueAdvancePercentages.size ? Array.from(uniqueAdvancePercentages)[0] : ""
         );
         setPaymentCompliance(hasCompliance);
+        setRequesterVoBoName(
+          uniqueVoBoNames.size
+            ? Array.from(uniqueVoBoNames)[0]
+            : String(data?.requisition?.solicitante || "").trim()
+        );
       } else {
         setMetaByProvider({});
         setOrderNumber("");
@@ -239,6 +249,7 @@ export default function OrdenCompra() {
         setInstallmentsCount("");
         setAdvancePercentage("");
         setPaymentCompliance(false);
+        setRequesterVoBoName(String(data?.requisition?.solicitante || "").trim());
       }
 
       setProvidersInfo(Array.isArray(data.providers) ? data.providers : []);
@@ -340,6 +351,10 @@ export default function OrdenCompra() {
                   : paymentCompliance
                   ? 1
                   : 0,
+              oc_requester_vobo_name:
+                String(existing.oc_requester_vobo_name || "").trim() ||
+                String(requesterVoBoName || "").trim() ||
+                null,
             }),
           });
           if (!resp.ok) {
@@ -519,6 +534,7 @@ export default function OrdenCompra() {
     const cleanPaymentDate = String(paymentDate || "").trim();
     const cleanInstallmentsCount = String(installmentsCount || "").trim();
     const cleanAdvancePercentage = String(advancePercentage || "").trim();
+    const cleanRequesterVoBoName = String(requesterVoBoName || "").trim();
     if (providersList.length === 0) {
       toast.error("No hay proveedores seleccionados para guardar");
       return;
@@ -555,6 +571,7 @@ export default function OrdenCompra() {
                 oc_installments_count: cleanInstallmentsCount || null,
                 oc_advance_percentage: cleanAdvancePercentage || null,
                 oc_payment_compliance: paymentCompliance ? 1 : 0,
+                oc_requester_vobo_name: cleanRequesterVoBoName || null,
               }),
             });
         const metaData = await metaResp.json().catch(() => ({}));
@@ -576,6 +593,7 @@ export default function OrdenCompra() {
             oc_installments_count: cleanInstallmentsCount,
             oc_advance_percentage: cleanAdvancePercentage,
             oc_payment_compliance: paymentCompliance,
+            oc_requester_vobo_name: cleanRequesterVoBoName,
           },
         }));
       }
@@ -1054,6 +1072,24 @@ export default function OrdenCompra() {
                 <div className="text-[10px] font-bold text-gray-500 uppercase">Total estimado</div>
                 <div className="mt-1 font-semibold text-gray-800">{money(totalGeneral)}</div>
               </div>
+            </div>
+
+            <div className="rounded-xl border border-gray-200 bg-white p-3 max-w-2xl">
+              <label className="text-[10px] font-bold text-gray-500 uppercase">
+                Vo.Bo dependencia solicitante
+              </label>
+                  <input
+                    type="text"
+                    value={requesterVoBoName}
+                    onChange={(e) => setRequesterVoBoName(String(e.target.value || "").toUpperCase())}
+                    className={canEditOrderSetup ? editableInputClass : blockedInputClass}
+                    disabled={!canEditOrderSetup}
+                    maxLength={255}
+                placeholder="Ej. Dr. Sergio ... / Ing. Isaac ..."
+              />
+              <p className="mt-1 text-[11px] text-gray-500">
+                Incluye grado académico, por ejemplo: Dr., Mtro., Ing., Lic.
+              </p>
             </div>
 
             <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-3">
