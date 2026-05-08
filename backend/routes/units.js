@@ -4,6 +4,15 @@ import { pool } from "../db/connection.js";
 const router = express.Router();
 
 const canMutateUnits = (req) => String(req.user?.role || "") === "compras_admin";
+const FK_ROW_REFERENCED = "ER_ROW_IS_REFERENCED_2";
+
+const getUnitUsageCount = async (id) => {
+  const [[row]] = await pool.query(
+    `SELECT COUNT(*) AS total FROM line_items WHERE units_id = ?`,
+    [id]
+  );
+  return Number(row?.total || 0);
+};
 
 router.get("/", async (req, res) => {
   try {
@@ -70,6 +79,84 @@ router.put("/:id", async (req, res) => {
     return res.json({ ok: true });
   } catch (err) {
     console.error("ERROR update unit:", err);
+    return res.status(500).json({ ok: false, message: "Error interno" });
+  }
+});
+
+router.delete("/:id", async (req, res) => {
+  try {
+    if (!canMutateUnits(req)) {
+      return res.status(403).json({ ok: false, message: "Acceso restringido" });
+    }
+
+    const id = Number(req.params.id);
+    if (!id) {
+      return res.status(400).json({ ok: false, message: "ID inválido" });
+    }
+
+    const [result] = await pool.query(`DELETE FROM units WHERE id = ?`, [id]);
+    if (!result.affectedRows) {
+      return res.status(404).json({ ok: false, message: "Unidad no encontrada" });
+    }
+
+    return res.json({ ok: true });
+  } catch (err) {
+    if (err?.code === FK_ROW_REFERENCED) {
+      try {
+        const id = Number(req.params.id);
+        const usageCount = await getUnitUsageCount(id);
+        return res.status(409).json({
+          ok: false,
+          message: `No se puede eliminar: la unidad está en uso en ${usageCount} partida(s).`,
+          usageCount,
+        });
+      } catch (_inner) {
+        return res.status(409).json({
+          ok: false,
+          message: "No se puede eliminar: la unidad está en uso en requisiciones.",
+        });
+      }
+    }
+    console.error("ERROR delete unit:", err);
+    return res.status(500).json({ ok: false, message: "Error interno" });
+  }
+});
+
+router.post("/:id/delete", async (req, res) => {
+  try {
+    if (!canMutateUnits(req)) {
+      return res.status(403).json({ ok: false, message: "Acceso restringido" });
+    }
+
+    const id = Number(req.params.id);
+    if (!id) {
+      return res.status(400).json({ ok: false, message: "ID inválido" });
+    }
+
+    const [result] = await pool.query(`DELETE FROM units WHERE id = ?`, [id]);
+    if (!result.affectedRows) {
+      return res.status(404).json({ ok: false, message: "Unidad no encontrada" });
+    }
+
+    return res.json({ ok: true });
+  } catch (err) {
+    if (err?.code === FK_ROW_REFERENCED) {
+      try {
+        const id = Number(req.params.id);
+        const usageCount = await getUnitUsageCount(id);
+        return res.status(409).json({
+          ok: false,
+          message: `No se puede eliminar: la unidad está en uso en ${usageCount} partida(s).`,
+          usageCount,
+        });
+      } catch (_inner) {
+        return res.status(409).json({
+          ok: false,
+          message: "No se puede eliminar: la unidad está en uso en requisiciones.",
+        });
+      }
+    }
+    console.error("ERROR delete unit (fallback):", err);
     return res.status(500).json({ ok: false, message: "Error interno" });
   }
 });

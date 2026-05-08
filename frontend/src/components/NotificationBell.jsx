@@ -45,7 +45,8 @@ function normalizeActionPath(notification) {
       if (
         base.startsWith("/compras/revision/") ||
         base.startsWith("/compras/empleados") ||
-        base.startsWith("/compras/unidades")
+        base.startsWith("/compras/unidades") ||
+        base.startsWith("/compras/mi-requisiciones")
       ) {
         base = "/compras/dashboard";
       }

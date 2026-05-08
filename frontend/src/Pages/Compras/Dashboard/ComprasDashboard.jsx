@@ -55,7 +55,10 @@ export default function ComprasDashboard() {
     const [tab, setTab] = useState("all"); // all | 12 | 14 | 13
     const [q, setQ] = useState("");
     const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 10;
+    const [itemsPerPage, setItemsPerPage] = useState(10);
+    const [sortBy, setSortBy] = useState("newest");
+    const [onlyUnassigned, setOnlyUnassigned] = useState(false);
+    const [onlyHighPriority, setOnlyHighPriority] = useState(false);
 
     const userStr = localStorage.getItem("usuario");
     const user = userStr ? JSON.parse(userStr) : null;
@@ -103,7 +106,7 @@ export default function ComprasDashboard() {
     useEffect(() => {
         fetchRequisitions();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tab, q, currentPage]);
+    }, [tab, q, currentPage, itemsPerPage]);
 
     useEffect(() => {
         const params = new URLSearchParams(location.search || "");
@@ -134,7 +137,38 @@ export default function ComprasDashboard() {
         if (isAdmin) loadOperators();
     }, [isAdmin]);
 
-    const filtered = useMemo(() => requisitions, [requisitions]);
+    const getAgeDays = (createdAt) => {
+        const time = new Date(createdAt).getTime();
+        if (!Number.isFinite(time)) return 0;
+        const days = Math.floor((Date.now() - time) / (1000 * 60 * 60 * 24));
+        return Math.max(0, days);
+    };
+
+    const ageLabel = (days) => {
+        if (days <= 0) return "Hoy";
+        if (days === 1) return "1 día";
+        return `${days} días`;
+    };
+
+    const filtered = useMemo(() => {
+        let rows = [...requisitions];
+
+        if (onlyUnassigned) {
+            rows = rows.filter((req) => !req.assigned_operator_id && !req.assigned_operator_name);
+        }
+        if (onlyHighPriority) {
+            rows = rows.filter((req) => getAgeDays(req.created_at) >= 7);
+        }
+
+        rows.sort((a, b) => {
+            if (sortBy === "oldest") return new Date(a.created_at) - new Date(b.created_at);
+            if (sortBy === "name") return String(a.request_name || "").localeCompare(String(b.request_name || ""), "es");
+            if (sortBy === "unit") return String(a.nombre_unidad || "").localeCompare(String(b.nombre_unidad || ""), "es");
+            return new Date(b.created_at) - new Date(a.created_at);
+        });
+
+        return rows;
+    }, [requisitions, onlyUnassigned, onlyHighPriority, sortBy]);
 
     const topAreas = useMemo(() => {
         const counts = {};
@@ -145,7 +179,7 @@ export default function ComprasDashboard() {
 
         return Object.entries(counts)
         .sort(([, a], [, b]) => b - a)
-        .slice(0, 3)
+        .slice(0, 5)
         .map(([name, count]) => ({ name, count }));
     }, [requisitions]);
 
@@ -345,6 +379,58 @@ export default function ComprasDashboard() {
                 {refreshing ? "Actualizando..." : "Actualizar"}
             </button>
         </div>
+        <div className="mb-4 flex flex-col md:flex-row md:items-center gap-2">
+            <div className="flex flex-wrap gap-2">
+                {isAdmin && (
+                    <button
+                        onClick={() => setOnlyUnassigned((v) => !v)}
+                        className={`px-3 py-1.5 rounded-full text-[11px] font-bold border ${
+                            onlyUnassigned
+                                ? "bg-secundario text-white border-secundario"
+                                : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                        }`}
+                    >
+                        Solo sin asignar
+                    </button>
+                )}
+                <button
+                    onClick={() => setOnlyHighPriority((v) => !v)}
+                    className={`px-3 py-1.5 rounded-full text-[11px] font-bold border ${
+                        onlyHighPriority
+                            ? "bg-gray-800 text-white border-gray-800"
+                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                    }`}
+                >
+                    +7 días
+                </button>
+            </div>
+            <div className="md:ml-auto flex items-center gap-2">
+                <label className="text-[11px] font-semibold text-gray-500">Ordenar:</label>
+                <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
+                >
+                    <option value="newest">Más recientes</option>
+                    <option value="oldest">Más antiguas</option>
+                    <option value="name">Nombre A-Z</option>
+                    <option value="unit">Unidad A-Z</option>
+                </select>
+                <label className="text-[11px] font-semibold text-gray-500">Por página:</label>
+                <select
+                    value={itemsPerPage}
+                    onChange={(e) => {
+                        setItemsPerPage(Number(e.target.value));
+                        setCurrentPage(1);
+                    }}
+                    className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
+                >
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                </select>
+            </div>
+        </div>
         <div className="mb-4 text-[11px] text-gray-500 font-medium">
             Última actualización:{" "}
             {lastUpdatedAt
@@ -366,7 +452,7 @@ export default function ComprasDashboard() {
                 </span>
             </div>
 
-            <div className="divide-y divide-gray-50">
+            <div className="p-3 space-y-2 bg-gradient-to-b from-white to-gray-50/60">
                 {loading ? (
                 <div className="p-10 text-center text-gray-400">Cargando datos...</div>
                 ) : filtered.length === 0 ? (
@@ -383,28 +469,31 @@ export default function ComprasDashboard() {
                         onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") setSelectedReq(req);
                         }}
-                        className="w-full text-left px-4 sm:px-5 py-4 hover:bg-gray-50 transition-colors cursor-pointer"
+                        className="w-full text-left px-4 sm:px-5 py-4 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-all cursor-pointer shadow-sm"
                     >
                         <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0">
-                            <div className="flex items-center gap-3">
-                            <span className="font-bold text-gray-700">#{req.id}</span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-extrabold text-gray-700 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-md text-xs">#{req.id}</span>
                             <span className="font-bold text-gray-900 truncate">{req.request_name}</span>
                             </div>
 
-                            <div className="mt-2 flex flex-col gap-1">
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-[#8B1D35]/10 text-[#8B1D35] border border-[#8B1D35]/10 w-fit">
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold uppercase bg-[#8B1D35]/10 text-[#8B1D35] border border-[#8B1D35]/10">
                                 <Briefcase size={10} />
-                                <span className="truncate max-w-[380px]">{req.nombre_unidad || "Sin Unidad"}</span>
+                                <span className="truncate max-w-[260px]">{req.nombre_unidad || "Sin Unidad"}</span>
                             </span>
 
-                            <span className="text-[10px] text-gray-500 font-semibold">
-                                ↳ {req.coordinacion || "General"}
+                            <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-semibold bg-gray-100 text-gray-700 border border-gray-200">
+                                {req.coordinacion || "General"}
                             </span>
 
-                            <span className="text-xs text-gray-500 flex items-center gap-1">
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-100">
                                 <User size={12} />
                                 {req.solicitante || "Sin solicitante"}
+                            </span>
+                            <span className={`text-[11px] font-semibold ${getAgeDays(req.created_at) >= 7 ? "text-red-600" : "text-sky-700"}`}>
+                                Antigüedad: {ageLabel(getAgeDays(req.created_at))}
                             </span>
                             </div>
                         </div>

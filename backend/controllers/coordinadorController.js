@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import {
     createNotification,
     createNotificationsForUsers,
+    getSecretariaUsersForRequisition,
     getUsersByRole,
 } from "../services/notifications.js";
 import { logRequisitionStatusChange } from "../services/statusHistory.js";
@@ -277,7 +278,7 @@ export const updateEstatusRequisicion = async (req, res) => {
                     actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
                 });
             }
-            const secretariaIds = await getUsersByRole("secretaria");
+            const secretariaIds = await getSecretariaUsersForRequisition(id);
             await createNotificationsForUsers(secretariaIds, {
                 actorUserId: actorId,
                 title: "Nueva requisición en Secretaría",
@@ -456,7 +457,7 @@ export const enviarBorradorCoordinador = async (req, res) => {
                 });
             }
 
-            const secretariaIds = await getUsersByRole("secretaria");
+            const secretariaIds = await getSecretariaUsersForRequisition(id);
             await createNotificationsForUsers(secretariaIds, {
                 actorUserId: actorId,
                 title: "Nueva requisición en Secretaría",

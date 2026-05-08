@@ -321,7 +321,9 @@ export default function ListaRequisiciones() {
   };
 
   const loadPartidaImagePreviews = async (reqId, partidas = []) => {
-    const validPartidas = (partidas || []).filter((p) => p?.id);
+    const validPartidas = (partidas || []).filter(
+      (p) => p?.id && (p?.image_original_name || p?.image_mime_type || Number(p?.image_size_bytes || 0) > 0)
+    );
 
     if (!validPartidas.length) {
       clearPartidaImagePreviews();
@@ -334,6 +336,7 @@ export default function ListaRequisiciones() {
           const resp = await fetch(`${API}/requisiciones/${reqId}/partidas/${p.id}/image`, {
             headers: getAuthHeaders(),
           });
+          if (resp.status === 204) return null;
           if (!resp.ok) return null;
           const blob = await resp.blob();
           const url = URL.createObjectURL(blob);
@@ -556,9 +559,9 @@ export default function ListaRequisiciones() {
             onClose={() => setTimelineOpen(false)}
           />
           <div className="absolute inset-0 bg-black/40" onClick={closeModal} />
-          <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
-              <div className="p-5 border-b border-gray-100 flex items-start justify-between gap-4">
+          <div className="absolute inset-0 flex items-center justify-center p-3 sm:p-4">
+            <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden max-h-[92vh] flex flex-col">
+              <div className="p-4 sm:p-5 border-b border-gray-100 flex items-start justify-between gap-3 sm:gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <FileText className="text-secundario" size={18} />
@@ -589,7 +592,7 @@ export default function ListaRequisiciones() {
                 </button>
               </div>
 
-              <div className="p-5 space-y-4">
+              <div className="p-4 sm:p-5 space-y-4 overflow-y-auto">
 	                {detailLoading ? (
 	                  <div className="text-sm text-gray-500">Cargando detalle...</div>
 	                ) : (
@@ -656,7 +659,7 @@ export default function ListaRequisiciones() {
                       <div className="border border-[#8B1D35]/20 rounded-xl overflow-hidden">
                         {/* ✅ Scroll interno para que no se aplaste */}
                         <div className="max-h-[260px] overflow-auto">
-                          <table className="w-full text-sm">
+                          <table className="w-full min-w-[620px] text-sm">
                             <thead className="text-xs uppercase text-[#6F152B] bg-[#8B1D35]/[0.08]">
                               <tr>
                                 <th className="text-left px-4 py-3 w-[22%]">Producto</th>
@@ -714,7 +717,7 @@ export default function ListaRequisiciones() {
                 )}
               </div>
 
-              <div className="p-5 border-t border-gray-100 flex items-center justify-between gap-3">
+              <div className="p-4 sm:p-5 border-t border-gray-100 flex items-center justify-between gap-3">
                 {(() => {
                   const action = actionConfigByStatus(selected.statuses_id, selected.id, basePath);
                   const emphasis = emphasisByStatus(selected.statuses_id);
@@ -726,13 +729,13 @@ export default function ListaRequisiciones() {
                 })()}
               </div>
 
-              <div className="px-5 pb-5 flex items-center justify-between gap-3">
+              <div className="px-4 sm:px-5 pb-4 sm:pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
                 {(Number(selected.statuses_id) === 11 || canDownloadSignaturePdf(selected.statuses_id)) ? (
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
                     {Number(selected.statuses_id) === 11 && (
                       <button
                         onClick={() => setTimelineOpen(true)}
-                        className="px-4 py-2 rounded-xl text-xs font-extrabold bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                        className="px-4 py-2 rounded-xl text-xs font-extrabold bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 w-full sm:w-auto"
                       >
                         VER PROGRESO
                       </button>
@@ -740,7 +743,7 @@ export default function ListaRequisiciones() {
                     {canDownloadSignaturePdf(selected.statuses_id) && (
                       <button
                         onClick={() => downloadSignaturePdf(selected.id)}
-                        className="px-4 py-2 rounded-xl text-xs font-extrabold bg-white border border-secundario/30 text-secundario hover:bg-secundario/10 inline-flex items-center gap-1"
+                        className="px-4 py-2 rounded-xl text-xs font-extrabold bg-white border border-secundario/30 text-secundario hover:bg-secundario/10 inline-flex items-center justify-center gap-1 w-full sm:w-auto"
                       >
                         <Download size={14} />
                         PDF para firmas
@@ -748,11 +751,11 @@ export default function ListaRequisiciones() {
                     )}
                   </div>
                 ) : (
-                  <div />
+                  <div className="hidden sm:block" />
                 )}
                 <button
                   onClick={closeModal}
-                  className="px-4 py-2 rounded-xl text-xs font-extrabold bg-gray-100 hover:bg-gray-200 text-gray-800"
+                  className="px-4 py-2 rounded-xl text-xs font-extrabold bg-gray-100 hover:bg-gray-200 text-gray-800 w-full sm:w-auto"
                 >
                   Cerrar
                 </button>
@@ -763,7 +766,7 @@ export default function ListaRequisiciones() {
                     <button
                       onClick={continuar}
                       disabled={!action.enabled}
-                      className={`px-4 py-2 rounded-xl text-xs font-extrabold shadow-sm ${
+                      className={`px-4 py-2 rounded-xl text-xs font-extrabold shadow-sm w-full sm:w-auto ${
                         action.enabled
                           ? "bg-secundario text-white hover:opacity-90"
                           : "bg-gray-200 text-gray-500 cursor-not-allowed"

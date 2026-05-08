@@ -121,3 +121,52 @@ export const getCoordinatorUsersForRequisition = async (requisitionId, connOrPoo
   );
   return rows.map((r) => parseUserId(r.id)).filter(Boolean);
 };
+
+export const getSecretariaUsersForRequisition = async (requisitionId, connOrPool = pool) => {
+  const [[scopeRow]] = await connOrPool.query(
+    `
+    SELECT TRIM(UPPER(sec_scope.ure)) AS secretaria_ure
+    FROM requisition r
+    JOIN users u ON u.id = r.users_id
+    LEFT JOIN coordination c2
+      ON c2.id = (
+        SELECT c3.id
+        FROM coordination c3
+        WHERE TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(c3.ure)), '%')
+        ORDER BY LENGTH(TRIM(c3.ure)) DESC
+        LIMIT 1
+      )
+    LEFT JOIN secretary sec_scope
+      ON sec_scope.id = (
+        SELECT s2.id
+        FROM secretary s2
+        WHERE
+          (c2.ure IS NOT NULL AND TRIM(UPPER(s2.ure)) = TRIM(UPPER(c2.ure)))
+          OR TRIM(UPPER(u.ure)) LIKE CONCAT(TRIM(UPPER(s2.ure)), '%')
+        ORDER BY
+          CASE WHEN c2.ure IS NOT NULL AND TRIM(UPPER(s2.ure)) = TRIM(UPPER(c2.ure)) THEN 0 ELSE 1 END,
+          LENGTH(TRIM(s2.ure)) DESC
+        LIMIT 1
+      )
+    WHERE r.id = ?
+    LIMIT 1
+    `,
+    [requisitionId]
+  );
+
+  const secretariaUre = String(scopeRow?.secretaria_ure || "").trim();
+  if (!secretariaUre) return [];
+
+  const [rows] = await connOrPool.query(
+    `
+    SELECT id
+    FROM users
+    WHERE role = 'secretaria'
+      AND COALESCE(statuses_id, 1) = 1
+      AND TRIM(UPPER(COALESCE(ure, ''))) = ?
+    `,
+    [secretariaUre]
+  );
+
+  return rows.map((r) => parseUserId(r.id)).filter(Boolean);
+};

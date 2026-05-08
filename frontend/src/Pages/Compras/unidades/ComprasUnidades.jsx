@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Pencil, Save, Plus, Search, X, ChevronsLeft, ChevronsRight, RefreshCw } from "lucide-react";
+import { Pencil, Save, Plus, Search, X, ChevronsLeft, ChevronsRight, RefreshCw, Trash2, AlertTriangle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../../api/config";
 import { canManageUnits } from "./unitsAccess";
@@ -41,9 +41,11 @@ export default function ComprasUnidades() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(0);
   const [q, setQ] = useState("");
   const [name, setName] = useState("");
   const [editing, setEditing] = useState(null);
+  const [deletingUnit, setDeletingUnit] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const formCardRef = React.useRef(null);
@@ -147,8 +149,77 @@ export default function ComprasUnidades() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!deletingUnit?.id || deletingId) return;
+    if (!isOwner) {
+      toast.warning("Solo la cuenta responsable puede administrar unidades");
+      return;
+    }
+    try {
+      setDeletingId(Number(deletingUnit.id));
+      let res = await fetch(`${API_UNITS}/${deletingUnit.id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      let data = await res.json().catch(() => ({}));
+      if (res.status === 404) {
+        res = await fetch(`${API_UNITS}/${deletingUnit.id}/delete`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+        });
+        data = await res.json().catch(() => ({}));
+      }
+      if (!res.ok) throw new Error(data?.message || "No se pudo eliminar");
+
+      if (Number(editing?.id) === Number(deletingUnit.id)) resetForm();
+      setDeletingUnit(null);
+      toast.success("Unidad eliminada");
+      await loadUnits();
+    } catch (e2) {
+      toast.error(e2?.message || "No se pudo eliminar");
+    } finally {
+      setDeletingId(0);
+    }
+  };
+
   return (
     <div className="relative space-y-5">
+      {deletingUnit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4">
+          <div className="w-full max-w-md bg-white rounded-xl border border-red-100 shadow-xl overflow-hidden">
+            <div className="px-4 py-3 bg-red-50 border-b border-red-100 flex items-center gap-2">
+              <AlertTriangle size={16} className="text-red-700" />
+              <h3 className="text-sm font-bold text-red-800">Eliminar unidad</h3>
+            </div>
+            <div className="p-4">
+              <p className="text-sm text-gray-700">
+                Vas a eliminar la unidad <span className="font-bold">#{deletingUnit.id} - {deletingUnit.name}</span>.
+              </p>
+              <p className="text-xs text-gray-500 mt-2">
+                Esta acción no se puede deshacer.
+              </p>
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDeletingUnit(null)}
+                  disabled={Boolean(deletingId)}
+                  className="px-3 py-2 rounded-lg text-xs font-bold border border-gray-300 hover:bg-gray-50 disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={Boolean(deletingId)}
+                  className="px-3 py-2 rounded-lg text-xs font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-60"
+                >
+                  {deletingId ? "Eliminando..." : "Sí, eliminar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {!isOwner && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 shadow-sm">
           <h2 className="text-sm font-bold text-amber-800">Acceso restringido</h2>
@@ -282,8 +353,8 @@ export default function ComprasUnidades() {
                   <th className="px-4 py-2 text-[11px] font-bold text-gray-500 uppercase tracking-wide text-left">
                     Unidad
                   </th>
-                  <th className="px-4 py-2 text-[11px] font-bold text-gray-500 uppercase tracking-wide text-right w-28">
-                    Acción
+                  <th className="px-4 py-2 text-[11px] font-bold text-gray-500 uppercase tracking-wide text-right w-52">
+                    Acciones
                   </th>
                 </tr>
               </thead>
@@ -298,19 +369,30 @@ export default function ComprasUnidades() {
                     <td className="px-4 py-2.5 text-xs text-gray-500 font-medium">#{u.id}</td>
                     <td className="px-4 py-2.5 text-sm font-semibold text-gray-800">{u.name}</td>
                     <td className="px-4 py-2.5 text-right">
-                  <button
-                    type="button"
-                    onClick={() => startEdit(u)}
-                    disabled={!isOwner}
-                    className={`px-2.5 py-1.5 text-xs rounded-md border disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1 ${
-                      Number(editing?.id) === Number(u.id)
-                        ? "border-amber-300 bg-amber-100 text-amber-800"
-                        : "border-gray-300 hover:bg-gray-50"
-                    }`}
-                  >
-                    <Pencil size={12} />
-                    {Number(editing?.id) === Number(u.id) ? "Editando" : "Editar"}
-                  </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startEdit(u)}
+                          disabled={!isOwner || Boolean(deletingId)}
+                          className={`px-2.5 py-1.5 text-xs rounded-md border disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1 ${
+                            Number(editing?.id) === Number(u.id)
+                              ? "border-amber-300 bg-amber-100 text-amber-800"
+                              : "border-sky-200 text-sky-800 bg-sky-50/40 hover:bg-sky-100"
+                          }`}
+                        >
+                          <Pencil size={12} />
+                          {Number(editing?.id) === Number(u.id) ? "Editando" : "Editar"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeletingUnit(u)}
+                          disabled={!isOwner || Boolean(deletingId)}
+                          className="px-2.5 py-1.5 text-xs rounded-md border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
+                        >
+                          <Trash2 size={12} />
+                          Eliminar
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

@@ -16,6 +16,17 @@ const parseUserId = (value) => {
 };
 
 const getAuthUserId = (req) => parseUserId(req.user?.id);
+const getOwnerEditActionPath = (ownerRole, requisitionId) => {
+    const role = String(ownerRole || "").trim().toLowerCase();
+    const reqId = Number(requisitionId || 0);
+    if (!reqId) return null;
+    if (role === "coordinador") return `/coordinador/requisiciones/editar/${reqId}`;
+    if (role === "head_office") return `/unidad/requisiciones/editar/${reqId}`;
+    if (role === "secretaria") return `/secretaria/requisiciones/editar/${reqId}`;
+    if (role === "compras_admin") return `/compras/requisiciones/editar/${reqId}`;
+    if (role.startsWith("compras_")) return `/compras/dashboard?openReq=${reqId}`;
+    return `/unidad/mi-requisiciones?openReq=${reqId}`;
+};
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const requisitionUploadsDir = path.resolve(__dirname, "..", "uploads", "requisiciones");
@@ -363,8 +374,7 @@ export const updateEstatusSecretaria = async (req, res) => {
         }
         const currentStatus = Number(current.statuses_id);
         const ownerRole = String(current.owner_role || "").trim().toLowerCase();
-        const shouldReturnToComprasOwner = targetStatus === 8 && ownerRole.startsWith("compras_");
-        const nextStatus = shouldReturnToComprasOwner ? 7 : targetStatus;
+        const nextStatus = targetStatus === 8 ? 7 : targetStatus;
         if (currentStatus === 11 || currentStatus === 13) {
             await conn.rollback();
             return res.status(400).json({ message: "La requisición ya no puede modificarse en secretaría" });
@@ -403,39 +413,16 @@ export const updateEstatusSecretaria = async (req, res) => {
         const ownerId = parseUserId(current.users_id);
         try {
             if (targetStatus === 8) {
-                if (shouldReturnToComprasOwner) {
-                    if (ownerId) {
-                        await createNotification({
-                            recipientUserId: ownerId,
-                            actorUserId: actorId,
-                            title: "Secretaría solicitó ajustes",
-                            message: `La requisición #${id} regresó a Compras para corrección.`,
-                            entityType: "requisition",
-                            entityId: Number(id),
-                            actionPath: `/compras/mi-requisiciones?openReq=${id}`,
-                        });
-                    }
-                } else {
-                    const coordinatorIds = await getCoordinatorUsersForRequisition(id);
-                    await createNotificationsForUsers(coordinatorIds, {
+                if (ownerId) {
+                    await createNotification({
+                        recipientUserId: ownerId,
                         actorUserId: actorId,
                         title: "Secretaría solicitó ajustes",
-                        message: `La requisición #${id} necesita revisión de Coordinación antes de volver a URE.`,
+                        message: `La requisición #${id} regresó a borrador para corrección del solicitante.`,
                         entityType: "requisition",
                         entityId: Number(id),
-                        actionPath: `/coordinador/requisiciones?openReq=${id}`,
+                        actionPath: getOwnerEditActionPath(ownerRole, id),
                     });
-                    if (ownerId) {
-                        await createNotification({
-                            recipientUserId: ownerId,
-                            actorUserId: actorId,
-                            title: "Secretaría solicitó ajustes",
-                            message: `La requisición #${id} regresó a Coordinación para ajustes previos.`,
-                            entityType: "requisition",
-                            entityId: Number(id),
-                            actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
-                        });
-                    }
                 }
             } else if (targetStatus === 12) {
                 const comprasIds = await getUsersByRolePrefix("compras_");
@@ -454,7 +441,7 @@ export const updateEstatusSecretaria = async (req, res) => {
                     message: `La requisición #${id} fue validada en Secretaría y enviada a Compras.`,
                     entityType: "requisition",
                     entityId: Number(id),
-                    actionPath: `/coordinador/dashboard`,
+                    actionPath: `/coordinador/requisiciones?openReq=${id}`,
                 });
                 if (ownerId) {
                     await createNotification({

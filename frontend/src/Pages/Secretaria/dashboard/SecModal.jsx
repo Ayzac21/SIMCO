@@ -109,7 +109,6 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
     const motivoRechazo = req.notas || "Sin información";
     const rechazadoPor = req.rejected_by_name || "No disponible";
     const statusId = Number(req.statuses_id || 0);
-    const isComprasOrigin = String(req?.solicitante_role || "").startsWith("compras_");
     const inSecretaria = [9, 10, 12, 13, 14, 11].includes(statusId);
     const inCompras = [12, 13, 14, 11].includes(statusId);
     const isFinalized = statusId === 11;
@@ -124,7 +123,7 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
             <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-[#8B1D35]/20 overflow-hidden flex flex-col max-h-[90vh]">
                 
                 {/* ENCABEZADO */}
-                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                     <div>
                         <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                             Requisición #{req.id}
@@ -160,7 +159,7 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
                 </div>
 
                 {/* CONTENIDO SCROLLEABLE */}
-                <div className="p-6 overflow-y-auto custom-scrollbar space-y-6">
+                <div className="p-4 sm:p-6 overflow-y-auto custom-scrollbar space-y-6">
                     
                     {/* BARRA DE PROGRESO */}
                     <div className="flex justify-between items-center px-4 md:px-10 mb-6 relative">
@@ -293,7 +292,8 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
                             <Briefcase size={16} className="text-[#8B1D35]"/> Artículos Solicitados
                         </h3>
                         <div className="border border-[#8B1D35]/20 rounded-lg overflow-hidden">
-                            <table className="w-full text-sm text-left">
+                            <div className="overflow-x-auto">
+                            <table className="w-full min-w-[640px] text-sm text-left">
                                 <thead className="bg-[#8B1D35]/[0.08] text-[#6F152B] font-medium border-b border-[#8B1D35]/20 text-xs">
                                     <tr>
                                         <th className="px-4 py-2 w-[20%]">Producto</th>
@@ -349,30 +349,31 @@ export default function SecModal({ req, items, loadingItems, onClose, onAction }
                                     )}
                                 </tbody>
                             </table>
+                            </div>
                         </div>
                     </div>
 
                 </div>
 
                 {/* FOOTER DE ACCIONES */}
-                <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+                <div className="p-4 border-t border-gray-100 bg-gray-50 flex flex-col sm:flex-row sm:justify-end gap-2 sm:gap-3">
                     {req.statuses_id === 9 && (
                         <>
                             <button 
                                 onClick={() => onAction('adjust', req)}
-                                className="px-4 py-2 rounded-lg border border-amber-200 text-amber-700 font-bold text-xs hover:bg-amber-50 transition-all flex items-center gap-2 shadow-sm"
+                                className="w-full sm:w-auto px-4 py-2 rounded-lg border border-amber-200 text-amber-700 font-bold text-xs hover:bg-amber-50 transition-all flex items-center justify-center gap-2 shadow-sm"
                             >
-                                <XCircle size={14}/> {isComprasOrigin ? "REENVIAR A COMPRAS" : "REENVIAR A COORDINACIÓN"}
+                                <XCircle size={14}/> ENVIAR A REVISIÓN
                             </button>
                             <button 
                                 onClick={() => onAction('reject', req)}
-                                className="px-4 py-2 rounded-lg border border-red-200 text-red-600 font-bold text-xs hover:bg-red-50 transition-all flex items-center gap-2 shadow-sm"
+                                className="w-full sm:w-auto px-4 py-2 rounded-lg border border-red-200 text-red-600 font-bold text-xs hover:bg-red-50 transition-all flex items-center justify-center gap-2 shadow-sm"
                             >
                                 <XCircle size={14}/> RECHAZAR
                             </button>
                             <button 
                                 onClick={() => onAction('approve', req)}
-                                className="px-4 py-2 rounded-lg bg-[#8B1D35] text-white font-bold text-xs hover:bg-[#72182b] transition-all flex items-center gap-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+                                className="w-full sm:w-auto px-4 py-2 rounded-lg bg-[#8B1D35] text-white font-bold text-xs hover:bg-[#72182b] transition-all flex items-center justify-center gap-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
                             >
                                 <CheckCircle size={14}/> AUTORIZAR
                             </button>

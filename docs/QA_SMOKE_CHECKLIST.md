@@ -18,6 +18,22 @@
 - URE/Coordinación editar y reenviar.
 - Secretaría aprobar y enviar a compras.
 
+## 2.1) Flujo nuevo Compras Admin -> Secretaría
+- Iniciar sesión como `compras_admin`.
+- Crear requisición en `/compras/requisiciones/nueva`.
+- Enviar borrador desde edición.
+- Confirmar que el estatus resultante sea de Secretaría (`statuses_id = 9`).
+- Verificar que Secretaría recibe notificación y puede abrirla desde `/secretaria/recibidas`.
+
+## 2.2) Ajustes desde Secretaría según origen
+- Caso origen URE:
+  - Secretaría solicita ajuste.
+  - Confirmar mensaje y acción de reenvío a Coordinación.
+- Caso origen Compras (`solicitante_role` empieza con `compras_`):
+  - Secretaría solicita ajuste.
+  - Confirmar mensaje y acción de reenvío a Compras.
+  - Confirmar que regresa al usuario propietario en ruta `/compras/mi-requisiciones`.
+
 ## 3) Compras (asignación y cotización)
 - Compras admin asigna requisición a operador.
 - Operador abre requisición asignada y captura cotización.
@@ -44,6 +60,9 @@
   - Secretaría
   - Compras
   - Finalización de compra
+- Verificar específicamente:
+  - Envío de `compras_admin` genera notificación a Secretaría.
+  - Ajuste de Secretaría a origen Compras genera notificación al propietario de Compras.
 - Validar que las notificaciones navegan a ruta válida por rol.
 
 ## 7) Historial / timeline

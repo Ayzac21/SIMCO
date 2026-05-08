@@ -25,6 +25,7 @@ import {
     getOrdenCompraMeta,
     updateOrdenCompraType,
     closeCotizacionInvites,
+    setCotizacionBomberazoMode,
     updateEstatusCompras,
     getComprasHistorial,
     getComprasHistorialReport,
@@ -89,6 +90,7 @@ router.get("/cotizacion/:id/excel", downloadCotizacionExcel);
 router.post("/cotizacion/:id/prices", blockReader, saveCotizacionPrices);
 router.post("/cotizacion/:id/invite", blockReader, inviteProvidersToCotizacion);
 router.post("/cotizacion/:id/close", blockReader, closeCotizacionInvites);
+router.post("/cotizacion/:id/bomberazo", blockReader, setCotizacionBomberazoMode);
 router.post("/cotizacion/:id/send-review", blockReader, sendCotizacionToReview);
 router.post("/cotizacion/:id/reopen", blockReader, reopenCotizacionReception);
 router.get("/revision/:id/data", requireComprasAdmin, getComprasReviewData);

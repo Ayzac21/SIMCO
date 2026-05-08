@@ -9,7 +9,7 @@ import PDFDocument from "pdfkit";
 import {
   createNotificationsForUsers,
   getCoordinatorUsersForRequisition,
-  getUsersByRole,
+  getSecretariaUsersForRequisition,
   getUsersByRolePrefix,
 } from "../services/notifications.js";
 import {
@@ -252,6 +252,33 @@ const ensureCanDownloadSignaturePdf = async (req, res, requisitionId, connOrPool
       `,
       [requisitionId]
     );
+    const st = Number(statusRow?.statuses_id || 0);
+    const statusName = String(statusRow?.status_name || "").toLowerCase();
+    if (st === 11 || statusName.includes("comprad")) {
+      res.status(400).json({
+        ok: false,
+        message: "La requisición ya está en estado comprado/finalizado y no requiere PDF de firmas",
+      });
+      return false;
+    }
+    return true;
+  }
+
+  if (role === "compras_admin") {
+    const [[statusRow]] = await connOrPool.query(
+      `
+      SELECT r.statuses_id, COALESCE(s.name, '') AS status_name
+      FROM requisition r
+      LEFT JOIN statuses s ON s.id = r.statuses_id
+      WHERE r.id = ?
+      LIMIT 1
+      `,
+      [requisitionId]
+    );
+    if (!statusRow) {
+      res.status(404).json({ ok: false, message: "Requisición no encontrada" });
+      return false;
+    }
     const st = Number(statusRow?.statuses_id || 0);
     const statusName = String(statusRow?.status_name || "").toLowerCase();
     if (st === 11 || statusName.includes("comprad")) {
@@ -663,12 +690,12 @@ router.get("/:id/partidas/:lineItemId/image", async (req, res) => {
     );
 
     if (!lineItem || !lineItem.image_file_path) {
-      return res.status(404).json({ ok: false, message: "Imagen no encontrada" });
+      return res.status(204).end();
     }
 
     const absPath = resolveStoredUploadPath(lineItem.image_file_path);
     if (!absPath) {
-      return res.status(404).json({ ok: false, message: "Archivo no disponible" });
+      return res.status(204).end();
     }
 
     const mime = lineItem.image_mime_type || "application/octet-stream";
@@ -1136,7 +1163,7 @@ router.patch("/:id/enviar", async (req, res) => {
         actionPath: `/coordinador/requisiciones?openReq=${id}`,
       });
     } else if (resumeTo === 9) {
-      const secretariaIds = await getUsersByRole("secretaria");
+      const secretariaIds = await getSecretariaUsersForRequisition(id);
       await createNotificationsForUsers(secretariaIds, {
         actorUserId: actorId,
         title: "Requisición en Secretaría",

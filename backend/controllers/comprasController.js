@@ -8,6 +8,7 @@ import {
   createNotification,
   createNotificationsForUsers,
   getCoordinatorUsersForRequisition,
+  getSecretariaUsersForRequisition,
   getUsersByRole,
 } from "../services/notifications.js";
 import {
@@ -314,6 +315,7 @@ let ensureAttachmentsTablePromise = null;
 let ensureOrderFolioSequenceTablePromise = null;
 let hasRequisitionFolioColumnPromise = null;
 let ensureComparativeHistoryTablePromise = null;
+let ensureBomberazoColumnsPromise = null;
 let lineItemImageColumnsAvailableCache = null;
 const hasLineItemImageColumns = async (connOrPool = pool) => {
   if (lineItemImageColumnsAvailableCache !== null) return lineItemImageColumnsAvailableCache;
@@ -348,6 +350,51 @@ const hasSelectionTaxColumns = async (connOrPool = pool) => {
     selectionTaxColumnsAvailableCache = false;
   }
   return selectionTaxColumnsAvailableCache;
+};
+
+const ensureBomberazoColumns = async (connOrPool = pool) => {
+  if (!ensureBomberazoColumnsPromise) {
+    ensureBomberazoColumnsPromise = (async () => {
+      const requiredColumns = [
+        "is_bomberazo",
+        "bomberazo_reason",
+        "bomberazo_enabled_by",
+        "bomberazo_enabled_at",
+      ];
+      const missing = [];
+
+      for (const columnName of requiredColumns) {
+        const [existsRows] = await connOrPool.query(
+          `SHOW COLUMNS FROM requisition LIKE ?`,
+          [columnName]
+        );
+        if (!Array.isArray(existsRows) || !existsRows.length) {
+          missing.push(columnName);
+        }
+      }
+
+      if (missing.length > 0) {
+        const err = new Error(
+          `Faltan columnas de compra urgente en requisition: ${missing.join(", ")}`
+        );
+        err.code = "MISSING_BOMBERAZO_COLUMNS";
+        throw err;
+      }
+    })().catch((error) => {
+      ensureBomberazoColumnsPromise = null;
+      throw error;
+    });
+  }
+  await ensureBomberazoColumnsPromise;
+};
+
+const getCotizacionMinimums = (reqRow) => {
+  const isBomberazo = Number(reqRow?.is_bomberazo || 0) === 1;
+  return {
+    isBomberazo,
+    providersMin: isBomberazo ? 1 : 3,
+    capturesMin: isBomberazo ? 1 : 3,
+  };
 };
 
 const ensureAttachmentsTable = async () => {
@@ -1291,7 +1338,7 @@ export const updateEstatusCompras = async (req, res) => {
         actionPath: `/coordinador/requisiciones?openReq=${id}`,
       });
 
-      const secretariaIds = await getUsersByRole("secretaria");
+      const secretariaIds = await getSecretariaUsersForRequisition(id);
       await createNotificationsForUsers(secretariaIds, {
         actorUserId: actorId,
         title: targetStatusId === 11 ? "Compra finalizada" : "Compra rechazada",
@@ -1314,7 +1361,7 @@ export const updateEstatusCompras = async (req, res) => {
         actionPath: `/coordinador/requisiciones?openReq=${id}`,
       });
 
-      const secretariaIds = await getUsersByRole("secretaria");
+      const secretariaIds = await getSecretariaUsersForRequisition(id);
       await createNotificationsForUsers(secretariaIds, {
         actorUserId: actorId,
         title: "Ajuste solicitado por Compras",
@@ -2909,6 +2956,7 @@ export const getCotizacionData = async (req, res) => {
     const { id } = req.params;
     const ok = await ensureAssignedOrAdmin(req, res, id);
     if (!ok) return;
+    await ensureBomberazoColumns();
 
     // Requisición + estado + cierre + categoría
     const queryReq = `
@@ -2917,6 +2965,10 @@ export const getCotizacionData = async (req, res) => {
         r.request_name,
         r.statuses_id,
         r.quotation_closed_at,
+        COALESCE(r.is_bomberazo, 0) AS is_bomberazo,
+        r.bomberazo_reason,
+        r.bomberazo_enabled_by,
+        r.bomberazo_enabled_at,
         c.id as category_id,
         c.name as category_name
       FROM requisition r
@@ -3251,7 +3303,7 @@ export const downloadCotizacionExcel = async (req, res) => {
 
     ws.getCell("D1").value = "UNIVERSIDAD DE GUADALAJARA";
     ws.getCell("D2").value = "CENTRO UNIVERSITARIO DE LOS ALTOS";
-    ws.getCell("H4").value = compareHeaderLabel;
+    ws.getCell("H4").value = "";
     ws.getCell("I4").value = "";
     ws.getCell("E6").value = "FECHA CUADRO:";
     ws.getCell("F6").value = safeDate(now);
@@ -3298,6 +3350,12 @@ export const downloadCotizacionExcel = async (req, res) => {
       left: { style: "thin", color: { argb: "FFBDBDBD" } },
       bottom: { style: "thin", color: { argb: "FFBDBDBD" } },
       right: { style: "thin", color: { argb: "FFBDBDBD" } },
+    };
+    const borderSoftGray = {
+      top: { style: "thin", color: { argb: "FF9CA3AF" } },
+      left: { style: "thin", color: { argb: "FF9CA3AF" } },
+      bottom: { style: "thin", color: { argb: "FF9CA3AF" } },
+      right: { style: "thin", color: { argb: "FF9CA3AF" } },
     };
     const safeMergeCells = (...args) => {
       try {
@@ -3408,11 +3466,13 @@ export const downloadCotizacionExcel = async (req, res) => {
     writeAssignedSummary("I.V.A Seleccionado", "iva", assignedStart + 1);
     writeAssignedSummary("Total Seleccionado", "total", assignedStart + 2);
     const lastCol = 4 + providers.length * 2;
+    // Plantilla mínima estable para encabezados (CUADRO/DEPENDENCIA) incluso con 1 proveedor.
+    const renderLastCol = Math.max(lastCol, 12);
 
     const observationsTitleRow = assignedStart + 6;
     const observationsBodyStartRow = observationsTitleRow + 1;
     const observationsBodyEndRow = observationsBodyStartRow + 2;
-    safeMergeCells(observationsTitleRow, 1, observationsTitleRow, lastCol);
+    safeMergeCells(observationsTitleRow, 1, observationsTitleRow, renderLastCol);
     const obsTitleCell = ws.getCell(observationsTitleRow, 1);
     obsTitleCell.value = "OBSERVACIONES";
     obsTitleCell.font = { bold: true, size: 10, color: { argb: "FF1F2937" } };
@@ -3420,7 +3480,7 @@ export const downloadCotizacionExcel = async (req, res) => {
     obsTitleCell.fill = summaryFill;
     obsTitleCell.border = borderThin;
 
-    safeMergeCells(observationsBodyStartRow, 1, observationsBodyEndRow, lastCol);
+    safeMergeCells(observationsBodyStartRow, 1, observationsBodyEndRow, renderLastCol);
     const obsBodyCell = ws.getCell(observationsBodyStartRow, 1);
     obsBodyCell.value = String(requisition.observation || requisition.request_name || "").trim();
     obsBodyCell.font = { size: 10, color: { argb: "FF374151" } };
@@ -3430,19 +3490,23 @@ export const downloadCotizacionExcel = async (req, res) => {
     ws.getRow(observationsBodyStartRow + 1).height = 20;
     ws.getRow(observationsBodyEndRow).height = 20;
 
-    const signatureLineRow = observationsBodyEndRow + 4;
+    const signatureLineRow = observationsBodyEndRow + 6;
     const signatureLabelRow = signatureLineRow + 1;
     const signatureNameRow = signatureLineRow + 2;
     const signatureRoleRow = signatureLineRow + 3;
 
     const leftSignStart = 4;
     const signWidthCols = 4;
-    const leftSignEnd = Math.min(
-      leftSignStart + (signWidthCols - 1),
-      Math.max(leftSignStart, lastCol - (signWidthCols + 2))
+    const signGapCols = 2;
+    const totalSignatureCols = signWidthCols * 2 + signGapCols;
+    const centeredSignStart = Math.max(
+      1,
+      Math.floor((renderLastCol - totalSignatureCols) / 2) + 1
     );
-    const rightSignEnd = lastCol;
-    const rightSignStart = Math.max(leftSignEnd + 2, rightSignEnd - (signWidthCols - 1));
+    const leftCenteredStart = centeredSignStart;
+    const leftSignEnd = leftCenteredStart + (signWidthCols - 1);
+    const rightSignStart = leftSignEnd + signGapCols + 1;
+    const rightSignEnd = rightSignStart + (signWidthCols - 1);
 
     const setMergedCenteredText = (row, startCol, endCol, text, font = {}) => {
       if (endCol <= startCol) {
@@ -3513,9 +3577,11 @@ export const downloadCotizacionExcel = async (req, res) => {
 
     safeMergeCells("D1:I1");
     safeMergeCells("D2:I2");
-    safeMergeCells(4, 8, 4, Math.max(8, lastCol));
-    const depStartCol = Math.min(9, lastCol);
-    const depEndCol = Math.min(lastCol, depStartCol + 3);
+    const compareEndCol = renderLastCol;
+    const compareStartCol = Math.max(8, compareEndCol - 3);
+    safeMergeCells(4, compareStartCol, 4, compareEndCol);
+    const depStartCol = 9;
+    const depEndCol = renderLastCol;
     safeMergeCells(6, depStartCol, 6, depEndCol);
     providers.forEach((_, idx) => {
       const unitCol = 5 + idx * 2;
@@ -3531,35 +3597,55 @@ export const downloadCotizacionExcel = async (req, res) => {
       ws.getColumn(5 + idx * 2).width = 13;
       ws.getColumn(6 + idx * 2).width = 13;
     });
+    // Si hay pocos proveedores, las columnas extra de plantilla deben existir para evitar encabezados cortados.
+    for (let c = 7; c <= renderLastCol; c += 1) {
+      if (!ws.getColumn(c).width) ws.getColumn(c).width = 12;
+    }
 
     ws.getCell("D1").font = { bold: true, size: 13 };
     ws.getCell("D2").font = { bold: true, size: 11 };
-    ws.getCell("H4").font = { bold: true, size: 10, color: { argb: "FF111827" } };
-    ws.getCell("H4").alignment = { horizontal: "right", vertical: "middle", wrapText: true };
-    ws.getCell("I4").font = { bold: true };
+    const compareHeaderCell = ws.getCell(4, compareStartCol);
+    compareHeaderCell.value = compareHeaderLabel;
+    compareHeaderCell.font = { bold: true, size: 9, color: { argb: "FF111827" } };
+    compareHeaderCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    for (let c = compareStartCol; c <= compareEndCol; c += 1) {
+      ws.getCell(4, c).fill = undefined;
+      ws.getCell(4, c).border = borderSoftGray;
+    }
     ws.getCell("E6").font = { bold: true };
-    ws.getCell("H6").font = { bold: true };
+    ws.getCell("H6").font = { bold: true, size: 11 };
     ws.getCell("I6").alignment = { horizontal: "left", vertical: "middle", wrapText: true };
-    ws.getCell("I6").font = { bold: true, size: 9 };
+    ws.getCell("I6").font = { bold: true, size: 12 };
     const dependencyText = String(ws.getCell("I6").value || "").trim();
-    const dependencyLines = Math.max(1, Math.ceil(dependencyText.length / 56));
-    ws.getRow(6).height = Math.max(26, dependencyLines * 14);
-    const headerText = String(ws.getCell("H4").value || "").trim();
+    const dependencyLines = Math.max(1, Math.ceil(dependencyText.length / 48));
+    ws.getRow(6).height = Math.max(34, dependencyLines * 18);
+    const headerText = String(compareHeaderCell.value || "").trim();
     const headerLines = Math.max(1, Math.ceil(headerText.length / 64));
     ws.getRow(4).height = Math.max(20, headerLines * 14);
-    ws.getRow(8).height = 26;
+    const longestProviderHeader = providers.reduce((maxLen, p) => {
+      const len = String(p?.name || "").trim().length;
+      return Math.max(maxLen, len);
+    }, 0);
+    const providerHeaderLines = Math.max(1, Math.ceil(longestProviderHeader / 18));
+    ws.getRow(8).height = Math.max(26, providerHeaderLines * 14);
     ws.getRow(9).height = 24;
 
-    const lastColLetter = excelColLetter(lastCol);
+    const lastColLetter = excelColLetter(renderLastCol);
     const lastPrintRow = signatureRoleRow;
     ws.pageSetup.printArea = `A1:${lastColLetter}${lastPrintRow}`;
-    for (let c = 1; c <= lastCol; c += 1) {
+    for (let c = 1; c <= renderLastCol; c += 1) {
       ws.getCell(8, c).fill = tableHeaderFill;
       ws.getCell(9, c).fill = tableHeaderFill;
       ws.getCell(8, c).font = tableHeaderFont;
       ws.getCell(9, c).font = tableHeaderFont;
       ws.getCell(8, c).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
       ws.getCell(9, c).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+    }
+    // En casos de proveedor único con nombre largo, bajar un poco la fuente del encabezado evita recorte visual.
+    if (providers.length <= 1) {
+      for (let c = 5; c <= 6; c += 1) {
+        ws.getCell(8, c).font = { ...tableHeaderFont, size: 9 };
+      }
     }
 
     for (let r = 10; r < rowIndex; r += 1) {
@@ -3568,7 +3654,7 @@ export const downloadCotizacionExcel = async (req, res) => {
       ws.getCell(r, 3).alignment = { vertical: "middle", horizontal: "center" };
       ws.getCell(r, 4).alignment = { vertical: "top", horizontal: "left", wrapText: true };
       if (r % 2 === 0) {
-        for (let c = 1; c <= lastCol; c += 1) {
+        for (let c = 1; c <= renderLastCol; c += 1) {
           if (!ws.getCell(r, c).fill) ws.getCell(r, c).fill = zebraFill;
         }
       }
@@ -3578,23 +3664,31 @@ export const downloadCotizacionExcel = async (req, res) => {
     }
 
     for (let r = summaryStart; r <= summaryStart + 2; r += 1) {
-      for (let c = 4; c <= lastCol; c += 1) {
+      for (let c = 4; c <= renderLastCol; c += 1) {
         ws.getCell(r, c).fill = summaryFill;
       }
     }
     for (let r = assignedStart; r <= assignedStart + 2; r += 1) {
-      for (let c = 4; c <= lastCol; c += 1) {
+      for (let c = 4; c <= renderLastCol; c += 1) {
         ws.getCell(r, c).fill = summaryFill;
       }
     }
 
     for (let r = 8; r <= assignedStart + 2; r += 1) {
-      for (let c = 1; c <= lastCol; c += 1) {
+      for (let c = 1; c <= renderLastCol; c += 1) {
         ws.getCell(r, c).border = borderThin;
       }
     }
 
     ws.views = [{ state: "frozen", ySplit: 9 }];
+
+    // En comparativos de compra urgente (muy pocos proveedores/partidas),
+    // forzar impresión en una sola página para evitar cortes innecesarios.
+    if (providers.length <= 1 && items.length <= 12) {
+      ws.pageSetup.fitToWidth = 1;
+      ws.pageSetup.fitToHeight = 1;
+      ws.pageSetup.scale = undefined;
+    }
 
     const buffer = await workbook.xlsx.writeBuffer();
     const filename = `cuadro_comparativo_req_${id}.xlsx`;
@@ -4456,12 +4550,13 @@ export const closeCotizacionInvites = async (req, res) => {
     const { id } = req.params;
     const ok = await ensureAssignedOrAdmin(req, res, id);
     if (!ok) return;
+    await ensureBomberazoColumns(conn);
 
     await conn.beginTransaction();
 
     const [reqRows] = await conn.query(
       `
-      SELECT id, statuses_id, quotation_closed_at, users_id
+      SELECT id, statuses_id, quotation_closed_at, users_id, COALESCE(is_bomberazo, 0) AS is_bomberazo
       FROM requisition
       WHERE id = ? FOR UPDATE
       `,
@@ -4474,6 +4569,7 @@ export const closeCotizacionInvites = async (req, res) => {
     }
 
     const reqRow = reqRows[0];
+    const minimums = getCotizacionMinimums(reqRow);
 
     if (reqRow.quotation_closed_at || Number(reqRow.statuses_id) === 14) {
       await conn.commit();
@@ -4501,11 +4597,12 @@ export const closeCotizacionInvites = async (req, res) => {
       [id]
     );
     const totalProviders = Number(providersCountRow?.total_providers || 0);
-    if (totalProviders < 3) {
+    if (totalProviders < minimums.providersMin) {
       await conn.rollback();
       return res.status(400).json({
-        message: "Debes tener al menos 3 proveedores para cerrar recepción",
+        message: `Debes tener al menos ${minimums.providersMin} proveedor(es) para cerrar recepción`,
         total_providers: totalProviders,
+        min_providers: minimums.providersMin,
       });
     }
 
@@ -4519,11 +4616,12 @@ export const closeCotizacionInvites = async (req, res) => {
       [id]
     );
     const totalCapturedProviders = Number(capturedProvidersRow?.total_captured_providers || 0);
-    if (totalCapturedProviders < 3) {
+    if (totalCapturedProviders < minimums.capturesMin) {
       await conn.rollback();
       return res.status(400).json({
-        message: "Debes capturar cotización de al menos 3 proveedores antes de cerrar recepción",
+        message: `Debes capturar cotización de al menos ${minimums.capturesMin} proveedor(es) antes de cerrar recepción`,
         total_captured_providers: totalCapturedProviders,
+        min_captured_providers: minimums.capturesMin,
       });
     }
 
@@ -4566,6 +4664,72 @@ export const closeCotizacionInvites = async (req, res) => {
   }
 };
 
+export const setCotizacionBomberazoMode = async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const role = String(req.user?.role || "");
+    if (role !== "compras_admin") {
+      return res.status(403).json({ message: "Solo compras admin puede configurar bomberazo" });
+    }
+
+    const { id } = req.params;
+    const enabled = Boolean(req.body?.enabled);
+    const reason = String(req.body?.reason || "").trim();
+
+    await ensureBomberazoColumns(conn);
+    const ok = await ensureAssignedOrAdmin(req, res, id);
+    if (!ok) return;
+
+    await conn.beginTransaction();
+    const [rows] = await conn.query(
+      `SELECT id, statuses_id FROM requisition WHERE id = ? FOR UPDATE`,
+      [id]
+    );
+    if (!rows.length) {
+      await conn.rollback();
+      return res.status(404).json({ message: "Requisición no encontrada" });
+    }
+    const st = Number(rows[0].statuses_id || 0);
+    if (st !== 12) {
+      await conn.rollback();
+      return res.status(400).json({ message: "Solo se puede configurar bomberazo en estatus 'En cotización' (12)" });
+    }
+
+    await conn.query(
+      `
+      UPDATE requisition
+      SET is_bomberazo = ?,
+          bomberazo_reason = ?,
+          bomberazo_enabled_by = ?,
+          bomberazo_enabled_at = ?
+      WHERE id = ?
+      `,
+      [
+        enabled ? 1 : 0,
+        enabled ? (reason || null) : null,
+        enabled ? Number(req.user?.id || 0) || null : null,
+        enabled ? new Date() : null,
+        id,
+      ]
+    );
+
+    await conn.commit();
+    return res.json({
+      ok: true,
+      is_bomberazo: enabled,
+      min_providers: enabled ? 1 : 3,
+      min_captured_providers: enabled ? 1 : 3,
+      bomberazo_reason: enabled ? (reason || null) : null,
+    });
+  } catch (error) {
+    await conn.rollback();
+    console.error("Error setCotizacionBomberazoMode:", error);
+    return res.status(500).json({ message: "Error interno del servidor" });
+  } finally {
+    conn.release();
+  }
+};
+
 export const sendCotizacionToReview = async (req, res) => {
   const conn = await pool.getConnection();
   try {
@@ -4576,12 +4740,13 @@ export const sendCotizacionToReview = async (req, res) => {
     }
     const ok = await ensureAssignedOrAdmin(req, res, id);
     if (!ok) return;
+    await ensureBomberazoColumns(conn);
 
     await conn.beginTransaction();
 
     const [reqRows] = await conn.query(
       `
-      SELECT id, statuses_id, quotation_closed_at, users_id
+      SELECT id, statuses_id, quotation_closed_at, users_id, COALESCE(is_bomberazo, 0) AS is_bomberazo
       FROM requisition
       WHERE id = ? FOR UPDATE
       `,
@@ -4594,6 +4759,7 @@ export const sendCotizacionToReview = async (req, res) => {
     }
 
     const reqRow = reqRows[0];
+    const minimums = getCotizacionMinimums(reqRow);
     const st = Number(reqRow.statuses_id);
 
     if (st === 14) {
@@ -4617,11 +4783,12 @@ export const sendCotizacionToReview = async (req, res) => {
       [id]
     );
     const totalProviders = Number(providersCountRow?.total_providers || 0);
-    if (totalProviders < 3) {
+    if (totalProviders < minimums.providersMin) {
       await conn.rollback();
       return res.status(400).json({
-        message: "Debes tener al menos 3 proveedores para enviar a revisión",
+        message: `Debes tener al menos ${minimums.providersMin} proveedor(es) para enviar a revisión`,
         total_providers: totalProviders,
+        min_providers: minimums.providersMin,
       });
     }
 
@@ -4635,11 +4802,12 @@ export const sendCotizacionToReview = async (req, res) => {
       [id]
     );
     const totalCapturedProviders = Number(capturedProvidersRow?.total_captured_providers || 0);
-    if (totalCapturedProviders < 3) {
+    if (totalCapturedProviders < minimums.capturesMin) {
       await conn.rollback();
       return res.status(400).json({
-        message: "Debes tener cotización capturada de al menos 3 proveedores para enviar a revisión",
+        message: `Debes tener cotización capturada de al menos ${minimums.capturesMin} proveedor(es) para enviar a revisión`,
         total_captured_providers: totalCapturedProviders,
+        min_captured_providers: minimums.capturesMin,
       });
     }
 
@@ -4729,7 +4897,7 @@ export const sendCotizacionToReview = async (req, res) => {
       entityId: Number(id),
       actionPath: `/coordinador/requisiciones?openReq=${id}`,
     });
-    const secretariaIds = await getUsersByRole("secretaria");
+    const secretariaIds = await getSecretariaUsersForRequisition(id);
     await createNotificationsForUsers(secretariaIds, {
       actorUserId: actorId,
       title: "Requisición en revisión interna",
@@ -5105,7 +5273,7 @@ export const submitComprasReviewSelection = async (req, res) => {
         entityId: Number(id),
         actionPath: `/coordinador/requisiciones?openReq=${id}`,
       });
-      const secretariaIds = await getUsersByRole("secretaria");
+      const secretariaIds = await getSecretariaUsersForRequisition(id);
       await createNotificationsForUsers(secretariaIds, {
         actorUserId: actorId,
         title: "Requisición en proceso de compra",
@@ -5211,7 +5379,7 @@ export const reopenCotizacionReception = async (req, res) => {
         actionPath: `/coordinador/requisiciones?openReq=${id}`,
       });
 
-      const secretariaIds = await getUsersByRole("secretaria");
+      const secretariaIds = await getSecretariaUsersForRequisition(id);
       await createNotificationsForUsers(secretariaIds, {
         actorUserId: actorId,
         title: "Requisición regresada a cotización",

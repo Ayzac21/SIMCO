@@ -120,6 +120,7 @@ export default function GestionCotizacion() {
     const [confirmSendOpen, setConfirmSendOpen] = useState(false);
     const [sendingReview, setSendingReview] = useState(false);
     const [reopening, setReopening] = useState(false);
+    const [savingBomberazo, setSavingBomberazo] = useState(false);
 
     const [requisition, setRequisition] = useState(null);
     const [items, setItems] = useState([]);
@@ -150,6 +151,7 @@ export default function GestionCotizacion() {
     const tableScrollRef = useRef(null);
     const [itemImagePreviews, setItemImagePreviews] = useState({});
     const requestedItemImagesRef = useRef(new Set());
+    const [bomberazoEnabled, setBomberazoEnabled] = useState(false);
 
     const statusLabel = (s) => {
         if (!s) return "";
@@ -202,6 +204,7 @@ export default function GestionCotizacion() {
         }
 
         setRequisition(data.requisition);
+        setBomberazoEnabled(Boolean(Number(data?.requisition?.is_bomberazo || 0)));
         setItems(Array.isArray(data.items) ? data.items : []);
 
         setProvidersSuggested(Array.isArray(data.providers) ? data.providers : []);
@@ -476,12 +479,36 @@ export default function GestionCotizacion() {
         return invitedProviders.length;
     }, [selectedProviderIds, invitedProviders]);
 
-    const hasMinimumProviders = providerCountForFlow >= 3;
+    const minimumProviders = bomberazoEnabled ? 1 : 3;
+    const minimumCaptures = bomberazoEnabled ? 1 : 3;
+    const hasMinimumProviders = providerCountForFlow >= minimumProviders;
     const capturedProvidersCount = useMemo(
         () => invitedProviders.filter((p) => p.status === "responded").length,
         [invitedProviders]
     );
-    const hasMinimumCaptures = capturedProvidersCount >= 3;
+    const hasMinimumCaptures = capturedProvidersCount >= minimumCaptures;
+
+    const handleBomberazoToggle = async (enabled) => {
+        if (!isAdmin || isReader || isClosed || savingBomberazo) return;
+        try {
+            setSavingBomberazo(true);
+            const response = await fetch(`${API_URL}/cotizacion/${id}/bomberazo`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+                body: JSON.stringify({ enabled }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data?.message || "No se pudo actualizar bomberazo");
+            setBomberazoEnabled(Boolean(data?.is_bomberazo));
+            toast.success(enabled ? "Compra urgente activada" : "Compra urgente desactivada");
+            await loadData();
+        } catch (error) {
+            console.error(error);
+            toast.error(error?.message || "No se pudo actualizar bomberazo");
+        } finally {
+            setSavingBomberazo(false);
+        }
+    };
 
     const openModal = () => {
         if (isReader) {
@@ -645,11 +672,11 @@ export default function GestionCotizacion() {
         return;
         }
         if (!hasMinimumProviders) {
-        toast.warning("Debes tener al menos 3 proveedores para cerrar recepción");
+        toast.warning(`Debes tener al menos ${minimumProviders} proveedor(es) para cerrar recepción`);
         return;
         }
         if (!hasMinimumCaptures) {
-        toast.warning("Debes tener al menos 3 cotizaciones capturadas para cerrar recepción");
+        toast.warning(`Debes tener al menos ${minimumCaptures} cotización(es) capturada(s) para cerrar recepción`);
         return;
         }
         if (closing) return;
@@ -690,11 +717,11 @@ export default function GestionCotizacion() {
         return;
         }
         if (!hasMinimumProviders) {
-        toast.warning("Debes tener al menos 3 proveedores para enviar a revisión");
+        toast.warning(`Debes tener al menos ${minimumProviders} proveedor(es) para enviar a revisión`);
         return;
         }
         if (!hasMinimumCaptures) {
-        toast.warning("Debes tener al menos 3 cotizaciones capturadas para enviar a revisión");
+        toast.warning(`Debes tener al menos ${minimumCaptures} cotización(es) capturada(s) para enviar a revisión`);
         return;
         }
         if (sendingReview) return;
@@ -766,7 +793,7 @@ export default function GestionCotizacion() {
             open={confirmCloseOpen}
             title="Cerrar recepción de cotización"
             headerText="Confirmar cierre"
-            description={`Se marcarán como 'Sin respuesta' los proveedores que sigan en 'Invitado'. Requisito: mínimo 3 proveedores y 3 cotizaciones capturadas. Actualmente: ${providerCountForFlow} proveedores y ${capturedProvidersCount} capturas.`}
+            description={`Se marcarán como 'Sin respuesta' los proveedores que sigan en 'Invitado'. Requisito: mínimo ${minimumProviders} proveedor(es) y ${minimumCaptures} cotización(es) capturada(s). Actualmente: ${providerCountForFlow} proveedores y ${capturedProvidersCount} capturas.`}
             confirmText="Sí, cerrar recepción"
             cancelText="Cancelar"
             onConfirm={confirmCloseInvites}
@@ -783,84 +810,106 @@ export default function GestionCotizacion() {
             onCancel={() => setConfirmSendOpen(false)}
         />
         {/* HEADER */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-            <div className="flex items-center gap-3">
-            <button
-                onClick={() => navigate(-1)}
-                className="p-2 bg-white text-gray-600 rounded-full shadow-sm border border-gray-200 hover:bg-gray-50"
-            >
-                <ArrowLeft size={18} />
-            </button>
+        <div className="mb-4 bg-white border border-gray-200 rounded-xl shadow-sm p-4 sm:p-5">
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                <div className="flex items-start gap-3">
+                    <button
+                        onClick={() => navigate(-1)}
+                        className="mt-0.5 p-2 bg-white text-gray-600 rounded-full border border-gray-200 hover:bg-gray-50"
+                    >
+                        <ArrowLeft size={18} />
+                    </button>
+                    <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <h1 className="text-xl font-bold text-gray-800">Cotización #{id}</h1>
+                            {isClosed && (
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-amber-50 text-amber-700 border-amber-200">
+                                    {Number(requisition?.statuses_id) === 14 ? "En revisión interna" : "Recepción cerrada"}
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-sm text-gray-500 mt-1">
+                            Categoría: <span className="font-semibold text-gray-700">{requisition?.category_name}</span>
+                        </p>
+                    </div>
+                </div>
 
-            <div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 min-w-0 lg:min-w-[360px]">
+                    <div className={`text-xs font-semibold px-3 py-2 rounded-lg border ${
+                        hasMinimumProviders
+                            ? "bg-green-50 text-green-700 border-green-200"
+                            : "bg-yellow-50 text-yellow-700 border-yellow-200"
+                    }`}>
+                        Proveedores: {providerCountForFlow} / mínimo {minimumProviders}
+                    </div>
+                    <div className={`text-xs font-semibold px-3 py-2 rounded-lg border ${
+                        hasMinimumCaptures
+                            ? "bg-green-50 text-green-700 border-green-200"
+                            : "bg-yellow-50 text-yellow-700 border-yellow-200"
+                    }`}>
+                        Capturas: {capturedProvidersCount} / mínimo {minimumCaptures}
+                    </div>
+                </div>
+            </div>
+
+            <div className="mt-4 flex flex-col lg:flex-row lg:items-center gap-3">
                 <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-bold text-gray-800">Cotización #{id}</h1>
-                {isClosed && (
-                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-amber-50 text-amber-700 border-amber-200">
-                    {Number(requisition?.statuses_id) === 14 ? "En revisión interna" : "Recepción cerrada"}
-                    </span>
-                )}
+                    {isAdmin && (
+                        <label className="flex items-center gap-2 text-xs bg-white border border-gray-200 rounded-lg px-3 py-2 cursor-pointer select-none">
+                            <input
+                                type="checkbox"
+                                checked={bomberazoEnabled}
+                                disabled={isClosed || isReader || savingBomberazo}
+                                onChange={(e) => handleBomberazoToggle(e.target.checked)}
+                            />
+                            Compra urgente
+                        </label>
+                    )}
+                    <label className="flex items-center gap-2 text-xs bg-white border border-gray-200 rounded-lg px-3 py-2 cursor-pointer select-none">
+                        <input
+                            type="checkbox"
+                            checked={showOnlyResponded}
+                            onChange={(e) => setShowOnlyResponded(e.target.checked)}
+                        />
+                        Solo respondieron
+                    </label>
+                    <button
+                        onClick={openExcelPreview}
+                        disabled={!canUseExcelPreview}
+                        className={`inline-flex items-center gap-2 text-xs font-bold px-3 py-2 rounded-lg border border-gray-200 ${
+                            canUseExcelPreview
+                                ? "bg-white hover:bg-gray-50"
+                                : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                        }`}
+                        title={
+                            canUseExcelPreview
+                                ? "Vista previa y descarga del Excel"
+                                : "Disponible en revisión interna o proceso de compra"
+                        }
+                    >
+                        <FileText size={13} />
+                        EXCEL
+                    </button>
                 </div>
 
-                <p className="text-xs text-gray-500 flex items-center gap-1">
-                Categoría:{" "}
-                <span className="font-semibold text-[#8B1D35] bg-[#8B1D35]/10 px-1.5 rounded">
-                    {requisition?.category_name}
-                </span>
-                </p>
-            </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-                <div className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border ${
-                    hasMinimumProviders
-                        ? "bg-green-50 text-green-700 border-green-200"
-                        : "bg-yellow-50 text-yellow-700 border-yellow-200"
-                }`}>
-                Proveedores: {providerCountForFlow} / mínimo 3
-                </div>
-                <div className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border ${
-                    hasMinimumCaptures
-                        ? "bg-green-50 text-green-700 border-green-200"
-                        : "bg-yellow-50 text-yellow-700 border-yellow-200"
-                }`}>
-                Capturas: {capturedProvidersCount} / mínimo 3
-                </div>
-                <div className="flex items-center gap-2 text-xs bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
+                <div className="relative w-full lg:max-w-xs lg:ml-auto">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                     <input
-                    type="checkbox"
-                    checked={showOnlyResponded}
-                    onChange={(e) => setShowOnlyResponded(e.target.checked)}
+                        type="text"
+                        placeholder="Filtrar proveedor..."
+                        className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-1 focus:ring-[#8B1D35] outline-none"
+                        value={tableSearch}
+                        onChange={(e) => setTableSearch(e.target.value)}
                     />
-                    Solo respondieron
-                </label>
                 </div>
 
-                <div className="relative w-full md:w-64 md:ml-1">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                    type="text"
-                    placeholder="Filtrar proveedor..."
-                    className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-1 focus:ring-[#8B1D35] outline-none shadow-sm"
-                    value={tableSearch}
-                    onChange={(e) => setTableSearch(e.target.value)}
-                />
-                </div>
-
-                <button
-                onClick={handleSaveChanges}
-                disabled={saving || isClosed || isReader || visibleProviders.length === 0}
-                className={`bg-[#8B1D35] hover:bg-[#72182b] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm transition-colors whitespace-nowrap ${
-                    saving || isClosed || isReader || visibleProviders.length === 0 ? "opacity-60 cursor-not-allowed hover:bg-[#8B1D35]" : ""
-                }`}
-                title={isReader ? "Solo lectura" : isClosed ? "Recepción finalizada: no editable" : "Guardar cambios"}
-                >
-                <Save size={14} />
-                {saving ? "GUARDANDO..." : "GUARDAR"}
-                </button>
             </div>
         </div>
+        {isAdmin && bomberazoEnabled && (
+            <div className="mb-4 bg-white border border-gray-200 rounded-lg p-3 text-[11px] text-gray-600">
+                Compra urgente activa: mínimo {minimumProviders} proveedor y {minimumCaptures} captura.
+            </div>
+        )}
 
         {/* ✅ MENSAJE CLARO CUANDO ESTÁ CERRADA */}
         {isClosed && <CotizacionClosedNotice requisition={requisition} />}
@@ -876,21 +925,15 @@ export default function GestionCotizacion() {
 
                 <div className="flex items-center gap-3">
                 <button
-                    onClick={openExcelPreview}
-                    disabled={!canUseExcelPreview}
-                    className={`inline-flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-200 ${
-                        canUseExcelPreview
-                            ? "bg-white hover:bg-gray-50"
-                            : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                    onClick={handleSaveChanges}
+                    disabled={saving || isClosed || isReader || visibleProviders.length === 0}
+                    className={`bg-[#8B1D35] hover:bg-[#72182b] text-white px-3 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-2 shadow-sm ${
+                        saving || isClosed || isReader || visibleProviders.length === 0 ? "opacity-60 cursor-not-allowed hover:bg-[#8B1D35]" : ""
                     }`}
-                    title={
-                        canUseExcelPreview
-                            ? "Vista previa y descarga del Excel"
-                            : "Disponible en revisión interna o proceso de compra"
-                    }
+                    title={isReader ? "Solo lectura" : isClosed ? "Recepción finalizada: no editable" : "Guardar cambios del cuadro comparativo"}
                 >
-                    <FileText size={13} />
-                    EXCEL
+                    <Save size={14} />
+                    {saving ? "GUARDANDO..." : "GUARDAR CAMBIOS"}
                 </button>
                 {!isClosed && !isReader && (
                     <button

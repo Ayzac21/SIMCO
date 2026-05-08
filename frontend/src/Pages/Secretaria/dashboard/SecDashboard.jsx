@@ -155,13 +155,11 @@ export default function SecDashboard() {
     const executeAction = async () => {
         const { type, req, motivo } = confirmDialog;
         if (!req) return;
-        const isComprasOrigin = String(req?.solicitante_role || "").startsWith("compras_");
-
         const needsComment = type === 'reject' || type === 'adjust';
         if (needsComment && !motivo.trim()) {
             toast.error(
                 type === 'adjust'
-                    ? `Debes escribir qué debe revisar ${isComprasOrigin ? "Compras" : "Coordinación"}.`
+                    ? "Debes escribir qué se debe corregir antes de continuar."
                     : "Debes escribir un motivo para rechazar."
             );
             return;
@@ -188,7 +186,7 @@ export default function SecDashboard() {
                     type === 'approve'
                         ? "¡Autorizado!"
                         : type === 'adjust'
-                        ? `Reenviada a ${isComprasOrigin ? "Compras" : "Coordinación"} para revisión`
+                        ? "Enviada a revisión"
                         : "Cancelada",
                     { id: toastId }
                 );
@@ -253,7 +251,7 @@ export default function SecDashboard() {
             {/* 2. DIÁLOGO DE CONFIRMACIÓN */}
             {confirmDialog.isOpen && (
                 <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-4 sm:p-6">
                         <div className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
                             confirmDialog.type === "approve"
                                 ? "bg-secundario/10 text-secundario"
@@ -268,7 +266,7 @@ export default function SecDashboard() {
                             {confirmDialog.type === "approve"
                                 ? "¿Autorizar solicitud?"
                                 : confirmDialog.type === "adjust"
-                                ? `¿Reenviar a ${String(confirmDialog.req?.solicitante_role || "").startsWith("compras_") ? "Compras" : "Coordinación"}?`
+                                ? "¿Enviar a revisión?"
                                 : "¿Rechazar solicitud?"}
                         </h3>
 
@@ -286,11 +284,7 @@ export default function SecDashboard() {
                                     }`}
                                 >
                                     {confirmDialog.type === "adjust"
-                                        ? (
-                                            String(confirmDialog.req?.solicitante_role || "").startsWith("compras_")
-                                                ? "Describe qué debe revisar Compras. La requisición regresará al usuario de Compras para edición."
-                                                : "Describe qué debe revisar Coordinación. Si aplica, Coordinación la devolverá a URE para edición."
-                                          )
+                                        ? "Describe los ajustes requeridos. La requisición regresará al solicitante para edición."
                                         : "Indica el motivo del rechazo de la requisición."}
                                 </p>
                                 <textarea
@@ -316,7 +310,7 @@ export default function SecDashboard() {
                             </p>
                         )}
 
-                        <div className="flex gap-3">
+                        <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3">
                             <button
                                 onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
                                 className="flex-1 py-2.5 rounded-lg border border-gray-300 font-semibold text-gray-700 hover:bg-gray-50 transition-colors text-sm"
@@ -338,7 +332,7 @@ export default function SecDashboard() {
                                 {confirmDialog.type === "approve"
                                     ? "Confirmar"
                                     : confirmDialog.type === "adjust"
-                                    ? `Reenviar a ${String(confirmDialog.req?.solicitante_role || "").startsWith("compras_") ? "Compras" : "Coordinación"}`
+                                    ? "Enviar a revisión"
                                     : "Rechazar"}
                             </button>
                         </div>
