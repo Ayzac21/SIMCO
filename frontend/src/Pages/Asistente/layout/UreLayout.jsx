@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { Menu, X } from "lucide-react";
+import { Menu, X, LayoutGrid, FileText, PlusCircle } from "lucide-react";
 import PageHeader from "../PageHeader";
 import escudoCualtos from "../../../assets/escudo-cualtos-02_0_1.png";
 import { getUserUnitLabel } from "../../../utils/unitDisplay";
@@ -53,6 +53,13 @@ export default function UreLayout() {
         ? headers["/unidad/requisiciones/revision"]
         : null);
 
+    const linkClass = ({ isActive }) =>
+        `flex items-center gap-2 py-2 px-4 rounded transition ${
+            isActive
+                ? "bg-white text-secundario font-semibold shadow-sm"
+                : "hover:bg-white/20"
+        }`;
+
     return (
         <div className="flex h-screen w-full overflow-hidden bg-gray-100">
         {/* ================= SIDEBAR ================= */}
@@ -81,48 +88,30 @@ export default function UreLayout() {
             <nav className="flex-1 p-4 space-y-2">
             <NavLink
                 to="/unidad/dashboard"
-                className={({ isActive }) =>
-                `flex items-center gap-2 py-2 px-4 rounded transition
-                ${
-                    isActive
-                    ? "bg-white text-secundario font-semibold"
-                    : "hover:bg-white/20"
-                }`
-                }
+                className={linkClass}
                 onClick={() => setOpen(false)}
             >
-                📊 Dashboard
+                <LayoutGrid size={20} />
+                Dashboard
             </NavLink>
 
             <NavLink
                 to="/unidad/mi-requisiciones"
                 end
-                className={({ isActive }) =>
-                `flex items-center gap-2 py-2 px-4 rounded transition
-                ${
-                    isActive
-                    ? "bg-white text-secundario font-semibold"
-                    : "hover:bg-white/20"
-                }`
-                }
+                className={linkClass}
                 onClick={() => setOpen(false)}
             >
-                📋 Mis Requisiciones
+                <FileText size={20} />
+                Mis Requisiciones
             </NavLink>
 
             <NavLink
                 to="/unidad/requisiciones/nueva"
-                className={({ isActive }) =>
-                `flex items-center gap-2 py-2 px-4 rounded transition
-                ${
-                    isActive
-                    ? "bg-white text-secundario font-semibold"
-                    : "hover:bg-white/20"
-                }`
-                }
+                className={linkClass}
                 onClick={() => setOpen(false)}
             >
-                ➕ Nueva Requisición
+                <PlusCircle size={20} />
+                Nueva Requisición
             </NavLink>
             </nav>
 

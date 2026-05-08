@@ -307,6 +307,22 @@ export default function ListaRequisiciones() {
 
   const [rejectedPreview, setRejectedPreview] = useState({}); // { [id]: { notes, rejected_by_name } }
 
+  const statusOptions = useMemo(
+    () =>
+      [
+        { id: "all", label: "Todos", show: true },
+        { id: "7", label: "Borrador", show: true },
+        { id: "8", label: "Coord.", show: !isComprasView && userRole !== "secretaria" },
+        { id: "9", label: "Secretaría", show: true },
+        { id: "12", label: "Cotizando", show: true },
+        { id: "14", label: "Cotizada", show: true },
+        { id: "13", label: "Proc. compra", show: true },
+        { id: "11", label: "Finalizada", show: true },
+        { id: "10", label: "Cancelada", show: true },
+      ].filter((x) => x.show),
+    [isComprasView]
+  );
+
   const revokePreviewUrls = (map) => {
     Object.values(map || {}).forEach((url) => {
       if (url) URL.revokeObjectURL(url);
@@ -454,6 +470,15 @@ export default function ListaRequisiciones() {
 
     return list;
   }, [requisiciones, q, statusFilter, sort, unitLabel]);
+
+  const statusCounts = useMemo(() => {
+    const counts = { all: requisiciones.length };
+    requisiciones.forEach((r) => {
+      const key = String(Number(r.statuses_id || 0));
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return counts;
+  }, [requisiciones]);
 
   const totalPaginas = useMemo(
     () => Math.max(1, Math.ceil(filtered.length / POR_PAGINA)),
@@ -820,22 +845,6 @@ export default function ListaRequisiciones() {
           />
         </div>
 
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 border rounded-lg text-sm bg-white"
-        >
-          <option value="all">Todos</option>
-          <option value="7">Borrador</option>
-          {!isComprasView && <option value="8">En validación de Coordinación</option>}
-          <option value="9">En validación de Secretaría</option>
-          <option value="12">Cotizando</option>
-          <option value="14">Cotizada (Revisión interna)</option>
-          <option value="13">Proceso administrativo de compra</option>
-          <option value="11">Finalizada</option>
-          <option value="10">Cancelada</option>
-        </select>
-
         <button
           onClick={() => setSort((p) => (p === "new" ? "old" : "new"))}
           className="px-3 py-2 border rounded-lg text-sm bg-white hover:bg-gray-50 flex items-center gap-2"
@@ -844,6 +853,28 @@ export default function ListaRequisiciones() {
           <ArrowUpDown size={16} className="text-gray-500" />
           {sort === "new" ? "Más recientes" : "Más antiguas"}
         </button>
+      </div>
+
+      <div className="mb-4 overflow-x-auto">
+        <div className="inline-flex gap-2 min-w-max">
+          {statusOptions.map((opt) => {
+            const active = statusFilter === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setStatusFilter(opt.id)}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${
+                  active
+                    ? "bg-secundario text-white border-secundario"
+                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                }`}
+              >
+                {opt.label} ({Number(statusCounts[opt.id] || 0)})
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* ===== LISTA ===== */}

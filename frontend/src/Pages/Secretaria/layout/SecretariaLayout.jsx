@@ -52,6 +52,13 @@ export default function SecretariaLayout() {
         navigate("/");
     };
 
+    const linkClass = ({ isActive }) =>
+        `flex items-center gap-2 py-2 px-4 rounded transition ${
+            isActive
+                ? "bg-white text-secundario font-semibold shadow-sm"
+                : "hover:bg-white/20"
+        }`;
+
     return (
         <div className="flex h-screen w-full overflow-hidden bg-gray-100 font-sans">
             <Toaster position="top-right" richColors />
@@ -83,12 +90,7 @@ export default function SecretariaLayout() {
                     {/* DASHBOARD */}
                     <NavLink
                         to="/secretaria/dashboard"
-                        className={({ isActive }) =>
-                            `flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all
-                            ${isActive
-                                ? "bg-white text-secundario font-bold shadow-md"
-                                : "text-white/80 hover:bg-white/20 hover:text-white"}`
-                        }
+                        className={linkClass}
                     >
                         <LayoutGrid size={20} />
                         Dashboard
@@ -97,12 +99,7 @@ export default function SecretariaLayout() {
                     {/* HISTORIAL */}
                     <NavLink
                         to="/secretaria/mi-requisiciones"
-                        className={({ isActive }) =>
-                            `flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all
-                            ${isActive
-                                ? "bg-white text-secundario font-bold shadow-md"
-                                : "text-white/80 hover:bg-white/20 hover:text-white"}`
-                        }
+                        className={linkClass}
                     >
                         <FileText size={20} />
                         Mis requisiciones
@@ -110,12 +107,7 @@ export default function SecretariaLayout() {
 
                     <NavLink
                         to="/secretaria/recibidas"
-                        className={({ isActive }) =>
-                            `flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all
-                            ${isActive
-                                ? "bg-white text-secundario font-bold shadow-md"
-                                : "text-white/80 hover:bg-white/20 hover:text-white"}`
-                        }
+                        className={linkClass}
                     >
                         <FileText size={20} />
                         Historial
@@ -123,12 +115,7 @@ export default function SecretariaLayout() {
 
                     <NavLink
                         to="/secretaria/requisiciones/nueva"
-                        className={({ isActive }) =>
-                            `flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all
-                            ${isActive
-                                ? "bg-white text-secundario font-bold shadow-md"
-                                : "text-white/80 hover:bg-white/20 hover:text-white"}`
-                        }
+                        className={linkClass}
                     >
                         <PlusCircle size={20} />
                         Nueva Requisición

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { Menu, X } from "lucide-react";
+import { Menu, X, LayoutGrid, FileText, PlusCircle } from "lucide-react";
 import NotificationBell from "../../../components/NotificationBell";
 import escudoCualtos from "../../../assets/escudo-cualtos-02_0_1.png";
 import UserMenu from "../../../components/UserMenu";
@@ -62,6 +62,13 @@ export default function CoordinadorLayout() {
         window.location.href = "/";
     };
 
+    const linkClass = ({ isActive }) =>
+        `flex items-center gap-2 py-2 px-4 rounded transition ${
+            isActive
+                ? "bg-white text-secundario font-semibold shadow-sm"
+                : "hover:bg-white/20"
+        }`;
+
     
     return (
         <div className="flex h-screen w-full overflow-hidden bg-gray-100">
@@ -92,38 +99,28 @@ export default function CoordinadorLayout() {
                 <nav className="flex-1 p-4 space-y-2">
                     <NavLink
                         to="/coordinador/dashboard"
-                        className={({ isActive }) =>
-                            `flex items-center gap-2 py-2 px-4 rounded transition
-                            ${isActive
-                                ? "bg-white text-secundario font-semibold"
-                                : "hover:bg-white/20"}`
-                        }
+                        className={linkClass}
                     >
-                        📊 Dashboard
+                        <LayoutGrid size={20} />
+                        Dashboard
                     </NavLink>
 
                     {/* Ajusta 'to' según tu ruta real de recibidas */}
                     <NavLink
                         to="/coordinador/requisiciones"
                         end
-                        className={({ isActive }) =>
-                        `flex items-center gap-2 py-2 px-4 rounded transition
-                        ${isActive ? "bg-white text-secundario font-semibold" : "hover:bg-white/20"}`
-                        }
+                        className={linkClass}
                     >
-                        📋 Requisiciones
+                        <FileText size={20} />
+                        Requisiciones
                     </NavLink>
 
                     <NavLink
                         to="/coordinador/requisiciones/nueva"
-                        className={({ isActive }) =>
-                            `flex items-center gap-2 py-2 px-4 rounded transition
-                            ${isActive
-                                ? "bg-white text-secundario font-semibold"
-                                : "hover:bg-white/20"}`
-                        }
+                        className={linkClass}
                     >
-                        ➕ Nueva requisición
+                        <PlusCircle size={20} />
+                        Nueva requisición
                     </NavLink>
                 </nav>
 
