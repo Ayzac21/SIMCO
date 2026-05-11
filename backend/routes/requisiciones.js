@@ -1121,7 +1121,9 @@ router.patch("/:id/enviar", async (req, res) => {
     } else if (currentNote.startsWith("AJUSTE_COORDINACION:")) {
       resumeTo = 8;
     } else if (currentNote.startsWith("AJUSTE_SECRETARIA:")) {
-      resumeTo = 9;
+      if (actorRole === "coordinador" || actorRole === "compras_admin") resumeTo = 9;
+      else if (actorRole === "secretaria") resumeTo = 12;
+      else resumeTo = 8;
     } else if (currentNote.startsWith("AJUSTE_COMPRAS:")) {
       resumeTo = 12;
     } else if (!currentNote.startsWith("AJUSTE_")) {
@@ -1154,10 +1156,15 @@ router.patch("/:id/enviar", async (req, res) => {
     const actorId = getAuthUserId(req);
     if (resumeTo === 8) {
       const coordinatorIds = await getCoordinatorUsersForRequisition(id);
+      const secretariaAdjustment = currentNote.startsWith("AJUSTE_SECRETARIA:")
+        ? currentNote.replace(/^AJUSTE_SECRETARIA:\s*/i, "").trim()
+        : "";
       await createNotificationsForUsers(coordinatorIds, {
         actorUserId: actorId,
         title: "Requisición en Coordinación",
-        message: `La requisición #${id} fue enviada para revisión de Coordinación.`,
+        message: secretariaAdjustment
+          ? `La requisición #${id} regresó corregida. Ajuste solicitado por Secretaría: ${secretariaAdjustment}`
+          : `La requisición #${id} fue enviada para revisión de Coordinación.`,
         entityType: "requisition",
         entityId: Number(id),
         actionPath: `/coordinador/requisiciones?openReq=${id}`,

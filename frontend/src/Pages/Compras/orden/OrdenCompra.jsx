@@ -1081,7 +1081,10 @@ export default function OrdenCompra() {
                   <input
                     type="text"
                     value={requesterVoBoName}
-                    onChange={(e) => setRequesterVoBoName(String(e.target.value || "").toUpperCase())}
+                    onChange={(e) => setRequesterVoBoName(String(e.target.value || ""))}
+                    onBlur={() =>
+                      setRequesterVoBoName((prev) => String(prev || "").toUpperCase())
+                    }
                     className={canEditOrderSetup ? editableInputClass : blockedInputClass}
                     disabled={!canEditOrderSetup}
                     maxLength={255}

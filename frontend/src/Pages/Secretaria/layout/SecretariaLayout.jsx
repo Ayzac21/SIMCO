@@ -96,21 +96,12 @@ export default function SecretariaLayout() {
                         Dashboard
                     </NavLink>
 
-                    {/* HISTORIAL */}
-                    <NavLink
-                        to="/secretaria/mi-requisiciones"
-                        className={linkClass}
-                    >
-                        <FileText size={20} />
-                        Mis requisiciones
-                    </NavLink>
-
                     <NavLink
                         to="/secretaria/recibidas"
                         className={linkClass}
                     >
                         <FileText size={20} />
-                        Historial
+                        Solicitudes recibidas
                     </NavLink>
 
                     <NavLink
@@ -119,6 +110,14 @@ export default function SecretariaLayout() {
                     >
                         <PlusCircle size={20} />
                         Nueva Requisición
+                    </NavLink>
+
+                    <NavLink
+                        to="/secretaria/mi-requisiciones"
+                        className={linkClass}
+                    >
+                        <FileText size={20} />
+                        Mis requisiciones
                     </NavLink>
                 </nav>
 

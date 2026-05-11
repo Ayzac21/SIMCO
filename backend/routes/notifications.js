@@ -130,7 +130,7 @@ router.get("/", async (req, res) => {
         created_at
       FROM notifications
       WHERE recipient_user_id = ?
-      ORDER BY created_at DESC, id DESC
+      ORDER BY id DESC, created_at DESC
       LIMIT ? OFFSET ?
       `,
       [userId, limit, offset]

@@ -92,6 +92,10 @@ function safeDate(d) {
     }
 }
 
+function getCoordArrivalAt(req) {
+    return req?.entered_coord_at || req?.sent_on || req?.created_at || null;
+}
+
 const ProgressBar = ({ statusId }) => {
     const index = STATUS_FLOW.indexOf(Number(statusId));
     if (index === -1) return null;
@@ -245,8 +249,8 @@ export default function Recibidas() {
         }
 
         list.sort((a, b) => {
-        const da = new Date(a.created_at).getTime() || 0;
-        const db = new Date(b.created_at).getTime() || 0;
+        const da = new Date(getCoordArrivalAt(a)).getTime() || 0;
+        const db = new Date(getCoordArrivalAt(b)).getTime() || 0;
         return sort === "new" ? db - da : da - db;
         });
 

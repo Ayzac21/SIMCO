@@ -56,7 +56,14 @@ export const getUresCatalog = async (req, res) => {
             c.name AS coordinacion,
             2 AS priority_order
           FROM secretary s
-          LEFT JOIN coordination c ON s.coordination_id = c.id
+          LEFT JOIN coordination c
+            ON c.id = (
+              SELECT c2.id
+              FROM coordination c2
+              WHERE TRIM(UPPER(s.ure)) LIKE CONCAT(TRIM(UPPER(c2.ure)), '%')
+              ORDER BY LENGTH(TRIM(c2.ure)) DESC
+              LIMIT 1
+            )
 
           UNION ALL
 

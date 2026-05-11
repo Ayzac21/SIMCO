@@ -305,7 +305,7 @@ export default function EditarRequisicion() {
           setAdjustmentSource("Compras");
           setAdjustmentMessage(rawNotes.replace("AJUSTE_COMPRAS:", "").trim());
         } else if (rawNotes.startsWith("AJUSTE_SECRETARIA:")) {
-          setResumeTo(isSecretariaView ? 12 : isComprasView ? 9 : 9);
+          setResumeTo(isSecretariaView ? 12 : isComprasView ? 9 : 8);
           setAdjustmentSource("Secretaría");
           setAdjustmentMessage(rawNotes.replace("AJUSTE_SECRETARIA:", "").trim());
         } else if (rawNotes.startsWith("AJUSTE_COORDINACION:")) {

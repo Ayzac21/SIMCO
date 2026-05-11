@@ -16,12 +16,51 @@ function fmt(d) {
   });
 }
 
+function fmtDateTime(d) {
+  if (!d) return "—";
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return "—";
+  return dt.toLocaleString("es-MX", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function daysBetween(a, b) {
   if (!a || !b) return null;
   const aMs = new Date(a).getTime();
   const bMs = new Date(b).getTime();
   if (!Number.isFinite(aMs) || !Number.isFinite(bMs) || bMs < aMs) return null;
   return (bMs - aMs) / (1000 * 60 * 60 * 24);
+}
+
+function formatDuration(from, to) {
+  const start = new Date(from).getTime();
+  const end = new Date(to).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "—";
+
+  let remaining = end - start;
+  const dayMs = 1000 * 60 * 60 * 24;
+  const hourMs = 1000 * 60 * 60;
+  const minuteMs = 1000 * 60;
+
+  const days = Math.floor(remaining / dayMs);
+  remaining -= days * dayMs;
+  const hours = Math.floor(remaining / hourMs);
+  remaining -= hours * hourMs;
+  const minutes = Math.floor(remaining / minuteMs);
+
+  if (days > 0) return `${days} día(s) ${hours} hora(s)`;
+  if (hours > 0) return `${hours} hora(s) ${minutes} min`;
+  return `${Math.max(1, minutes)} min`;
+}
+
+function toMs(value) {
+  const ts = new Date(value || 0).getTime();
+  return Number.isFinite(ts) ? ts : 0;
 }
 
 const STEP_FLOW = [7, 8, 9, 12, 14, 13, 11];
@@ -124,6 +163,58 @@ export default function RequisitionTimelineModal({ open, requisitionId, onClose 
     }
     return combinedHistory;
   }, [combinedHistory, historyFilter]);
+
+  const assignmentDurationById = useMemo(() => {
+    const map = {};
+    const items = [...(assignmentTimeline || [])].sort((a, b) => {
+      const aTs = new Date(a?.changed_at || 0).getTime();
+      const bTs = new Date(b?.changed_at || 0).getTime();
+      if (aTs !== bTs) return aTs - bTs;
+      return Number(a?.id || 0) - Number(b?.id || 0);
+    });
+    const flowEndAt =
+      timeline.length > 0 ? timeline[timeline.length - 1]?.changed_at || null : null;
+
+    for (let i = 0; i < items.length; i += 1) {
+      const current = items[i];
+      const next = items[i + 1];
+      const endAt = next?.changed_at || flowEndAt || null;
+      map[current.id] = endAt ? formatDuration(current.changed_at, endAt) : "—";
+    }
+    return map;
+  }, [assignmentTimeline, timeline]);
+
+  const comprasStartAt = useMemo(() => {
+    const statusInCompras = (timeline || []).find((evt) => Number(evt?.to_status_id || 0) === 12);
+    return statusInCompras?.changed_at || reqMeta?.sent_on || reqMeta?.created_at || null;
+  }, [timeline, reqMeta]);
+
+  const assignmentWindowById = useMemo(() => {
+    const windows = {};
+    const items = [...(assignmentTimeline || [])].sort((a, b) => {
+      const diff = toMs(a?.changed_at) - toMs(b?.changed_at);
+      if (diff !== 0) return diff;
+      return Number(a?.id || 0) - Number(b?.id || 0);
+    });
+    const flowEndAt = timeline.length ? timeline[timeline.length - 1]?.changed_at || null : null;
+
+    for (let i = 0; i < items.length; i += 1) {
+      const evt = items[i];
+      const next = items[i + 1];
+      const startAt =
+        i === 0 && evt?.previous_operator_id && comprasStartAt
+          ? comprasStartAt
+          : evt?.changed_at || null;
+      const endAt = next?.changed_at || flowEndAt || null;
+      windows[evt.id] = {
+        startAt,
+        endAt,
+        inferredStart: Boolean(i === 0 && evt?.previous_operator_id && comprasStartAt),
+        duration: startAt && endAt ? formatDuration(startAt, endAt) : assignmentDurationById[evt.id] || "—",
+      };
+    }
+    return windows;
+  }, [assignmentTimeline, timeline, comprasStartAt, assignmentDurationById]);
 
   const stepDates = useMemo(() => {
     const dates = {};
@@ -304,6 +395,31 @@ export default function RequisitionTimelineModal({ open, requisitionId, onClose 
                                   <div className="text-xs text-gray-600 mt-1">
                                     De: <b>{prevOperator}</b> → A: <b>{nextOperator}</b>
                                   </div>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {assignmentWindowById[evt.id]?.inferredStart ? (
+                                      <span className="px-2 py-0.5 rounded-full border border-sky-200 bg-sky-50 text-sky-700 text-[11px] font-semibold">
+                                        Asignación inicial: {fmtDateTime(assignmentWindowById[evt.id]?.startAt)}
+                                      </span>
+                                    ) : null}
+                                    <span className="px-2 py-0.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 text-[11px] font-semibold">
+                                      Reasignación: {fmtDateTime(evt.changed_at)}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-gray-600 mt-1">
+                                    Periodo:{" "}
+                                    <b>{fmtDateTime(assignmentWindowById[evt.id]?.startAt)}</b>
+                                    {"  "}→{"  "}
+                                    <b>{fmtDateTime(assignmentWindowById[evt.id]?.endAt)}</b>
+                                  </div>
+                                  <div className="text-xs text-gray-600 mt-1">
+                                    Duración de asignación:{" "}
+                                    <b>{assignmentWindowById[evt.id]?.duration || "—"}</b>
+                                  </div>
+                                  {assignmentWindowById[evt.id]?.inferredStart ? (
+                                    <div className="text-[11px] text-gray-500 mt-1">
+                                      Inicio inferido desde entrada a Compras para reflejar duración completa del operador previo.
+                                    </div>
+                                  ) : null}
                                 </>
                               ) : (
                                 <>
@@ -313,7 +429,7 @@ export default function RequisitionTimelineModal({ open, requisitionId, onClose 
                               )}
                               <div className="mt-1 text-xs text-gray-500 flex items-center gap-2 flex-wrap">
                                 <span className="px-2 py-0.5 rounded-full border border-gray-200 bg-gray-50">
-                                  {fmt(evt.changed_at)}
+                                  {fmtDateTime(evt.changed_at)}
                                 </span>
                                 <span className="px-2 py-0.5 rounded-full border border-gray-200 bg-gray-50">
                                   Realizado por: {actorLabel(evt)}

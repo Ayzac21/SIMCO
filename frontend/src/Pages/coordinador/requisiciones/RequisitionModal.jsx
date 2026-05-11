@@ -134,17 +134,20 @@ export default function RequisitionModal({
   const isAdjustMode = actionMode === "adjust";
 
   const notesText = String(req.notes || "");
+  const secretariaHistoryNote = String(req.secretaria_adjustment_note || "");
+  const effectiveNotesText =
+    notesText.trim() || secretariaHistoryNote.trim() || "";
   const noteIsAdjustment =
-    notesText.startsWith("AJUSTE_COORDINACION:") ||
-    notesText.startsWith("AJUSTE_SECRETARIA:");
-  const adjustmentSource = notesText.startsWith("AJUSTE_SECRETARIA:")
+    effectiveNotesText.startsWith("AJUSTE_COORDINACION:") ||
+    effectiveNotesText.startsWith("AJUSTE_SECRETARIA:");
+  const adjustmentSource = effectiveNotesText.startsWith("AJUSTE_SECRETARIA:")
     ? "Secretaría"
-    : notesText.startsWith("AJUSTE_COORDINACION:")
+    : effectiveNotesText.startsWith("AJUSTE_COORDINACION:")
     ? "Coordinación"
     : "";
   const readableNote = noteIsAdjustment
-    ? notesText.replace(/^AJUSTE_(COORDINACION|SECRETARIA):\s*/i, "")
-    : notesText;
+    ? effectiveNotesText.replace(/^AJUSTE_(COORDINACION|SECRETARIA):\s*/i, "")
+    : effectiveNotesText;
 
   const statusTone = (() => {
     if (statusId === 8) return "bg-yellow-50 text-yellow-800 border-yellow-200";

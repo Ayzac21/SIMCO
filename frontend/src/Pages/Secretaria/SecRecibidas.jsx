@@ -34,6 +34,7 @@ export default function SecRecibidas() {
     const [total, setTotal] = useState(0);
     const [searchTerm, setSearchTerm] = useState("");
     const [statusFilter, setStatusFilter] = useState("todos"); // todos, pendientes, aprobadas, rechazadas
+    const [tabCounts, setTabCounts] = useState({ todos: 0, pendientes: 0, aprobadas: 0, rechazadas: 0 });
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
 
@@ -71,6 +72,24 @@ export default function SecRecibidas() {
                 setAllReqs(Array.isArray(data?.rows) ? data.rows : []);
                 setTotal(Number(data?.total || 0));
             }
+
+            const baseParams = { page: "1", limit: "1", q: searchTerm.trim() };
+            const statusKeys = ["todos", "pendientes", "aprobadas", "rechazadas"];
+            const countEntries = await Promise.all(
+                statusKeys.map(async (st) => {
+                    try {
+                        const p = new URLSearchParams({ ...baseParams, status: st });
+                        const rr = await fetch(`${API_BASE_URL}/secretaria/${userId}/recibidas?${p.toString()}`, {
+                            headers: getAuthHeaders(),
+                        });
+                        const dd = await rr.json().catch(() => ({}));
+                        return [st, Number(dd?.total || 0)];
+                    } catch {
+                        return [st, 0];
+                    }
+                })
+            );
+            setTabCounts(Object.fromEntries(countEntries));
         } catch (error) {
             console.error("Error:", error);
             toast.error("Error al cargar requisiciones");
@@ -270,7 +289,18 @@ export default function SecRecibidas() {
                             : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200/50'
                         }`}
                     >
-                        {tab.label}
+                        <span className="inline-flex items-center gap-1.5">
+                            {tab.label}
+                            <span
+                                className={`min-w-5 px-1.5 h-5 rounded-full inline-flex items-center justify-center text-[10px] font-extrabold ${
+                                    statusFilter === tab.id
+                                        ? "bg-[#8B1D35]/10 text-[#8B1D35]"
+                                        : "bg-gray-200 text-gray-600"
+                                }`}
+                            >
+                                {Number(tabCounts[tab.id] || 0)}
+                            </span>
+                        </span>
                     </button>
                 ))}
             </div>

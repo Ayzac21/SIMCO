@@ -135,21 +135,38 @@ export const getRequisicionesCoordinador = async (req, res) => {
                 r.id,
                 r.request_name,
                 r.created_at,
+                r.sent_on,
                 r.statuses_id,
                 r.users_id,
                 r.area_folio,
                 r.observation,
                 r.justification,
-                r.notes,       
+                r.notes,
+                (
+                    SELECT h.change_note
+                    FROM requisition_status_history h
+                    WHERE h.requisition_id = r.id
+                      AND h.change_note LIKE 'AJUSTE_SECRETARIA:%'
+                    ORDER BY h.id DESC
+                    LIMIT 1
+                ) AS secretaria_adjustment_note,
                 u.name AS solicitante,
                 u.ure AS ure_solicitante,
-                s.name AS nombre_estatus 
+                s.name AS nombre_estatus,
+                (
+                    SELECT h.changed_at
+                    FROM requisition_status_history h
+                    WHERE h.requisition_id = r.id
+                      AND h.to_status_id = 8
+                    ORDER BY h.id DESC
+                    LIMIT 1
+                ) AS entered_coord_at
             FROM requisition r
             JOIN users u ON r.users_id = u.id
             JOIN statuses s ON r.statuses_id = s.id 
             WHERE u.ure LIKE CONCAT(?, '%')
               AND (r.statuses_id <> 7 OR r.users_id = ?)
-            ORDER BY r.created_at DESC
+            ORDER BY COALESCE(entered_coord_at, r.sent_on, r.created_at) DESC, r.id DESC
             `,
             [ureBase, authId]
         );

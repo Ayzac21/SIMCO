@@ -102,7 +102,9 @@ export default function NotificationBell() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error();
-      setRows(Array.isArray(data.rows) ? data.rows : []);
+      const safeRows = Array.isArray(data.rows) ? data.rows : [];
+      safeRows.sort((a, b) => Number(b?.id || 0) - Number(a?.id || 0));
+      setRows(safeRows);
       setUnread(Number(data.unread || 0));
     } catch {
       if (!silent) {

@@ -137,12 +137,14 @@ export default function ComprasDashboard() {
         if (isAdmin) loadOperators();
     }, [isAdmin]);
 
-    const getAgeDays = (createdAt) => {
-        const time = new Date(createdAt).getTime();
+    const getAgeDays = (inComprasAt, createdAt) => {
+        const time = new Date(inComprasAt || createdAt).getTime();
         if (!Number.isFinite(time)) return 0;
         const days = Math.floor((Date.now() - time) / (1000 * 60 * 60 * 24));
         return Math.max(0, days);
     };
+
+    const getComprasArrivalAt = (req) => req?.sent_on || req?.created_at || null;
 
     const ageLabel = (days) => {
         if (days <= 0) return "Hoy";
@@ -157,14 +159,14 @@ export default function ComprasDashboard() {
             rows = rows.filter((req) => !req.assigned_operator_id && !req.assigned_operator_name);
         }
         if (onlyHighPriority) {
-            rows = rows.filter((req) => getAgeDays(req.created_at) >= 7);
+            rows = rows.filter((req) => getAgeDays(req.sent_on, req.created_at) >= 7);
         }
 
         rows.sort((a, b) => {
-            if (sortBy === "oldest") return new Date(a.created_at) - new Date(b.created_at);
+            if (sortBy === "oldest") return new Date(getComprasArrivalAt(a)) - new Date(getComprasArrivalAt(b));
             if (sortBy === "name") return String(a.request_name || "").localeCompare(String(b.request_name || ""), "es");
             if (sortBy === "unit") return String(a.nombre_unidad || "").localeCompare(String(b.nombre_unidad || ""), "es");
-            return new Date(b.created_at) - new Date(a.created_at);
+            return new Date(getComprasArrivalAt(b)) - new Date(getComprasArrivalAt(a));
         });
 
         return rows;
@@ -492,8 +494,8 @@ export default function ComprasDashboard() {
                                 <User size={12} />
                                 {req.solicitante || "Sin solicitante"}
                             </span>
-                            <span className={`text-[11px] font-semibold ${getAgeDays(req.created_at) >= 7 ? "text-red-600" : "text-sky-700"}`}>
-                                Antigüedad: {ageLabel(getAgeDays(req.created_at))}
+                            <span className={`text-[11px] font-semibold ${getAgeDays(req.sent_on, req.created_at) >= 7 ? "text-red-600" : "text-sky-700"}`}>
+                                En Compras: {ageLabel(getAgeDays(req.sent_on, req.created_at))}
                             </span>
                             </div>
                         </div>

@@ -100,6 +100,12 @@ test("PATCH /api/requisiciones/:id/enviar", async (t) => {
         if (sql.includes("INSERT INTO requisition_status_history")) {
           return [{ insertId: 1 }];
         }
+        if (sql.includes("SELECT TRIM(UPPER(sec_scope.ure)) AS secretaria_ure")) {
+          return [[{ secretaria_ure: "3.1.2.7" }]];
+        }
+        if (sql.includes("SELECT id") && sql.includes("FROM users") && sql.includes("role = 'secretaria'")) {
+          return [[{ id: 601 }]];
+        }
         if (sql.includes("SELECT id FROM users WHERE role = ?")) {
           return [[{ id: 501 }]];
         }

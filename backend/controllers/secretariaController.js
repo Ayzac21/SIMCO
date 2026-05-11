@@ -231,6 +231,7 @@ export const getRequisicionesSecretaria = async (req, res) => {
                 r.id,
                 r.request_name,
                 r.created_at,
+                r.sent_on,
                 r.statuses_id,
                 s.name as nombre_estatus,
                 r.observation as observaciones,
@@ -239,6 +240,14 @@ export const getRequisicionesSecretaria = async (req, res) => {
                 ru.name as rejected_by_name,
                 ru.role as rejected_by_role,
                 rh.changed_at as rejected_at,
+                (
+                    SELECT h2.changed_at
+                    FROM requisition_status_history h2
+                    WHERE h2.requisition_id = r.id
+                      AND h2.to_status_id = 9
+                    ORDER BY h2.id DESC
+                    LIMIT 1
+                ) AS entered_secretaria_at,
 
                 u.name as solicitante,
                 u.role as solicitante_role,
@@ -295,7 +304,7 @@ export const getRequisicionesSecretaria = async (req, res) => {
             LEFT JOIN users ru ON ru.id = rh.changed_by
 
             ${whereClause}
-            ORDER BY r.created_at DESC
+            ORDER BY COALESCE(entered_secretaria_at, r.sent_on, r.created_at) DESC, r.id DESC
             LIMIT ? OFFSET ?
         `;
 

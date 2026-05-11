@@ -320,7 +320,7 @@ export default function ListaRequisiciones() {
         { id: "11", label: "Finalizada", show: true },
         { id: "10", label: "Cancelada", show: true },
       ].filter((x) => x.show),
-    [isComprasView]
+    [isComprasView, userRole]
   );
 
   const revokePreviewUrls = (map) => {

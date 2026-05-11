@@ -682,7 +682,7 @@ export const getComprasDashboard = async (req, res) => {
         SUM(
           CASE 
             WHEN r.statuses_id IN (12,14) 
-             AND DATEDIFF(NOW(), r.created_at) >= 7 
+             AND DATEDIFF(NOW(), COALESCE(r.sent_on, r.created_at)) >= 7 
             THEN 1 ELSE 0 
           END
         ) AS high
@@ -701,6 +701,7 @@ export const getComprasDashboard = async (req, res) => {
         r.justification,
         r.notes,
         r.created_at,
+        r.sent_on,
         r.statuses_id,
         r.order_type,
         r.folio,
@@ -758,7 +759,7 @@ export const getComprasDashboard = async (req, res) => {
           LIMIT 1
         )
       ${whereClause}
-      ORDER BY r.created_at DESC
+      ORDER BY COALESCE(r.sent_on, r.created_at) DESC, r.id DESC
       LIMIT ? OFFSET ?
     `;
     const [results] = await pool.query(query, [...params, limit, offset]);
@@ -2435,9 +2436,26 @@ export const getOrdenCompraPdf = async (req, res) => {
     const serviceStartDateMeta = formatMetaDate(meta.oc_payment_start_date);
     const serviceEndDateMeta = formatMetaDate(meta.oc_payment_end_date);
     const servicePaymentDateMeta = formatMetaDate(meta.oc_payment_date);
+    let finalizedByUserId = 0;
+    try {
+      const [historyRows] = await pool.query(
+        `
+        SELECT changed_by
+        FROM requisition_status_history
+        WHERE requisition_id = ? AND to_status_id = 11
+        ORDER BY id DESC
+        LIMIT 1
+        `,
+        [id]
+      );
+      finalizedByUserId = Number(historyRows?.[0]?.changed_by || 0);
+    } catch {
+      finalizedByUserId = 0;
+    }
     const preferredBuyerUserId =
-      Number(meta.oc_buyer_user_id || 0) ||
+      finalizedByUserId ||
       Number(requisition.assigned_operator_id || 0) ||
+      Number(meta.oc_buyer_user_id || 0) ||
       Number(req.user?.id || 0) ||
       0;
     let buyerInitials = "";
@@ -2452,8 +2470,8 @@ export const getOrdenCompraPdf = async (req, res) => {
           INSERT INTO orden_compra_meta (requisition_id, provider_id, oc_buyer_initials, oc_buyer_user_id)
           VALUES (?, ?, ?, ?)
           ON DUPLICATE KEY UPDATE
-            oc_buyer_initials = COALESCE(NULLIF(oc_buyer_initials, ''), VALUES(oc_buyer_initials)),
-            oc_buyer_user_id = COALESCE(oc_buyer_user_id, VALUES(oc_buyer_user_id))
+            oc_buyer_initials = VALUES(oc_buyer_initials),
+            oc_buyer_user_id = VALUES(oc_buyer_user_id)
           `,
           [id, providerId, buyerInitials, preferredBuyerUserId || null]
         );
@@ -2867,8 +2885,8 @@ export const updateOrdenCompraMeta = async (req, res) => {
         oc_installments_count = VALUES(oc_installments_count),
         oc_advance_percentage = VALUES(oc_advance_percentage),
         oc_payment_compliance = VALUES(oc_payment_compliance),
-        oc_buyer_initials = COALESCE(NULLIF(oc_buyer_initials, ''), VALUES(oc_buyer_initials)),
-        oc_buyer_user_id = COALESCE(oc_buyer_user_id, VALUES(oc_buyer_user_id)),
+        oc_buyer_initials = VALUES(oc_buyer_initials),
+        oc_buyer_user_id = VALUES(oc_buyer_user_id),
         oc_requester_vobo_name = VALUES(oc_requester_vobo_name)
       `,
       [
@@ -4881,12 +4899,16 @@ export const sendCotizacionToReview = async (req, res) => {
     );
 
     const actorId = Number(req.user?.id || 0) || null;
-    const adminIds = (await getComprasAdminIds(conn)).filter((uid) => uid !== actorId);
+    const adminIds = await getComprasAdminIds(conn);
+    const lectorIds = await getUsersByRole("compras_lector", conn);
+    const comprasReviewRecipients = Array.from(
+      new Set([...adminIds, ...lectorIds].map((uid) => Number(uid)).filter((uid) => uid > 0))
+    ).filter((uid) => uid !== actorId);
     const ownerId = Number(reqRow.users_id || 0) || null;
     await conn.commit();
-    for (const adminId of adminIds) {
+    for (const recipientId of comprasReviewRecipients) {
       await createNotification({
-        recipientUserId: adminId,
+        recipientUserId: recipientId,
         actorUserId: actorId,
         title: "Revisión interna de cotización",
         message: `La requisición #${id} está lista para revisión interna y selección final.`,

@@ -105,6 +105,10 @@ function daysBetween(a, b) {
   return ms / (1000 * 60 * 60 * 24);
 }
 
+function getCoordArrivalAt(req) {
+  return req?.entered_coord_at || req?.sent_on || req?.created_at || null;
+}
+
 export default function CoorDashboard() {
   const navigate = useNavigate();
   const coordinadorId = useMemo(() => getCoordinadorId(), []);
@@ -166,7 +170,7 @@ export default function CoorDashboard() {
 
     const hoy = new Date();
     const rezagadasList = pendientesList.filter((r) => {
-      const fecha = new Date(r.created_at);
+      const fecha = new Date(getCoordArrivalAt(r));
       return daysBetween(hoy, fecha) > 3;
     });
 
@@ -180,7 +184,7 @@ export default function CoorDashboard() {
 
   const recentReqs = useMemo(() => {
     const sorted = [...allReqs].sort(
-      (a, b) => new Date(b.created_at) - new Date(a.created_at)
+      (a, b) => new Date(getCoordArrivalAt(b)) - new Date(getCoordArrivalAt(a))
     );
     return sorted.slice(0, 6);
   }, [allReqs]);
