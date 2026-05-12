@@ -1231,6 +1231,7 @@ router.get("/:id/pdf-firma", async (req, res) => {
         u.ure AS ure_solicitante,
         COALESCE(NULLIF(TRIM(ho.name), ''), u.ure, 'URE') AS dependencia_solicitante,
         COALESCE(NULLIF(TRIM(c2.name), ''), NULLIF(TRIM(c2.ure), ''), 'Área ejecutora') AS coordinacion_dependencia,
+        COALESCE(NULLIF(TRIM(sec.ure), ''), '') AS secretaria_ure,
         COALESCE(NULLIF(TRIM(sec.name), ''), NULLIF(TRIM(sec.ure), ''), 'Secretaría administrativa') AS secretaria_dependencia,
         COALESCE(NULLIF(TRIM(coord_user.name), ''), NULLIF(TRIM(c.name), ''), 'Coordinación') AS coordinador_firma,
         COALESCE(NULLIF(TRIM(sec_user.name), ''), NULLIF(TRIM(sec.name), ''), 'Secretaría') AS secretaria_firma
@@ -1638,6 +1639,18 @@ router.get("/:id/pdf-firma", async (req, res) => {
       safe(reqRow.secretaria_dependencia) || "Secretaría Administrativa";
 
     const requesterRole = safe(reqRow.solicitante_role).toLowerCase();
+    const requesterUre = safe(reqRow.ure_solicitante).toUpperCase();
+    const secretariaUre = safe(reqRow.secretaria_ure).toUpperCase();
+    const secretariaAdministrativaUre = "3.1.3";
+    const secretariaAcademicaUre = "3.1.2";
+    const isAdministrativeSecretaryFlow =
+      secretariaUre === secretariaAdministrativaUre ||
+      requesterUre.startsWith(`${secretariaAdministrativaUre}.`) ||
+      requesterUre === secretariaAdministrativaUre;
+    const isAcademicSecretaryFlow =
+      secretariaUre === secretariaAcademicaUre ||
+      requesterUre.startsWith(`${secretariaAcademicaUre}.`) ||
+      requesterUre === secretariaAcademicaUre;
     const signatures = [];
     const addSignature = (name, role) => {
       const cleanName = safe(name);
@@ -1656,14 +1669,13 @@ router.get("/:id/pdf-firma", async (req, res) => {
         safe(reqRow.solicitante) || safe(reqRow.coordinador_firma) || "Coordinador",
         `Coordinador (${coordinacionFirma})`
       );
-      addSignature(
-        safe(reqRow.secretaria_firma) || "Secretario Académico",
-        "Secretario Académico"
-      );
     } else if (requesterRole === "secretaria") {
+      const secretaryRoleLabel = isAdministrativeSecretaryFlow
+        ? "Secretario Administrativo"
+        : "Secretario Académico";
       addSignature(
-        safe(reqRow.solicitante) || safe(reqRow.secretaria_firma) || "Secretario Académico",
-        "Secretario Académico"
+        safe(reqRow.solicitante) || safe(reqRow.secretaria_firma) || secretaryRoleLabel,
+        secretaryRoleLabel
       );
     } else {
       addSignature(
@@ -1674,10 +1686,12 @@ router.get("/:id/pdf-firma", async (req, res) => {
         safe(reqRow.coordinador_firma) || "Coordinador",
         `Coordinador (${coordinacionFirma})`
       );
-      addSignature(
-        safe(reqRow.secretaria_firma) || "Secretario Académico",
-        "Secretario Académico"
-      );
+      if (!isAdministrativeSecretaryFlow) {
+        addSignature(
+          safe(reqRow.secretaria_firma) || "Secretario Académico",
+          isAcademicSecretaryFlow ? "Secretario Académico" : "Secretaría"
+        );
+      }
     }
     const fixedSignatures = [
       {
