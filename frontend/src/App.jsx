@@ -36,6 +36,12 @@ const ComprasRevision = lazy(() => import("./Pages/Compras/revision/ComprasRevis
 const ComprasProveedores = lazy(() => import("./Pages/Compras/proveedores/ComprasProveedores.jsx"));
 const ComprasUnidades = lazy(() => import("./Pages/Compras/unidades/ComprasUnidades.jsx"));
 
+// --- Finanzas ---
+const FinanzasLayout = lazy(() => import("./Pages/Finanzas/layout/FinanzasLayout.jsx"));
+const FinanzasRecibidas = lazy(() => import("./Pages/Finanzas/FinanzasRecibidas.jsx"));
+const FinanzasDetalle = lazy(() => import("./Pages/Finanzas/FinanzasDetalle.jsx"));
+const FinanzasHistorial = lazy(() => import("./Pages/Finanzas/FinanzasHistorial.jsx"));
+
 export default function App() {
   return (
     <Suspense fallback={<div className="p-4 text-sm text-gray-500">Cargando...</div>}>
@@ -166,6 +172,20 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+        </Route>
+
+        {/* RUTAS DE FINANZAS */}
+        <Route
+          path="/finanzas"
+          element={
+            <ProtectedRoute allowedRoles={["finanzas"]}>
+              <FinanzasLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route path="recibidas" element={<FinanzasRecibidas />} />
+          <Route path="historial" element={<FinanzasHistorial />} />
+          <Route path="requisiciones/:id" element={<FinanzasDetalle />} />
         </Route>
       </Routes>
     </Suspense>

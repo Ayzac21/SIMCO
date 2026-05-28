@@ -39,6 +39,7 @@ export default function OrdenCompra() {
 
   const [loading, setLoading] = useState(true);
   const [requisition, setRequisition] = useState(null);
+  const [financeReview, setFinanceReview] = useState(null);
   const [items, setItems] = useState([]);
   const [providersInfo, setProvidersInfo] = useState([]);
   const [summary, setSummary] = useState({
@@ -70,8 +71,21 @@ export default function OrdenCompra() {
   const [savingOrderSetup, setSavingOrderSetup] = useState(false);
   const [refreshingPreview, setRefreshingPreview] = useState(false);
   const [autoAssigningFolios, setAutoAssigningFolios] = useState(false);
-  const isFinalized = Number(requisition?.statuses_id || 0) === 11;
-  const canEditOrderSetup = (isAdmin || isOperator) && !isFinalized;
+  const statusId = Number(requisition?.statuses_id || 0);
+  const isFinalized = statusId === 11;
+  const isFinancePending = statusId === 15;
+  const isFinanceApproved = statusId === 16;
+  const isFinanceRejected = statusId === 17;
+  const canSendToFinance = statusId === 13;
+  const finalActionStatus = isFinanceApproved ? 11 : 15;
+  const finalActionLabel = isFinanceApproved ? "Marcar finalizada" : "Enviar a Finanzas";
+  const finalActionTitle = isFinanceApproved
+    ? "Marcar como finalizada"
+    : "Enviar a revisión de Finanzas";
+  const finalActionDescription = isFinanceApproved
+    ? "Esta acción moverá la requisición a historial como finalizada. ¿Deseas continuar?"
+    : "Esta acción enviará la requisición a Finanzas para validación presupuestal. ¿Deseas continuar?";
+  const canEditOrderSetup = (isAdmin || isOperator) && !isFinalized && !isFinancePending && !isFinanceApproved && !isFinanceRejected;
   const editableInputClass =
     "mt-1 w-full px-3 py-2 border rounded-lg text-sm bg-[#fffaf8] border-[#8B1D35]/35 focus:border-[#8B1D35] focus:ring-1 focus:ring-[#8B1D35] outline-none";
   const blockedInputClass =
@@ -100,6 +114,7 @@ export default function OrdenCompra() {
       if (!resp.ok) throw new Error(data?.message || "Error cargando selección");
 
       setRequisition(data.requisition || null);
+      setFinanceReview(data.finance_review || null);
       const safeItems = Array.isArray(data.items) ? data.items : [];
 
       // Refuerza producto desde el mismo endpoint que usan otros modales de compras.
@@ -425,18 +440,44 @@ export default function OrdenCompra() {
     return Number.isFinite(idValue) ? idValue : null;
   }, [providersWithMissingData]);
 
-  const validateFinalizePreconditions = () => {
+  const providersWithMissingFolio = useMemo(() => {
+    return providersList
+      .map((provider) => {
+        const meta = metaByProvider[provider.id] || {};
+        return {
+          ...provider,
+          missing: !String(meta.folio || "").trim(),
+        };
+      })
+      .filter((provider) => provider.missing);
+  }, [providersList, metaByProvider]);
+
+  const finalActionDisabledReason = useMemo(() => {
+    if (!summary.is_complete) return `Faltan ${summary.missing_items} partida(s) por seleccionar`;
     if (providersWithMissingData.length > 0) {
       const names = providersWithMissingData.map((p) => p.name || `ID ${p.id}`).join(", ");
-      toast.error(`Faltan datos de proveedor (RFC/Dirección/Teléfono/Razón social) para: ${names}`);
+      return `Faltan datos de proveedor para: ${names}`;
+    }
+    if (providersWithMissingFolio.length > 0) {
+      const names = providersWithMissingFolio.map((p) => p.name || `ID ${p.id}`).join(", ");
+      return `Falta folio para: ${names}`;
+    }
+    if (autoAssigningFolios) return "Asignando folios automáticos";
+    return "";
+  }, [summary, providersWithMissingData, providersWithMissingFolio, autoAssigningFolios]);
+
+  const canRunFinalAction = !finalActionDisabledReason;
+
+  const validateFinalizePreconditions = () => {
+    if (providersWithMissingData.length > 0) {
+      const details = providersWithMissingData
+        .map((p) => `${p.name || `ID ${p.id}`}: ${p.missing.join(", ")}`)
+        .join(" · ");
+      toast.error(`Completa proveedores antes de ${isFinanceApproved ? "finalizar" : "enviar a Finanzas"}: ${details}`);
       return false;
     }
-    const missing = providersList.filter((p) => {
-      const meta = metaByProvider[p.id] || {};
-      return !String(meta.folio || "").trim();
-    });
-    if (missing.length) {
-      const names = missing.map((p) => p.name || `ID ${p.id}`).join(", ");
+    if (providersWithMissingFolio.length) {
+      const names = providersWithMissingFolio.map((p) => p.name || `ID ${p.id}`).join(", ");
       toast.error(`Falta folio para: ${names}`);
       return false;
     }
@@ -451,6 +492,14 @@ export default function OrdenCompra() {
     }
     if (isFinalized) {
       toast.warning("La requisición ya está finalizada");
+      return;
+    }
+    if (isFinancePending) {
+      toast.warning("La requisición está en revisión de Finanzas");
+      return;
+    }
+    if (!canSendToFinance && !isFinanceApproved) {
+      toast.warning("La requisición no está lista para esta acción");
       return;
     }
     if (!summary.is_complete) {
@@ -471,6 +520,14 @@ export default function OrdenCompra() {
       toast.warning("La requisición ya está finalizada");
       return;
     }
+    if (isFinancePending) {
+      toast.warning("La requisición está en revisión de Finanzas");
+      return;
+    }
+    if (!canSendToFinance && !isFinanceApproved) {
+      toast.warning("La requisición no está lista para esta acción");
+      return;
+    }
     try {
       if (!validateFinalizePreconditions()) return;
 
@@ -478,13 +535,13 @@ export default function OrdenCompra() {
       const resp = await fetch(`${API_URL}/requisiciones/${id}/estatus`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify({ status_id: 11, comentarios: null }),
+        body: JSON.stringify({ status_id: finalActionStatus, comentarios: null }),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data?.message || "Error al actualizar estatus");
 
-      toast.success("Requisición marcada como finalizada");
-      navigate("/compras/historial");
+      toast.success(isFinanceApproved ? "Requisición marcada como finalizada" : "Requisición enviada a Finanzas");
+      navigate(isFinanceApproved ? "/compras/historial" : "/compras/dashboard");
     } catch (e) {
       console.error(e);
       toast.error(e?.message || "No se pudo actualizar el estatus");
@@ -754,10 +811,10 @@ export default function OrdenCompra() {
     <div className="p-3 sm:p-5 lg:p-6 bg-gradient-to-b from-[#F8FAFC] to-[#EEF2F7] min-h-full">
       <ConfirmModal
         open={confirmOpen}
-        title="Marcar como finalizada"
+        title={finalActionTitle}
         headerText="Confirmar compra"
-        description="Esta acción moverá la requisición a historial como finalizada. ¿Deseas continuar?"
-        confirmText="Sí, marcar"
+        description={finalActionDescription}
+        confirmText={isFinanceApproved ? "Sí, finalizar" : "Sí, enviar"}
         cancelText="Cancelar"
         loading={saving}
         onConfirm={handleMarkCompleted}
@@ -779,7 +836,7 @@ export default function OrdenCompra() {
             <div className="flex items-center gap-2">
               <h1 className="text-xl sm:text-2xl font-extrabold text-gray-800">Proceso de compra #{id}</h1>
               <span className="text-[10px] font-bold tracking-wide px-2 py-1 rounded-full uppercase bg-blue-50 text-blue-700 border border-blue-100">
-                Estatus {isFinalized ? 11 : 13}
+                Estatus {statusId || "—"}
               </span>
             </div>
             <p className="text-xs text-gray-500 mt-1">
@@ -820,19 +877,19 @@ export default function OrdenCompra() {
               EXCEL
             </button>
           </div>
-          {!isReader && !isFinalized && (
+          {!isReader && !isFinalized && !isFinancePending && !isFinanceRejected && (
             <button
               onClick={handleRequestFinalize}
-              disabled={!summary.is_complete}
+              disabled={!canRunFinalAction}
               className={`px-3 py-2 rounded-lg text-[11px] font-semibold flex items-center gap-1.5 border transition-colors ${
-                summary.is_complete
+                canRunFinalAction
                   ? "bg-[#8B1D35] hover:bg-[#72182b] text-white border-[#8B1D35]"
                   : "bg-gray-200 text-gray-500 cursor-not-allowed border-gray-200"
               }`}
-              title={summary.is_complete ? "Marcar como finalizada" : "Faltan partidas por seleccionar"}
+              title={canRunFinalAction ? finalActionTitle : finalActionDisabledReason}
             >
               <CheckCircle2 size={12} />
-              Marcar finalizada
+              {finalActionLabel}
             </button>
           )}
         </div>
@@ -849,11 +906,32 @@ export default function OrdenCompra() {
           Esta requisición ya está finalizada. El formulario se muestra en modo solo lectura.
         </div>
       )}
+      {isFinancePending && (
+        <div className="mb-4 bg-sky-50 border border-sky-100 rounded-xl p-4 text-xs text-sky-800 shadow-sm">
+          Esta requisición está en revisión de Finanzas. Compras podrá finalizarla cuando sea aprobada.
+        </div>
+      )}
+      {isFinanceApproved && (
+        <div className="mb-4 bg-emerald-50 border border-emerald-100 rounded-xl p-4 text-xs text-emerald-800 shadow-sm">
+          Finanzas aprobó esta requisición. Ya puede marcarse como finalizada.
+        </div>
+      )}
+      {isFinanceRejected && (
+        <div className="mb-4 bg-red-50 border border-red-100 rounded-xl p-4 text-xs text-red-800 shadow-sm">
+          Finanzas rechazó esta requisición. El formulario se muestra en modo solo lectura.
+        </div>
+      )}
 
       {!summary.is_complete && summary.total_items > 0 && (
         <div className="mb-4 bg-amber-50 border border-amber-100 rounded-xl p-4 text-xs text-amber-800 shadow-sm">
           Faltan {summary.missing_items} partida(s) por seleccionar. No se puede
-          marcar como finalizada hasta completar la selección.
+          {isFinanceApproved ? " marcar como finalizada" : " enviar a Finanzas"} hasta completar la selección.
+        </div>
+      )}
+
+      {finalActionDisabledReason && summary.is_complete && (
+        <div className="mb-4 bg-amber-50 border border-amber-100 rounded-xl p-4 text-xs text-amber-800 shadow-sm">
+          Antes de {isFinanceApproved ? "finalizar" : "enviar a Finanzas"}: {finalActionDisabledReason}.
         </div>
       )}
 
@@ -1016,6 +1094,92 @@ export default function OrdenCompra() {
               </div>
               <div className="mt-2 text-sm text-gray-700 leading-relaxed">
                 {requisition?.justification || requisition?.observation || "—"}
+              </div>
+            </div>
+
+            <div
+              className={`overflow-hidden rounded-2xl border md:col-span-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)] ${
+                statusId === 13 && financeReview?.finance_observation
+                  ? "border-amber-200 bg-amber-50/60"
+                  : Number(financeReview?.budget_available || 0) === 1
+                    ? "border-emerald-200 bg-emerald-50/60"
+                    : "border-gray-200 bg-gray-50"
+              }`}
+            >
+              <div
+                className={`border-b px-4 py-3 ${
+                  statusId === 13 && financeReview?.finance_observation
+                    ? "border-amber-200 bg-amber-100/60"
+                    : Number(financeReview?.budget_available || 0) === 1
+                      ? "border-emerald-200 bg-emerald-100/60"
+                      : "border-gray-200 bg-white"
+                }`}
+              >
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-gray-700">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/70 bg-white text-[#8B1D35] shadow-sm">
+                      <FileText size={13} />
+                    </span>
+                    {statusId === 13 && financeReview?.finance_observation
+                      ? "Finanzas devolvió esta requisición"
+                      : "Datos de Finanzas"}
+                  </div>
+                  <span
+                    className={`w-fit rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${
+                      statusId === 13 && financeReview?.finance_observation
+                        ? "bg-amber-200 text-amber-900"
+                        : Number(financeReview?.budget_available || 0) === 1
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-gray-100 text-gray-500"
+                    }`}
+                  >
+                    {statusId === 13 && financeReview?.finance_observation
+                      ? "Requiere atención de Compras"
+                      : Number(financeReview?.budget_available || 0) === 1
+                        ? "Presupuesto disponible"
+                        : "Sin confirmación"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-4">
+                {statusId === 13 && financeReview?.finance_observation && (
+                  <div className="mb-4 rounded-xl border border-amber-200 bg-white p-4">
+                    <div className="text-[10px] font-extrabold uppercase tracking-wide text-amber-700">
+                      Motivo / observación de Finanzas
+                    </div>
+                    <div className="mt-2 text-sm font-semibold leading-relaxed text-gray-900">
+                      {financeReview.finance_observation}
+                    </div>
+                    <div className="mt-3 text-xs leading-relaxed text-gray-600">
+                      Revisa esta observación antes de volver a enviar la requisición a Finanzas.
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-3">
+                  <div className="rounded-xl border border-gray-200 bg-white p-3">
+                    <div className="text-[10px] font-bold uppercase text-gray-500">Proyecto</div>
+                    <div className="mt-1 text-sm font-extrabold text-gray-900">{financeReview?.project || "—"}</div>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-white p-3">
+                    <div className="text-[10px] font-bold uppercase text-gray-500">Fondo</div>
+                    <div className="mt-1 text-sm font-extrabold text-gray-900">{financeReview?.fund || "—"}</div>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-white p-3">
+                    <div className="text-[10px] font-bold uppercase text-gray-500">Programa estratégico</div>
+                    <div className="mt-1 text-sm font-extrabold text-gray-900">
+                      {financeReview?.strategic_program || "—"}
+                    </div>
+                  </div>
+                </div>
+
+                {financeReview?.finance_observation && !(statusId === 13) && (
+                  <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3 text-xs text-gray-700">
+                    <span className="mb-1 block text-[10px] font-bold uppercase text-gray-500">Observación</span>
+                    {financeReview.finance_observation}
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -51,6 +51,9 @@ function normalizeActionPath(notification) {
         base = "/compras/dashboard";
       }
     }
+    if (role === "finanzas" && base.startsWith("/finanzas/recibidas") && reqId) {
+      base = `/finanzas/requisiciones/${reqId}`;
+    }
   } catch {
     // noop
   }
@@ -76,6 +79,7 @@ function normalizeActionPath(notification) {
     if (role === "secretaria") return `/secretaria/recibidas?openReq=${reqId}`;
     if (role === "head_office") return `/unidad/mi-requisiciones?openReq=${reqId}`;
     if (role.startsWith("compras_")) return `/compras/dashboard?openReq=${reqId}`;
+    if (role === "finanzas") return `/finanzas/requisiciones/${reqId}`;
   }
   return base;
 }

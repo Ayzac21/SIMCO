@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Search, Clock, AlertTriangle, ShoppingCart, FileText, BarChart3, Lightbulb, Briefcase, User, RotateCw } from "lucide-react";
+import { Search, Clock, AlertTriangle, ShoppingCart, FileText, BarChart3, Lightbulb, Briefcase, User, RotateCw, CircleCheckBig, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import RequisitionModal from "../requisiciones/RequisitionModal";
 import { API_BASE_URL } from "../../../api/config";
@@ -39,7 +39,7 @@ export default function ComprasDashboard() {
     const [selectedReq, setSelectedReq] = useState(null);
     const [loading, setLoading] = useState(true);
     const [total, setTotal] = useState(0);
-    const [counts, setCounts] = useState({ c12: 0, c14: 0, c13: 0, total: 0, high: 0 });
+    const [counts, setCounts] = useState({ c12: 0, c14: 0, c13: 0, c16: 0, total: 0, high: 0, financeReturned: 0 });
     const [operators, setOperators] = useState([]);
     const [assigningReq, setAssigningReq] = useState(null);
     const [assignOperatorId, setAssignOperatorId] = useState("");
@@ -52,13 +52,14 @@ export default function ComprasDashboard() {
         setAssignOperatorId("");
     }, savingAssign);
 
-    const [tab, setTab] = useState("all"); // all | 12 | 14 | 13
+    const [tab, setTab] = useState("all"); // all | 12 | 14 | 13 | 16
     const [q, setQ] = useState("");
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [sortBy, setSortBy] = useState("newest");
     const [onlyUnassigned, setOnlyUnassigned] = useState(false);
     const [onlyHighPriority, setOnlyHighPriority] = useState(false);
+    const [onlyFinanceReturned, setOnlyFinanceReturned] = useState(false);
 
     const userStr = localStorage.getItem("usuario");
     const user = userStr ? JSON.parse(userStr) : null;
@@ -90,8 +91,10 @@ export default function ComprasDashboard() {
             c12: Number(data?.counts?.c12 || 0),
             c14: Number(data?.counts?.c14 || 0),
             c13: Number(data?.counts?.c13 || 0),
+            c16: Number(data?.counts?.c16 || 0),
             total: Number(data?.counts?.total || 0),
             high: Number(data?.counts?.high || 0),
+            financeReturned: Number(data?.counts?.finance_returned || 0),
         });
         setLastUpdatedAt(new Date());
         } catch (error) {
@@ -161,6 +164,9 @@ export default function ComprasDashboard() {
         if (onlyHighPriority) {
             rows = rows.filter((req) => getAgeDays(req.sent_on, req.created_at) >= 7);
         }
+        if (onlyFinanceReturned) {
+            rows = rows.filter((req) => Number(req.returned_from_finance || 0) === 1);
+        }
 
         rows.sort((a, b) => {
             if (sortBy === "oldest") return new Date(getComprasArrivalAt(a)) - new Date(getComprasArrivalAt(b));
@@ -170,7 +176,7 @@ export default function ComprasDashboard() {
         });
 
         return rows;
-    }, [requisitions, onlyUnassigned, onlyHighPriority, sortBy]);
+    }, [requisitions, onlyUnassigned, onlyHighPriority, onlyFinanceReturned, sortBy]);
 
     const topAreas = useMemo(() => {
         const counts = {};
@@ -191,6 +197,7 @@ export default function ComprasDashboard() {
         if (Number(st) === 12) return { text: "POR COTIZAR", cls: "bg-orange-50 text-orange-600 border-orange-100" };
         if (Number(st) === 14) return { text: "EN REVISIÓN INTERNA", cls: "bg-[#8B1D35]/10 text-[#8B1D35] border-[#8B1D35]/10" };
         if (Number(st) === 13) return { text: "EN PROCESO", cls: "bg-blue-50 text-blue-600 border-blue-100" };
+        if (Number(st) === 16) return { text: "APROBADA FINANZAS", cls: "bg-emerald-50 text-emerald-700 border-emerald-100" };
         return { text: "OTRO", cls: "bg-gray-100 text-gray-600 border-gray-200" };
     };
 
@@ -263,7 +270,7 @@ export default function ComprasDashboard() {
             </div>
         )}
         {/* MÉTRICAS */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-7 gap-4 mb-6">
             <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between">
             <div>
                 <p className="text-[10px] font-bold text-gray-400 uppercase">Por cotizar</p>
@@ -293,6 +300,35 @@ export default function ComprasDashboard() {
                 <ShoppingCart size={20} />
             </div>
             </div>
+
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-emerald-100 flex justify-between">
+            <div>
+                <p className="text-[10px] font-bold text-emerald-600 uppercase">Listas para finalizar</p>
+                <p className="text-3xl font-bold text-gray-800 mt-1">{counts.c16}</p>
+            </div>
+            <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600 h-fit">
+                <CircleCheckBig size={20} />
+            </div>
+            </div>
+
+            <button
+            type="button"
+            onClick={() => setOnlyFinanceReturned((v) => !v)}
+            className={`p-5 rounded-xl shadow-sm border flex justify-between text-left transition ${
+                onlyFinanceReturned
+                    ? "bg-amber-50 border-amber-300 ring-2 ring-amber-100"
+                    : "bg-white border-amber-100 hover:bg-amber-50/60"
+            }`}
+            >
+            <div>
+                <p className="text-[10px] font-bold text-amber-600 uppercase">Devueltas Finanzas</p>
+                <p className="text-3xl font-bold text-gray-800 mt-1">{counts.financeReturned}</p>
+                <p className="text-[10px] text-gray-400 mt-1">Requieren atención</p>
+            </div>
+            <div className="p-2 bg-amber-50 rounded-lg text-amber-600 h-fit">
+                <Undo2 size={20} />
+            </div>
+            </button>
 
             <div className="bg-white p-5 rounded-xl shadow-sm border border-red-100 ring-1 ring-red-50 flex justify-between">
             <div>
@@ -354,6 +390,15 @@ export default function ComprasDashboard() {
             >
                 En proceso ({counts.c13})
             </button>
+
+            <button
+                onClick={() => { setTab("16"); setCurrentPage(1); }}
+                className={`px-3 py-2 rounded-lg text-xs font-bold border ${
+                tab === "16" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+                }`}
+            >
+                Listas para finalizar ({counts.c16})
+            </button>
             </div>
 
             <div className="relative md:ml-auto w-full md:w-80">
@@ -404,6 +449,16 @@ export default function ComprasDashboard() {
                     }`}
                 >
                     +7 días
+                </button>
+                <button
+                    onClick={() => setOnlyFinanceReturned((v) => !v)}
+                    className={`px-3 py-1.5 rounded-full text-[11px] font-bold border ${
+                        onlyFinanceReturned
+                            ? "bg-amber-600 text-white border-amber-600"
+                            : "bg-white text-amber-700 border-amber-200 hover:bg-amber-50"
+                    }`}
+                >
+                    Devueltas Finanzas
                 </button>
             </div>
             <div className="md:ml-auto flex items-center gap-2">
@@ -461,7 +516,10 @@ export default function ComprasDashboard() {
                 <div className="p-10 text-center text-gray-400">No hay requisiciones para este filtro.</div>
                 ) : (
                 filtered.map((req) => {
-                    const b = badge(req.statuses_id);
+                    const isReturnedFromFinance = Number(req.returned_from_finance || 0) === 1;
+                    const b = isReturnedFromFinance
+                        ? { text: "DEVUELTA FINANZAS", cls: "bg-amber-50 text-amber-700 border-amber-200" }
+                        : badge(req.statuses_id);
                     return (
                     <div
                         key={req.id}
@@ -518,6 +576,26 @@ export default function ComprasDashboard() {
                 </span>
             </div>
             </div>
+            {isReturnedFromFinance && (
+                <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+                <div className="mb-1 flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wide text-gray-600">
+                    <Undo2 size={12} />
+                    Observación de Finanzas
+                </div>
+                <p className="line-clamp-2 leading-relaxed">
+                    {req.finance_observation || "Finanzas devolvió esta requisición para revisión de Compras."}
+                </p>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/compras/orden/${req.id}`);
+                    }}
+                    className="mt-2 rounded bg-[#8B1D35] px-3 py-1.5 text-[10px] font-bold text-white hover:bg-[#74182c]"
+                >
+                    Ver motivo completo
+                </button>
+                </div>
+            )}
             {isAdmin && Number(req.statuses_id) === 12 && (
                 <div className="mt-3">
                 <button
@@ -529,6 +607,19 @@ export default function ComprasDashboard() {
                     className="px-3 py-1.5 text-[10px] font-bold rounded bg-secundario/10 text-secundario border border-secundario/30 hover:bg-secundario/20"
                 >
                     Asignar
+                </button>
+                </div>
+            )}
+            {Number(req.statuses_id) === 16 && (
+                <div className="mt-3">
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/compras/orden/${req.id}`);
+                    }}
+                    className="px-3 py-1.5 text-[10px] font-bold rounded bg-emerald-600 text-white border border-emerald-600 hover:bg-emerald-700"
+                >
+                    Ver datos completos
                 </button>
                 </div>
             )}
@@ -594,7 +685,7 @@ export default function ComprasDashboard() {
                 <div>
                 <h4 className="text-sm font-bold text-blue-800 mb-1">Tip de Compras:</h4>
                 <p className="text-xs text-blue-700 leading-relaxed">
-                    Usa los tabs (Por cotizar / En revisión / En proceso) para no perderte cuando haya 20+ requisiciones.
+                    Usa los tabs (Por cotizar / En revisión / En proceso / Listas para finalizar) para no perderte cuando haya 20+ requisiciones.
                 </p>
                 </div>
             </div>

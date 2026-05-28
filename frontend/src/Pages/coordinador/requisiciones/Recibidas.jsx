@@ -61,6 +61,15 @@ const renderStatusBadge = (statusId, statusName) => {
             case 13:
             styles = "bg-indigo-50 text-indigo-700 border-indigo-200";
         break;
+            case 15:
+            styles = "bg-sky-50 text-sky-700 border-sky-200";
+        break;
+            case 16:
+            styles = "bg-emerald-50 text-emerald-700 border-emerald-200";
+        break;
+            case 17:
+            styles = "bg-red-50 text-red-700 border-red-200";
+        break;
             case 11:
             styles = "bg-emerald-50 text-emerald-700 border-emerald-200";
         break;

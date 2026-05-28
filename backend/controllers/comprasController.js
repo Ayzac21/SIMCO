@@ -68,6 +68,9 @@ const resolveStoredRequisitionImagePath = async (storedPath) => {
   return null;
 };
 const DEFAULT_DELIVERY_PLACE = "UAYS CUALTOS";
+const STATUS_COMPRA = 13;
+const STATUS_FINANZAS = 15;
+const STATUS_APROBADA_FINANZAS = 16;
 const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
 const normalizeRfc = (value) =>
   String(value || "")
@@ -572,7 +575,7 @@ const getLatestComparativeHistoryEntry = async (requisitionId) => {
 
 /* =============================
    DASHBOARD COMPRAS
-   (12 En cotización, 14 En revisión, 13 En proceso de compra)
+   (12 En cotización, 14 En revisión, 13 En proceso de compra, 16 Aprobada por Finanzas)
 ============================= */
 export const getComprasDashboard = async (req, res) => {
   try {
@@ -590,10 +593,11 @@ export const getComprasDashboard = async (req, res) => {
           : null
         : Number(req.user?.id || 0);
 
-    const whereParts = ["r.statuses_id IN (12, 14, 13)"];
+    const visibleStatuses = [12, 14, STATUS_COMPRA, STATUS_APROBADA_FINANZAS];
+    const whereParts = [`r.statuses_id IN (${visibleStatuses.join(", ")})`];
     const params = [];
 
-    if (["12", "14", "13"].includes(status)) {
+    if (["12", "14", String(STATUS_COMPRA), String(STATUS_APROBADA_FINANZAS)].includes(status)) {
       whereParts.push("r.statuses_id = ?");
       params.push(Number(status));
     }
@@ -667,7 +671,7 @@ export const getComprasDashboard = async (req, res) => {
     const total = Number(countRows?.[0]?.total || 0);
 
     const countsParams = [];
-    const countsWhere = ["r.statuses_id IN (12,14,13)"];
+    const countsWhere = [`r.statuses_id IN (${visibleStatuses.join(",")})`];
     if (assignedTo) {
       countsWhere.push("r.assigned_operator_id = ?");
       countsParams.push(assignedTo);
@@ -677,8 +681,10 @@ export const getComprasDashboard = async (req, res) => {
       SELECT
         SUM(CASE WHEN r.statuses_id = 12 THEN 1 ELSE 0 END) AS c12,
         SUM(CASE WHEN r.statuses_id = 14 THEN 1 ELSE 0 END) AS c14,
-        SUM(CASE WHEN r.statuses_id = 13 THEN 1 ELSE 0 END) AS c13,
-        SUM(CASE WHEN r.statuses_id IN (12,14,13) THEN 1 ELSE 0 END) AS total,
+        SUM(CASE WHEN r.statuses_id = ${STATUS_COMPRA} THEN 1 ELSE 0 END) AS c13,
+        SUM(CASE WHEN r.statuses_id = ${STATUS_COMPRA} AND fr.reviewed_at IS NOT NULL THEN 1 ELSE 0 END) AS finance_returned,
+        SUM(CASE WHEN r.statuses_id = ${STATUS_APROBADA_FINANZAS} THEN 1 ELSE 0 END) AS c16,
+        SUM(CASE WHEN r.statuses_id IN (${visibleStatuses.join(",")}) THEN 1 ELSE 0 END) AS total,
         SUM(
           CASE 
             WHEN r.statuses_id IN (12,14) 
@@ -687,6 +693,7 @@ export const getComprasDashboard = async (req, res) => {
           END
         ) AS high
       FROM requisition r
+      LEFT JOIN requisition_finance_review fr ON fr.requisition_id = r.id
       WHERE ${countsWhere.join(" AND ")}
       `,
       countsParams
@@ -709,6 +716,16 @@ export const getComprasDashboard = async (req, res) => {
         s.name as nombre_estatus,
         u.name as solicitante,
         au.name as assigned_operator_name,
+        fr.reviewed_at AS finance_reviewed_at,
+        fr.project AS finance_project,
+        fr.fund AS finance_fund,
+        fr.strategic_program AS finance_strategic_program,
+        fr.budget_available AS finance_budget_available,
+        fr.finance_observation,
+        CASE
+          WHEN r.statuses_id = ${STATUS_COMPRA} AND fr.reviewed_at IS NOT NULL THEN 1
+          ELSE 0
+        END AS returned_from_finance,
         COALESCE(
           NULLIF(TRIM(ho.name), ''),
           NULLIF(TRIM(sec.name), ''),
@@ -725,6 +742,7 @@ export const getComprasDashboard = async (req, res) => {
       LEFT JOIN statuses s ON r.statuses_id = s.id
       LEFT JOIN users u ON r.users_id = u.id
       LEFT JOIN users au ON r.assigned_operator_id = au.id
+      LEFT JOIN requisition_finance_review fr ON fr.requisition_id = r.id
       LEFT JOIN head_offices ho
         ON ho.id = (
           SELECT ho2.id
@@ -1148,19 +1166,22 @@ export const updateEstatusCompras = async (req, res) => {
       return res.status(400).json({ message: "Falta status_id" });
     }
 
-    const allowedTargets = new Set([7, 10, 11]);
+    const allowedTargets = new Set([7, 10, 11, STATUS_FINANZAS]);
     if (!allowedTargets.has(targetStatusId)) {
       return res.status(400).json({
         message: "status_id no permitido para Compras",
-        allowed_statuses: [7, 10, 11],
+        allowed_statuses: [7, 10, 11, STATUS_FINANZAS],
       });
     }
 
     if ((targetStatusId === 10 || targetStatusId === 7) && req.user?.role !== "compras_admin") {
       return res.status(403).json({ message: "Solo admin puede ejecutar esta acción" });
     }
-    if (targetStatusId === 11 && !["compras_admin", "compras_operador"].includes(req.user?.role || "")) {
-      return res.status(403).json({ message: "Solo admin u operador asignado puede finalizar" });
+    if (
+      [11, STATUS_FINANZAS].includes(targetStatusId) &&
+      !["compras_admin", "compras_operador"].includes(req.user?.role || "")
+    ) {
+      return res.status(403).json({ message: "Solo admin u operador asignado puede ejecutar esta acción" });
     }
 
     if ((targetStatusId === 10 || targetStatusId === 7) && !String(comentarios || "").trim()) {
@@ -1184,21 +1205,28 @@ export const updateEstatusCompras = async (req, res) => {
     }
 
     // Reglas de transición para evitar saltos de proceso por error o llamadas externas
-    if (targetStatusId === 11 && currentStatusId !== 13) {
+    if (targetStatusId === STATUS_FINANZAS && currentStatusId !== STATUS_COMPRA) {
       return res.status(400).json({
-        message: "Solo se puede marcar como finalizada cuando está en proceso de compra (13)",
+        message: "Solo se puede enviar a Finanzas cuando está en proceso de compra (13)",
         current_status: currentStatusId,
       });
     }
 
-    if ((targetStatusId === 7 || targetStatusId === 10) && ![12, 13, 14].includes(currentStatusId)) {
+    if (targetStatusId === 11 && currentStatusId !== STATUS_APROBADA_FINANZAS) {
       return res.status(400).json({
-        message: "Solo se puede ajustar/rechazar requisiciones activas en flujo de Compras (12, 13, 14)",
+        message: "Solo se puede marcar como finalizada cuando está aprobada por Finanzas (16)",
         current_status: currentStatusId,
       });
     }
 
-    if (targetStatusId === 11) {
+    if ((targetStatusId === 7 || targetStatusId === 10) && ![12, 13, 14, STATUS_FINANZAS].includes(currentStatusId)) {
+      return res.status(400).json({
+        message: "Solo se puede ajustar/rechazar requisiciones activas en flujo de Compras (12, 13, 14, 15)",
+        current_status: currentStatusId,
+      });
+    }
+
+    if ([11, STATUS_FINANZAS].includes(targetStatusId)) {
       const [rows] = await pool.query(
         `
         SELECT
@@ -1225,7 +1253,10 @@ export const updateEstatusCompras = async (req, res) => {
 
       if (!rows.length) {
         return res.status(400).json({
-          message: "No hay proveedores seleccionados para marcar como finalizada",
+          message:
+            targetStatusId === STATUS_FINANZAS
+              ? "No hay proveedores seleccionados para enviar a Finanzas"
+              : "No hay proveedores seleccionados para marcar como finalizada",
         });
       }
 
@@ -1290,6 +1321,16 @@ export const updateEstatusCompras = async (req, res) => {
         entityId: Number(id),
         actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
       });
+    } else if (ownerId > 0 && targetStatusId === STATUS_FINANZAS) {
+      await createNotification({
+        recipientUserId: ownerId,
+        actorUserId: actorId,
+        title: "Requisición enviada a Finanzas",
+        message: `La requisición #${id} fue enviada a revisión presupuestal de Finanzas.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/unidad/mi-requisiciones?openReq=${id}`,
+      });
     } else if (ownerId > 0 && targetStatusId === 11) {
       await createNotification({
         recipientUserId: ownerId,
@@ -1312,7 +1353,17 @@ export const updateEstatusCompras = async (req, res) => {
       });
     }
 
-    if (targetStatusId === 11 || targetStatusId === 10) {
+    if (targetStatusId === STATUS_FINANZAS) {
+      const finanzasIds = await getUsersByRole("finanzas");
+      await createNotificationsForUsers(finanzasIds, {
+        actorUserId: actorId,
+        title: "Nueva requisición en Finanzas",
+        message: `La requisición #${id} está lista para revisión presupuestal.`,
+        entityType: "requisition",
+        entityId: Number(id),
+        actionPath: `/finanzas/recibidas?openReq=${id}`,
+      });
+    } else if (targetStatusId === 11 || targetStatusId === 10) {
       if (targetStatusId === 11) {
         const comprasAdminIds = (await getUsersByRole("compras_admin")).filter(
           (uid) => uid !== actorId
@@ -1470,6 +1521,12 @@ export const getComprasHistorial = async (req, res) => {
         r.order_type,
         s.name as nombre_estatus,
         u.name as solicitante,
+        fr.reviewed_at AS finance_reviewed_at,
+        fr.project AS finance_project,
+        fr.fund AS finance_fund,
+        fr.strategic_program AS finance_strategic_program,
+        fr.budget_available AS finance_budget_available,
+        fr.finance_observation,
         COALESCE(
           NULLIF(TRIM(ho.name), ''),
           NULLIF(TRIM(sec.name), ''),
@@ -1485,6 +1542,7 @@ export const getComprasHistorial = async (req, res) => {
       FROM requisition r
       LEFT JOIN statuses s ON r.statuses_id = s.id
       LEFT JOIN users u ON r.users_id = u.id
+      LEFT JOIN requisition_finance_review fr ON fr.requisition_id = r.id
       LEFT JOIN head_offices ho
         ON ho.id = (
           SELECT ho2.id
@@ -1947,7 +2005,7 @@ export const getComprasRequisitionItemImage = async (req, res) => {
 };
 
 /* =============================
-   SELECCION PARA PROCESO DE COMPRA / FINALIZADA (13, 11)
+   SELECCION PARA PROCESO DE COMPRA / APROBADA FINANZAS / FINALIZADA (13, 16, 11)
 ============================= */
 export const getCompraSeleccion = async (req, res) => {
   try {
@@ -2026,9 +2084,9 @@ export const getCompraSeleccion = async (req, res) => {
     }
 
     const requisition = reqRows[0];
-    if (![13, 11].includes(Number(requisition.statuses_id))) {
+    if (![STATUS_COMPRA, STATUS_APROBADA_FINANZAS, 11].includes(Number(requisition.statuses_id))) {
       return res.status(400).json({
-        message: "La requisición no está en proceso de compra/finalizada (13/11)",
+        message: "La requisición no está en proceso de compra/aprobada por Finanzas/finalizada (13/16/11)",
         current_status: requisition.statuses_id,
       });
     }
@@ -2143,6 +2201,22 @@ export const getCompraSeleccion = async (req, res) => {
       [id]
     );
 
+    let financeReview = null;
+    try {
+      const [financeRows] = await pool.query(
+        `
+        SELECT project, fund, strategic_program, budget_available, finance_observation, reviewed_by, reviewed_at
+        FROM requisition_finance_review
+        WHERE requisition_id = ?
+        LIMIT 1
+        `,
+        [id]
+      );
+      financeReview = financeRows?.[0] || null;
+    } catch {
+      financeReview = null;
+    }
+
     const total = Number(tot?.total || 0);
     const selected = Number(sel?.selected || 0);
     const missing = Math.max(0, total - selected);
@@ -2151,6 +2225,7 @@ export const getCompraSeleccion = async (req, res) => {
       requisition,
       items,
       providers,
+      finance_review: financeReview,
       summary: {
         total_items: total,
         selected_items: selected,
@@ -2271,9 +2346,9 @@ export const getOrdenCompraPdf = async (req, res) => {
         ? resolvedUnitNameRaw
         : resolvedCoordRaw || "Unidad solicitante";
     const st = Number(requisition.statuses_id);
-    if (![13, 11].includes(st)) {
+    if (![STATUS_COMPRA, STATUS_APROBADA_FINANZAS, 11].includes(st)) {
       return res.status(400).json({
-        message: "Solo disponible en proceso de compra (13) o finalizada (11)",
+        message: "Solo disponible en proceso de compra (13), aprobada por Finanzas (16) o finalizada (11)",
         current_status: st,
       });
     }
@@ -2398,6 +2473,21 @@ export const getOrdenCompraPdf = async (req, res) => {
       [id, providerId]
     );
     const meta = metaRows?.[0] || {};
+    let financeReview = {};
+    try {
+      const [financeRows] = await pool.query(
+        `
+        SELECT project, fund, strategic_program
+        FROM requisition_finance_review
+        WHERE requisition_id = ?
+        LIMIT 1
+        `,
+        [id]
+      );
+      financeReview = financeRows?.[0] || {};
+    } catch {
+      financeReview = {};
+    }
     const folioValue = meta.folio ?? requisition.folio ?? null;
     const incluirIvaMeta = meta.oc_incluir_iva ?? 0;
     const ivaPctMeta = meta.oc_iva_porcentaje ?? 0;
@@ -2566,9 +2656,9 @@ export const getOrdenCompraPdf = async (req, res) => {
       "NUMERO": folioValue ? String(folioValue) : String(requisition.id),
       "FECHA DE ELABORACION": formatDate(new Date()),
       "ENTIDAD o DEPENDENCIA EMISORA": "UNIVERSIDAD DE GUADALAJARA",
-      "No PROYECTO": "",
-      "No FONDO": "",
-      "PROGRAMA": "",
+      "No PROYECTO": cleanText(financeReview.project),
+      "No FONDO": cleanText(financeReview.fund),
+      "PROGRAMA": cleanText(financeReview.strategic_program),
       "CÓDIGO DE URERow1": requisition.ure_solicitante || "",
       "ENTIDAD o DEPENDENCIA SOLICITANTERow1": resolvedUnitName,
       "TELEFONO DE LA DEPENDENCIA": "3787828033",

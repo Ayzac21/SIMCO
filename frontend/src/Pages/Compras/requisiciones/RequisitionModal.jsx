@@ -336,8 +336,20 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
     const statusId = Number(req.statuses_id);
     const isInternalReview = statusId === 14;
     const showOrderButtons = statusId === 11;
+    const hasFinanceData = Boolean(
+        req.finance_reviewed_at ||
+        req.finance_project ||
+        req.finance_fund ||
+        req.finance_strategic_program ||
+        req.finance_observation
+    );
+    const canOpenEvidence = [13, 16, 11].includes(statusId);
     const stageLabel = isInternalReview
         ? "Compras / Revisión interna"
+        : statusId === 11
+        ? "Compra finalizada"
+        : statusId === 16
+        ? "Compras / Aprobada por Finanzas"
         : statusId === 13
         ? "Compras / En proceso"
         : "Compras / Cotización";
@@ -456,58 +468,82 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                         </div>
                     )}
 
-                    {showOrderButtons && (
-                        <div className="bg-[#8B1D35]/5 border border-[#8B1D35]/15 rounded-xl p-4">
-                            <div className="text-[11px] font-extrabold uppercase tracking-wide text-[#8B1D35] mb-2">
-                                Órdenes de compra
+                    {statusId === 16 && (
+                        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                            <p className="text-[11px] font-extrabold uppercase tracking-wide text-emerald-700">
+                                Aprobada por Finanzas
+                            </p>
+                            <p className="text-xs text-emerald-700 mt-1 leading-relaxed">
+                                Abre la vista completa para revisar proveedor, folios, orden y datos financieros antes de finalizar la compra.
+                            </p>
+                        </div>
+                    )}
+
+                    {(canOpenEvidence || hasFinanceData) && (
+                        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                <div>
+                                    <div className="text-[11px] font-extrabold uppercase tracking-wide text-[#8B1D35]">
+                                        Evidencia y cierre de compra
+                                    </div>
+                                    <p className="mt-1 text-xs leading-relaxed text-gray-500">
+                                        Consulta la selección, el comparativo, los datos de Finanzas y la orden generada.
+                                    </p>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {canOpenEvidence && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                onClose();
+                                                navigate(`/compras/orden/${req.id}`);
+                                            }}
+                                            className="rounded-lg border border-[#8B1D35]/25 bg-white px-3 py-2 text-[11px] font-bold text-[#8B1D35] hover:bg-[#8B1D35]/5"
+                                        >
+                                            VER DATOS COMPLETOS
+                                        </button>
+                                    )}
+                                </div>
                             </div>
-                            <div className="flex flex-col md:flex-row md:items-center gap-2">
-                                {providers.length > 1 && (
-                                    <select
-                                        value={selectedOrderProviderId}
-                                        onChange={(e) => setSelectedOrderProviderId(e.target.value)}
-                                        disabled={downloading || loadingProviders}
-                                        className="w-full md:w-[420px] px-3 py-2 text-xs border border-[#8B1D35]/20 rounded-lg bg-white text-gray-700"
-                                    >
-                                        {providers.map((p) => (
-                                            <option key={p.id} value={p.id}>
-                                                {p.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                )}
-                                <button
-                                    onClick={() =>
-                                        downloadOrdenPdf(
-                                            providers.length <= 1
-                                                ? providers[0]?.id
-                                                : Number(selectedOrderProviderId || 0)
-                                        )
-                                    }
-                                    disabled={
-                                        downloading ||
-                                        loadingProviders ||
-                                        providers.length === 0 ||
-                                        (providers.length > 1 && !selectedOrderProviderId)
-                                    }
-                                    className={`px-3 py-2 text-[11px] font-bold rounded-lg border flex items-center gap-2 w-fit ${
-                                        downloading || loadingProviders || providers.length === 0 || (providers.length > 1 && !selectedOrderProviderId)
-                                            ? "bg-gray-200 text-gray-500 border-gray-200 cursor-not-allowed"
-                                            : "bg-white text-[#8B1D35] border-[#8B1D35]/30 hover:bg-[#8B1D35]/10"
-                                    }`}
-                                >
-                                    <Download size={14} />
-                                    {loadingProviders
-                                        ? "CARGANDO..."
-                                        : downloading
-                                        ? "GENERANDO..."
-                                        : providers.length === 0
-                                        ? "SIN PROVEEDORES"
-                                        : providers.length > 1
-                                        ? "VER ORDEN DEL PROVEEDOR"
-                                        : "VER ORDEN PDF"}
-                                </button>
-                            </div>
+
+                            {hasFinanceData && (
+                                <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+                                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                        <span className="text-[10px] font-extrabold uppercase tracking-wide text-emerald-700">
+                                            Datos capturados por Finanzas
+                                        </span>
+                                        <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-emerald-700">
+                                            {Number(req.finance_budget_available || 0) === 1
+                                                ? "Presupuesto disponible"
+                                                : "Sin confirmación"}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                                        <div className="rounded-lg border border-emerald-100 bg-white p-2">
+                                            <div className="text-[10px] font-bold uppercase text-gray-500">Proyecto</div>
+                                            <div className="mt-1 text-xs font-bold text-gray-900">{req.finance_project || "—"}</div>
+                                        </div>
+                                        <div className="rounded-lg border border-emerald-100 bg-white p-2">
+                                            <div className="text-[10px] font-bold uppercase text-gray-500">Fondo</div>
+                                            <div className="mt-1 text-xs font-bold text-gray-900">{req.finance_fund || "—"}</div>
+                                        </div>
+                                        <div className="rounded-lg border border-emerald-100 bg-white p-2">
+                                            <div className="text-[10px] font-bold uppercase text-gray-500">Programa</div>
+                                            <div className="mt-1 text-xs font-bold text-gray-900">
+                                                {req.finance_strategic_program || "—"}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {req.finance_observation && (
+                                        <div className="mt-2 rounded-lg border border-emerald-100 bg-white p-2 text-xs text-gray-700">
+                                            <span className="mb-1 block text-[10px] font-bold uppercase text-gray-500">
+                                                Observación de Finanzas
+                                            </span>
+                                            {req.finance_observation}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -686,18 +722,18 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                                     <CheckCircle size={14}/> ASIGNAR
                                 </button>
                             )}
-                            {isAdmin && (
+                            {isAdmin && statusId !== 16 && (
                                 <button onClick={() => setActionType("adjust")} className="px-4 py-2 rounded-lg border border-amber-200 text-amber-700 font-bold text-xs hover:bg-amber-50 flex items-center gap-2">
                                     <XCircle size={14}/> SOLICITAR EDICIÓN
                                 </button>
                             )}
-                            {isAdmin && (
+                            {isAdmin && statusId !== 16 && (
                                 <button onClick={() => setActionType("reject")} className="px-4 py-2 rounded-lg border border-red-200 text-red-600 font-bold text-xs hover:bg-red-50 flex items-center gap-2">
                                     <XCircle size={14}/> RECHAZAR
                                 </button>
                             )}
                             
-                            {statusId === 13 ? (
+                            {statusId === 13 || statusId === 16 ? (
                                 <button 
                                     onClick={() => {
                                         onClose();
@@ -705,7 +741,7 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                                     }}
                                     className="px-4 py-2 rounded-lg bg-[#8B1D35] text-white font-bold text-xs hover:bg-[#72182b] flex items-center gap-2 shadow-md"
                                 >
-                                    <ShoppingBag size={14}/> VER SELECCIÓN
+                                    <ShoppingBag size={14}/> {statusId === 16 ? "VER DATOS COMPLETOS" : "VER SELECCIÓN"}
                                 </button>
                             ) : statusId === 14 ? (
                                 <>

@@ -184,6 +184,9 @@ function statusBadgeClasses(statusId) {
   if (st === 9) return "bg-blue-50 text-blue-700 border-blue-200";
   if (st === 12) return "bg-orange-50 text-orange-700 border-orange-200";
   if (st === 14) return "bg-gray-100 text-gray-700 border-gray-200";
+  if (st === 15) return "bg-sky-50 text-sky-700 border-sky-200";
+  if (st === 16) return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (st === 17) return "bg-red-50 text-red-700 border-red-200";
   if (st === 13 || st === 11) return "bg-emerald-50 text-emerald-700 border-emerald-200";
   if (st === 10) return "bg-red-50 text-red-700 border-red-200";
   return "bg-gray-100 text-gray-700 border-gray-200";

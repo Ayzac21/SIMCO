@@ -54,6 +54,15 @@ const renderStatusBadge = (statusId, statusName) => {
     case 13:
       styles = "bg-indigo-50 text-indigo-700 border-indigo-200";
       break;
+    case 15:
+      styles = "bg-sky-50 text-sky-700 border-sky-200";
+      break;
+    case 16:
+      styles = "bg-emerald-50 text-emerald-700 border-emerald-200";
+      break;
+    case 17:
+      styles = "bg-red-50 text-red-700 border-red-200";
+      break;
     case 11:
       styles = "bg-emerald-50 text-emerald-700 border-emerald-200";
       break;
@@ -83,6 +92,9 @@ const actionHintByStatus = (statusId) => {
   if (st === 9) return "En validación de Secretaría.";
   if (st === 12) return "En cotización con proveedores (Compras).";
   if (st === 14) return "Cotizada y en revisión interna de Compras.";
+  if (st === 15) return "En revisión presupuestal de Finanzas.";
+  if (st === 16) return "Aprobada por Finanzas y lista para cierre en Compras.";
+  if (st === 17) return "Rechazada por Finanzas.";
   if (st === 13) return "En proceso administrativo de compra.";
   if (st === 11) return "Compra finalizada.";
   if (st === 10) return "Requisición cancelada en revisión.";
