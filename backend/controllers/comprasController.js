@@ -1301,12 +1301,19 @@ export const updateEstatusCompras = async (req, res) => {
       return res.status(404).json({ message: "Requisición no encontrada" });
     }
 
+    const defaultHistoryNote =
+      targetStatusId === STATUS_FINANZAS
+        ? "Compras envió la requisición a revisión presupuestal de Finanzas"
+        : targetStatusId === 11
+          ? "Compras finalizó la compra después de aprobación financiera"
+          : null;
+
     await logRequisitionStatusChange({
       requisitionId: id,
       fromStatusId: currentStatusId,
       toStatusId: targetStatusId,
       changedBy: Number(req.user?.id || 0) || null,
-      note: comentarios || null,
+      note: comentarios || defaultHistoryNote,
     });
 
     const ownerId = Number(currentRow.users_id || 0);

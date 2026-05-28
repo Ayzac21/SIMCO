@@ -429,16 +429,12 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
-                        {showOrderButtons && (
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => setTimelineOpen(true)}
-                                    className="px-3 py-2 text-[11px] font-bold rounded-lg border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-                                >
-                                    VER PROGRESO
-                                </button>
-                            </div>
-                        )}
+                        <button
+                            onClick={() => setTimelineOpen(true)}
+                            className="px-3 py-2 text-[11px] font-bold rounded-lg border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                        >
+                            VER PROGRESO
+                        </button>
                         <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors text-gray-500">
                             <X size={20} />
                         </button>

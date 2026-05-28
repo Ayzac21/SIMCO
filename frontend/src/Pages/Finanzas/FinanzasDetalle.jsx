@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { API_BASE_URL } from "../../api/config";
 import { getAuthHeaders } from "../../api/auth";
 import ConfirmModal from "../../components/ConfirmModal";
+import RequisitionTimelineModal from "../../components/RequisitionTimelineModal";
 
 const money = (value) => {
   const n = Number(value);
@@ -48,6 +49,7 @@ export default function FinanzasDetalle() {
   const [loading, setLoading] = useState(true);
   const [savingAction, setSavingAction] = useState("");
   const [pendingAction, setPendingAction] = useState("");
+  const [timelineOpen, setTimelineOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -217,6 +219,11 @@ export default function FinanzasDetalle() {
         }}
         onConfirm={() => resolveReview(pendingAction)}
       />
+      <RequisitionTimelineModal
+        open={timelineOpen}
+        requisitionId={requisition.id}
+        onClose={() => setTimelineOpen(false)}
+      />
 
       <div className="mb-5 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
         <div className="h-1.5 bg-gradient-to-r from-[#8B1D35] via-[#A63A50] to-[#D7B56D]" />
@@ -239,6 +246,13 @@ export default function FinanzasDetalle() {
               </p>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setTimelineOpen(true)}
+            className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 shadow-sm hover:bg-gray-50"
+          >
+            Ver progreso
+          </button>
         </div>
         </div>
       </div>

@@ -37,6 +37,8 @@ export default function FinanzasRecibidas() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [ageFilter, setAgeFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("oldest");
 
   const loadRows = async () => {
     try {
@@ -60,13 +62,27 @@ export default function FinanzasRecibidas() {
 
   const filteredRows = useMemo(() => {
     const needle = String(query || "").trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter((row) =>
-      [row.id, row.folio, row.area_folio, row.request_name, row.solicitante, row.solicitante_ure]
+    const result = rows.filter((row) => {
+      const days = getAgeDays(row);
+      if (ageFilter === "priority" && days < 3) return false;
+      if (ageFilter === "today" && days > 0) return false;
+      if (!needle) return true;
+      return [row.id, row.folio, row.area_folio, row.request_name, row.solicitante, row.solicitante_ure]
         .map((value) => String(value || "").toLowerCase())
-        .some((value) => value.includes(needle))
-    );
-  }, [rows, query]);
+        .some((value) => value.includes(needle));
+    });
+
+    result.sort((a, b) => {
+      if (sortBy === "newest") {
+        return new Date(b.sent_on || b.created_at) - new Date(a.sent_on || a.created_at);
+      }
+      if (sortBy === "amount_desc") return Number(b.selected_total || 0) - Number(a.selected_total || 0);
+      if (sortBy === "amount_asc") return Number(a.selected_total || 0) - Number(b.selected_total || 0);
+      return new Date(a.sent_on || a.created_at) - new Date(b.sent_on || b.created_at);
+    });
+
+    return result;
+  }, [rows, query, ageFilter, sortBy]);
 
   const totalVisible = useMemo(
     () => rows.reduce((acc, row) => acc + Number(row.selected_total || 0), 0),
@@ -198,6 +214,37 @@ export default function FinanzasRecibidas() {
               <RefreshCw size={14} />
               Actualizar bandeja
             </button>
+          </div>
+
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            {[
+              ["all", `Todas (${rows.length})`],
+              ["priority", `Prioridad +3 días (${priorityRows.length})`],
+              ["today", "Recibidas hoy"],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setAgeFilter(key)}
+                className={`rounded-lg border px-3 py-2 text-xs font-bold ${
+                  ageFilter === key
+                    ? "border-[#8B1D35] bg-[#8B1D35] text-white"
+                    : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+            <select
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value)}
+              className="ml-auto rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 outline-none focus:border-[#8B1D35]"
+            >
+              <option value="oldest">Más antiguas primero</option>
+              <option value="newest">Más recientes primero</option>
+              <option value="amount_desc">Monto mayor</option>
+              <option value="amount_asc">Monto menor</option>
+            </select>
           </div>
 
           <div className="overflow-hidden rounded-xl border border-[#8B1D35]/15 bg-white shadow-sm">

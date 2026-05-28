@@ -107,9 +107,6 @@ router.get("/timeline/requisiciones/:id", async (req, res) => {
     );
 
     if (!requisition) return res.status(404).json({ message: "Requisición no encontrada" });
-    if (Number(requisition.statuses_id) !== 11) {
-      return res.status(409).json({ message: "El progreso completo se habilita al finalizar la compra (estatus 11)" });
-    }
 
     let allowed = false;
     if (role === "head_office") {
@@ -125,6 +122,8 @@ router.get("/timeline/requisiciones/:id", async (req, res) => {
       allowed = true;
     } else if (role === "compras_operador") {
       allowed = Number(requisition.assigned_operator_id || 0) === authUserId;
+    } else if (role === "finanzas") {
+      allowed = true;
     }
 
     if (!allowed) return res.status(403).json({ message: "Acceso denegado" });

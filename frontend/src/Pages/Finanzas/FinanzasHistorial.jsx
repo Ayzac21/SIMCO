@@ -58,6 +58,10 @@ export default function FinanzasHistorial() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState("all");
+  const [projectFilter, setProjectFilter] = useState("all");
+  const [fundFilter, setFundFilter] = useState("all");
+  const [programFilter, setProgramFilter] = useState("all");
+  const [onlyWithObservation, setOnlyWithObservation] = useState(false);
   const [sortBy, setSortBy] = useState("newest");
 
   const loadRows = async () => {
@@ -95,6 +99,15 @@ export default function FinanzasHistorial() {
     [rows]
   );
 
+  const uniqueOptions = (field) =>
+    [...new Set(rows.map((row) => String(row?.[field] || "").trim()).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, "es")
+    );
+
+  const projectOptions = useMemo(() => uniqueOptions("project"), [rows]);
+  const fundOptions = useMemo(() => uniqueOptions("fund"), [rows]);
+  const programOptions = useMemo(() => uniqueOptions("strategic_program"), [rows]);
+
   const availableMonths = useMemo(() => {
     const months = new Map();
     rows.forEach((row) => {
@@ -111,6 +124,10 @@ export default function FinanzasHistorial() {
     const needle = String(query || "").trim().toLowerCase();
     const result = rows.filter((row) => {
       if (filter !== "all" && row.finance_result !== filter) return false;
+      if (projectFilter !== "all" && String(row.project || "").trim() !== projectFilter) return false;
+      if (fundFilter !== "all" && String(row.fund || "").trim() !== fundFilter) return false;
+      if (programFilter !== "all" && String(row.strategic_program || "").trim() !== programFilter) return false;
+      if (onlyWithObservation && !String(row.finance_observation || "").trim()) return false;
       if (monthFilter !== "all") {
         const date = new Date(row.reviewed_at);
         const key = Number.isNaN(date.getTime())
@@ -144,7 +161,41 @@ export default function FinanzasHistorial() {
     });
 
     return result;
-  }, [rows, query, filter, monthFilter, sortBy]);
+  }, [rows, query, filter, monthFilter, projectFilter, fundFilter, programFilter, onlyWithObservation, sortBy]);
+
+  const filteredSummary = useMemo(
+    () => ({
+      count: filteredRows.length,
+      amount: filteredRows.reduce((acc, row) => acc + Number(row.selected_total || 0), 0),
+      approved: filteredRows.filter((row) => row.finance_result === "aprobada").length,
+      returned: filteredRows.filter((row) => row.finance_result === "devuelta").length,
+      rejected: filteredRows.filter((row) => row.finance_result === "rechazada").length,
+    }),
+    [filteredRows]
+  );
+
+  const topProjects = useMemo(() => {
+    const map = new Map();
+    filteredRows.forEach((row) => {
+      const key = String(row.project || "Sin proyecto").trim() || "Sin proyecto";
+      const current = map.get(key) || { project: key, count: 0, amount: 0 };
+      current.count += 1;
+      current.amount += Number(row.selected_total || 0);
+      map.set(key, current);
+    });
+    return [...map.values()].sort((a, b) => b.amount - a.amount).slice(0, 5);
+  }, [filteredRows]);
+
+  const resetFilters = () => {
+    setQuery("");
+    setFilter("all");
+    setMonthFilter("all");
+    setProjectFilter("all");
+    setFundFilter("all");
+    setProgramFilter("all");
+    setOnlyWithObservation(false);
+    setSortBy("newest");
+  };
 
   const exportCsv = () => {
     const headers = [
@@ -180,7 +231,7 @@ export default function FinanzasHistorial() {
         .map(csvEscape)
         .join(",")
     );
-    const blob = new Blob([[headers.join(","), ...lines].join("\n")], {
+    const blob = new Blob([`\uFEFF${[headers.join(","), ...lines].join("\n")}`], {
       type: "text/csv;charset=utf-8",
     });
     const url = URL.createObjectURL(blob);
@@ -249,6 +300,59 @@ export default function FinanzasHistorial() {
         </div>
       </div>
 
+      <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="rounded-xl border border-[#8B1D35]/10 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-[#8B1D35]">Resultado filtrado</p>
+              <h3 className="mt-1 text-xl font-extrabold text-gray-900">
+                {filteredSummary.count} revisión(es) · {money(filteredSummary.amount)}
+              </h3>
+            </div>
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="w-fit rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
+            >
+              Limpiar filtros
+            </button>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
+              <p className="text-[10px] font-bold uppercase text-emerald-700">Aprobadas</p>
+              <p className="text-lg font-extrabold text-gray-900">{filteredSummary.approved}</p>
+            </div>
+            <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+              <p className="text-[10px] font-bold uppercase text-amber-700">Devueltas</p>
+              <p className="text-lg font-extrabold text-gray-900">{filteredSummary.returned}</p>
+            </div>
+            <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2">
+              <p className="text-[10px] font-bold uppercase text-red-700">Rechazadas</p>
+              <p className="text-lg font-extrabold text-gray-900">{filteredSummary.rejected}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Top proyectos filtrados</p>
+          <div className="mt-3 space-y-2">
+            {topProjects.length === 0 ? (
+              <p className="text-xs text-gray-500">Sin proyectos para mostrar.</p>
+            ) : (
+              topProjects.map((item) => (
+                <div key={item.project} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="truncate text-xs font-bold text-gray-800">{item.project}</span>
+                    <span className="shrink-0 text-xs font-extrabold text-[#8B1D35]">{money(item.amount)}</span>
+                  </div>
+                  <p className="mt-1 text-[10px] font-semibold text-gray-400">{item.count} revisión(es)</p>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="mb-3 flex flex-col gap-3">
         <div className="flex flex-wrap gap-2">
           {[
@@ -294,6 +398,42 @@ export default function FinanzasHistorial() {
             ))}
           </select>
           <select
+            value={projectFilter}
+            onChange={(event) => setProjectFilter(event.target.value)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 outline-none focus:border-[#8B1D35]"
+          >
+            <option value="all">Todos los proyectos</option>
+            {projectOptions.map((project) => (
+              <option key={project} value={project}>
+                {project}
+              </option>
+            ))}
+          </select>
+          <select
+            value={fundFilter}
+            onChange={(event) => setFundFilter(event.target.value)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 outline-none focus:border-[#8B1D35]"
+          >
+            <option value="all">Todos los fondos</option>
+            {fundOptions.map((fund) => (
+              <option key={fund} value={fund}>
+                {fund}
+              </option>
+            ))}
+          </select>
+          <select
+            value={programFilter}
+            onChange={(event) => setProgramFilter(event.target.value)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 outline-none focus:border-[#8B1D35]"
+          >
+            <option value="all">Todos los programas</option>
+            {programOptions.map((program) => (
+              <option key={program} value={program}>
+                {program}
+              </option>
+            ))}
+          </select>
+          <select
             value={sortBy}
             onChange={(event) => setSortBy(event.target.value)}
             className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 outline-none focus:border-[#8B1D35]"
@@ -304,6 +444,15 @@ export default function FinanzasHistorial() {
             <option value="amount_asc">Monto menor</option>
             <option value="project">Proyecto A-Z</option>
           </select>
+          <label className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">
+            <input
+              type="checkbox"
+              checked={onlyWithObservation}
+              onChange={(event) => setOnlyWithObservation(event.target.checked)}
+              className="accent-[#8B1D35]"
+            />
+            Solo con observación
+          </label>
         </div>
       </div>
 

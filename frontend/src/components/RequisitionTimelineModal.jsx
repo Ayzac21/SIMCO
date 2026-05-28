@@ -63,7 +63,7 @@ function toMs(value) {
   return Number.isFinite(ts) ? ts : 0;
 }
 
-const STEP_FLOW = [7, 8, 9, 12, 14, 13, 11];
+const STEP_FLOW = [7, 8, 9, 12, 14, 13, 15, 16, 11];
 const STEP_LABELS = {
   7: "Creada",
   8: "Validación Coordinación",
@@ -71,6 +71,10 @@ const STEP_LABELS = {
   12: "Cotizando",
   14: "Cotizada (Revisión)",
   13: "Proceso admvo. de compra",
+  15: "Revisión Finanzas",
+  16: "Aprobada por Finanzas",
+  17: "Rechazada por Finanzas",
+  10: "Cancelada",
   11: "Finalizada",
 };
 
@@ -90,6 +94,7 @@ function actorLabel(evt) {
   if (role === "secretaria") return name ? `Secretaría (${name})` : "Secretaría";
   if (role === "compras_admin") return name ? `Compras Admin (${name})` : "Compras Admin";
   if (role === "compras_operador") return name ? `Compras Operador (${name})` : "Compras Operador";
+  if (role === "finanzas") return name ? `Finanzas (${name})` : "Finanzas";
   if (role === "head_office") return name ? `Solicitante (${name})` : "Solicitante";
   if (role === "sistema") return "Sistema";
   if (name) return name;
@@ -279,7 +284,7 @@ export default function RequisitionTimelineModal({ open, requisitionId, onClose 
                   </div>
                   <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-2.5">
                     {STEP_FLOW.map((stepId, idx) => {
-                      const reached = idx <= reachedIdx;
+                      const reached = Boolean(stepDates[stepId]) || idx <= reachedIdx;
                       return (
                         <div
                           key={stepId}
