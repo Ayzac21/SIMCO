@@ -487,6 +487,25 @@ export default function GestionCotizacion() {
         [invitedProviders]
     );
     const hasMinimumCaptures = capturedProvidersCount >= minimumCaptures;
+    const readinessItems = useMemo(
+        () => [
+            {
+                key: "providers",
+                ok: hasMinimumProviders,
+                label: `${providerCountForFlow} de ${minimumProviders} proveedor(es)`,
+            },
+            {
+                key: "captures",
+                ok: hasMinimumCaptures,
+                label: `${capturedProvidersCount} de ${minimumCaptures} cotización(es) capturada(s)`,
+            },
+        ],
+        [capturedProvidersCount, hasMinimumCaptures, hasMinimumProviders, minimumCaptures, minimumProviders, providerCountForFlow]
+    );
+    const missingReadinessItems = readinessItems.filter((item) => !item.ok);
+    const readinessMessage = missingReadinessItems.length
+        ? `Falta ${missingReadinessItems.map((item) => item.label).join(" y ")} para cerrar o enviar a revisión.`
+        : "Requisitos completos para cerrar recepción o enviar a revisión.";
 
     const handleBomberazoToggle = async (enabled) => {
         if (!isAdmin || isReader || isClosed || savingBomberazo) return;
@@ -911,6 +930,38 @@ export default function GestionCotizacion() {
             </div>
         )}
 
+        {!isClosed && (
+            <div
+                className={`mb-4 rounded-xl border p-4 ${
+                    missingReadinessItems.length
+                        ? "border-amber-200 bg-amber-50 text-amber-800"
+                        : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                }`}
+            >
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                        <p className="text-xs font-extrabold uppercase tracking-wide">Avance para revisión</p>
+                        <p className="mt-1 text-xs leading-relaxed">{readinessMessage}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {readinessItems.map((item) => (
+                            <span
+                                key={item.key}
+                                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${
+                                    item.ok
+                                        ? "border-emerald-200 bg-white text-emerald-700"
+                                        : "border-amber-200 bg-white text-amber-700"
+                                }`}
+                            >
+                                {item.ok ? <CheckCircle2 size={13} /> : <X size={13} />}
+                                {item.label}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        )}
+
         {/* ✅ MENSAJE CLARO CUANDO ESTÁ CERRADA */}
         {isClosed && <CotizacionClosedNotice requisition={requisition} />}
 
@@ -924,6 +975,11 @@ export default function GestionCotizacion() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                {!isClosed && !isReader && missingReadinessItems.length > 0 && (
+                    <span className="hidden max-w-[260px] text-[11px] font-semibold leading-snug text-amber-700 xl:inline">
+                        {readinessMessage}
+                    </span>
+                )}
                 <button
                     onClick={handleSaveChanges}
                     disabled={saving || isClosed || isReader || visibleProviders.length === 0}

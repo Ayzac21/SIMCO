@@ -245,7 +245,28 @@ export default function ComprasPreparacion() {
           {loading ? (
             <AppLoader label="Cargando..." />
           ) : rows.length === 0 ? (
-            <div className="p-10 text-center text-gray-400">No hay requisiciones para este filtro.</div>
+            <div className="p-10 text-center">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-400">
+                <Search size={22} />
+              </div>
+              <p className="text-sm font-bold text-gray-700">No hay requisiciones para este filtro</p>
+              <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-gray-500">
+                Ajusta la búsqueda, cambia el estatus o actualiza la vista para consultar requisiciones recientes.
+              </p>
+              {(q.trim() || statusFilter !== "all") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQ("");
+                    setStatusFilter("all");
+                    setCurrentPage(1);
+                  }}
+                  className="mt-4 rounded-lg border border-[#8B1D35]/25 bg-white px-3 py-2 text-xs font-bold text-[#8B1D35] hover:bg-[#8B1D35]/5"
+                >
+                  Limpiar filtros
+                </button>
+              )}
+            </div>
           ) : (
             rows.map((req) => {
               const badge = statusBadge(req.statuses_id, req.nombre_estatus);

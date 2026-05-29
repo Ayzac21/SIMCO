@@ -40,11 +40,48 @@ const emptyForm = {
   comment: "",
 };
 
+const financeResultDisplay = (result) => {
+  if (result === "aprobada") {
+    return {
+      label: "Aprobada por Finanzas",
+      cls: "border-emerald-100 bg-emerald-50 text-emerald-700",
+      icon: CheckCircle2,
+    };
+  }
+  if (result === "devuelta") {
+    return {
+      label: "Devuelta a Compras",
+      cls: "border-amber-100 bg-amber-50 text-amber-700",
+      icon: RotateCcw,
+    };
+  }
+  if (result === "rechazada") {
+    return {
+      label: "Rechazada por Finanzas",
+      cls: "border-red-100 bg-red-50 text-red-700",
+      icon: XCircle,
+    };
+  }
+  if (result === "pendiente") {
+    return {
+      label: "Pendiente de revisión",
+      cls: "border-sky-100 bg-sky-50 text-sky-700",
+      icon: AlertTriangle,
+    };
+  }
+  return {
+    label: "Revisada",
+    cls: "border-gray-200 bg-gray-100 text-gray-700",
+    icon: FileText,
+  };
+};
+
 export default function FinanzasDetalle() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [requisition, setRequisition] = useState(null);
   const [items, setItems] = useState([]);
+  const [catalogOptions, setCatalogOptions] = useState({ project: [], fund: [], program: [] });
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
   const [savingAction, setSavingAction] = useState("");
@@ -88,6 +125,35 @@ export default function FinanzasDetalle() {
     };
   }, [id]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadCatalogOptions = async () => {
+      try {
+        const resp = await fetch(`${API_BASE_URL}/finanzas/catalog-options`, {
+          headers: getAuthHeaders(),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error();
+        if (!cancelled) {
+          setCatalogOptions({
+            project: Array.isArray(data?.project) ? data.project : [],
+            fund: Array.isArray(data?.fund) ? data.fund : [],
+            program: Array.isArray(data?.program) ? data.program : [],
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setCatalogOptions({ project: [], fund: [], program: [] });
+        }
+      }
+    };
+
+    loadCatalogOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const selectedTotal = useMemo(
     () => items.reduce((acc, item) => acc + Number(item.selected_total || 0), 0),
     [items]
@@ -110,6 +176,12 @@ export default function FinanzasDetalle() {
 
   const commentRequiredMissing = !String(form.comment || "").trim();
   const canReview = Number(requisition?.statuses_id || 0) === 15;
+  const reviewStatus = financeResultDisplay(requisition?.finance_result);
+  const ReviewStatusIcon = reviewStatus.icon;
+  const budgetCaptured = requisition?.budget_available !== null && requisition?.budget_available !== undefined;
+  const showFinanceReason =
+    ["devuelta", "rechazada"].includes(requisition?.finance_result) &&
+    String(requisition?.finance_observation || "").trim();
   const actionConfig = {
     aprobar: {
       title: "Aprobar por Finanzas",
@@ -142,6 +214,31 @@ export default function FinanzasDetalle() {
 
   const updateField = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const renderCatalogSelect = ({ field, label, options, value }) => {
+    const currentValue = String(value || "");
+    const hasCurrent = !currentValue || options.some((option) => option.name === currentValue);
+    return (
+      <label className="block text-xs font-bold uppercase text-gray-600">
+        {label} <span className="text-red-600">*</span>
+        <select
+          value={currentValue}
+          onChange={(event) => updateField(field, event.target.value)}
+          disabled={!canReview}
+          className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm font-semibold normal-case text-gray-800 outline-none transition focus:border-[#8B1D35] focus:ring-2 focus:ring-[#8B1D35]/10 disabled:bg-gray-100 disabled:text-gray-500"
+        >
+          <option value="">Seleccionar...</option>
+          {!hasCurrent && <option value={currentValue}>{currentValue} (actual)</option>}
+          {options.map((option) => (
+            <option key={option.id} value={option.name}>
+              {option.code ? `${option.code} - ${option.name}` : option.name}
+              {option.fiscal_year ? ` (${option.fiscal_year})` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
   };
 
   const resolveReview = async (action) => {
@@ -304,6 +401,63 @@ export default function FinanzasDetalle() {
               </div>
             </div>
 
+            <div className="mt-5 rounded-xl border border-gray-200 bg-white p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-[#8B1D35]">Bitácora financiera</p>
+                  <h3 className="mt-1 text-lg font-extrabold text-gray-900">Resultado de revisión</h3>
+                </div>
+                <span
+                  className={`inline-flex w-fit items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold ${reviewStatus.cls}`}
+                >
+                  <ReviewStatusIcon size={14} />
+                  {reviewStatus.label}
+                </span>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                  <span className="block text-[10px] font-bold uppercase text-gray-500">Revisó</span>
+                  <span className="mt-1 block text-sm font-bold text-gray-800">
+                    {requisition.revisado_por || "Pendiente"}
+                  </span>
+                </div>
+                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                  <span className="block text-[10px] font-bold uppercase text-gray-500">Fecha de revisión</span>
+                  <span className="mt-1 block text-sm font-bold text-gray-800">
+                    {formatDate(requisition.reviewed_at)}
+                  </span>
+                </div>
+                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                  <span className="block text-[10px] font-bold uppercase text-gray-500">Presupuesto</span>
+                  <span
+                    className={`mt-1 block text-sm font-bold ${
+                      !budgetCaptured ? "text-gray-500" : requisition.budget_available ? "text-emerald-700" : "text-red-700"
+                    }`}
+                  >
+                    {!budgetCaptured ? "Pendiente" : requisition.budget_available ? "Disponible" : "No disponible"}
+                  </span>
+                </div>
+              </div>
+
+              <div
+                className={`mt-3 rounded-lg border px-3 py-3 ${
+                  showFinanceReason ? "border-amber-200 bg-amber-50" : "border-gray-100 bg-gray-50"
+                }`}
+              >
+                <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">
+                  {showFinanceReason ? "Motivo visible para Compras" : "Observación financiera"}
+                </p>
+                <p
+                  className={`mt-1 text-sm leading-relaxed ${
+                    showFinanceReason ? "font-semibold text-amber-900" : "text-gray-700"
+                  }`}
+                >
+                  {requisition.finance_observation || "Sin observación financiera registrada."}
+                </p>
+              </div>
+            </div>
+
             <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
                 <span className="block text-[10px] font-bold uppercase text-gray-500">Folio</span>
@@ -374,11 +528,15 @@ export default function FinanzasDetalle() {
               <div className="px-4 py-10 text-center text-sm text-gray-500">No hay artículos registrados.</div>
             ) : (
               <div className="space-y-3 bg-gray-50/70 p-4">
-                {items.map((item, index) => (
-                  <div
-                    key={item.id}
-                    className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
-                  >
+                {items.map((item, index) => {
+                  const subtotal = Number(item.selected_subtotal || 0);
+                  const vatAmount = Number(item.selected_vat_amount || 0);
+                  const isrAmount = Number(item.selected_isr_amount || 0);
+                  const vatPct = Number(item.selected_vat_percentage || 0);
+                  const isrPct = Number(item.selected_isr_percentage || 0);
+                  const hasTaxes = vatAmount > 0 || isrAmount > 0;
+                  return (
+                  <div key={item.id} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
@@ -423,8 +581,43 @@ export default function FinanzasDetalle() {
                         </p>
                       </div>
                     </div>
+                    <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">
+                          Desglose del importe
+                        </p>
+                        {hasTaxes && (
+                          <span className="rounded-full border border-[#8B1D35]/15 bg-white px-2 py-0.5 text-[10px] font-bold text-[#8B1D35]">
+                            Incluye impuestos
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
+                        <div>
+                          <p className="font-bold uppercase text-gray-400">Subtotal</p>
+                          <p className="mt-0.5 font-extrabold text-gray-800">{money(subtotal)}</p>
+                        </div>
+                        <div>
+                          <p className="font-bold uppercase text-gray-400">IVA {vatPct ? `${vatPct}%` : ""}</p>
+                          <p className="mt-0.5 font-extrabold text-emerald-700">
+                            {vatAmount > 0 ? money(vatAmount) : "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="font-bold uppercase text-gray-400">ISR {isrPct ? `${isrPct}%` : ""}</p>
+                          <p className="mt-0.5 font-extrabold text-blue-700">
+                            {isrAmount > 0 ? `-${money(isrAmount)}` : "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="font-bold uppercase text-gray-400">Total</p>
+                          <p className="mt-0.5 font-extrabold text-[#8B1D35]">{money(item.selected_total)}</p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -445,15 +638,6 @@ export default function FinanzasDetalle() {
 
           <div className="p-5">
 
-          <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
-            <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Finanzas valida</p>
-            <ul className="mt-2 space-y-1 text-xs leading-relaxed text-gray-600">
-              <li>Proyecto correcto para la compra.</li>
-              <li>Fondo aplicable y disponible.</li>
-              <li>Programa estratégico que debe aparecer en la orden.</li>
-            </ul>
-          </div>
-
           {!canReview && (
             <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700">
               Esta requisición ya no está en revisión de Finanzas.
@@ -462,62 +646,65 @@ export default function FinanzasDetalle() {
 
           <div className="space-y-4">
             {missingForApproval.length > 0 && canReview && (
-              <div className="rounded-xl border border-[#8B1D35]/15 bg-[#8B1D35]/[0.04] px-3 py-2 text-xs font-semibold text-[#6F152B]">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
                 Para aprobar falta: {missingForApproval.join(", ")}.
               </div>
             )}
 
-            <label className="block text-xs font-bold uppercase text-gray-600">
-              Proyecto <span className="text-red-600">*</span>
-              <input
-                value={form.project}
-                onChange={(event) => updateField("project", event.target.value)}
-                disabled={!canReview}
-                className={`mt-1 w-full rounded-xl border bg-white px-3 py-3 text-sm font-medium normal-case outline-none transition focus:border-[#8B1D35] focus:ring-2 focus:ring-[#8B1D35]/10 disabled:bg-gray-100 ${
-                  canReview && !String(form.project || "").trim() ? "border-[#8B1D35]/25" : "border-gray-300"
-                }`}
-              />
-            </label>
+            {renderCatalogSelect({
+              field: "project",
+              label: "Proyecto",
+              options: catalogOptions.project,
+              value: form.project,
+            })}
 
-            <label className="block text-xs font-bold uppercase text-gray-600">
-              Fondo <span className="text-red-600">*</span>
-              <input
-                value={form.fund}
-                onChange={(event) => updateField("fund", event.target.value)}
-                disabled={!canReview}
-                className={`mt-1 w-full rounded-xl border bg-white px-3 py-3 text-sm font-medium normal-case outline-none transition focus:border-[#8B1D35] focus:ring-2 focus:ring-[#8B1D35]/10 disabled:bg-gray-100 ${
-                  canReview && !String(form.fund || "").trim() ? "border-[#8B1D35]/25" : "border-gray-300"
-                }`}
-              />
-            </label>
+            {renderCatalogSelect({
+              field: "fund",
+              label: "Fondo",
+              options: catalogOptions.fund,
+              value: form.fund,
+            })}
 
-            <label className="block text-xs font-bold uppercase text-gray-600">
-              Programa estratégico <span className="text-red-600">*</span>
-              <input
-                value={form.strategic_program}
-                onChange={(event) => updateField("strategic_program", event.target.value)}
-                disabled={!canReview}
-                className={`mt-1 w-full rounded-xl border bg-white px-3 py-3 text-sm font-medium normal-case outline-none transition focus:border-[#8B1D35] focus:ring-2 focus:ring-[#8B1D35]/10 disabled:bg-gray-100 ${
-                  canReview && !String(form.strategic_program || "").trim() ? "border-[#8B1D35]/25" : "border-gray-300"
-                }`}
-              />
-            </label>
+            {renderCatalogSelect({
+              field: "strategic_program",
+              label: "Programa estratégico",
+              options: catalogOptions.program,
+              value: form.strategic_program,
+            })}
 
-            <label
-              className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-bold ${
-                form.budget_available
-                  ? "border-[#8B1D35]/20 bg-[#8B1D35]/[0.04] text-[#6F152B]"
-                  : "border-gray-200 bg-gray-50 text-gray-700"
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={form.budget_available}
-                onChange={(event) => updateField("budget_available", event.target.checked)}
-                disabled={!canReview}
-              />
-              Presupuesto disponible
-            </label>
+            <div>
+              <p className="mb-1 text-xs font-bold uppercase text-gray-600">
+                Presupuesto <span className="text-red-600">*</span>
+              </p>
+              <div className="grid grid-cols-2 gap-2 rounded-xl border border-gray-200 bg-gray-50 p-1.5">
+                <button
+                  type="button"
+                  onClick={() => updateField("budget_available", true)}
+                  disabled={!canReview}
+                  className={`inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-extrabold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                    form.budget_available
+                      ? "bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-200"
+                      : "text-gray-500 hover:bg-white"
+                  }`}
+                >
+                  <CheckCircle2 size={14} />
+                  Disponible
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateField("budget_available", false)}
+                  disabled={!canReview}
+                  className={`inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-extrabold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                    !form.budget_available
+                      ? "bg-white text-red-700 shadow-sm ring-1 ring-red-200"
+                      : "text-gray-500 hover:bg-white"
+                  }`}
+                >
+                  <XCircle size={14} />
+                  No disponible
+                </button>
+              </div>
+            </div>
 
             <label className="block text-xs font-bold uppercase text-gray-600">
               Observación financiera

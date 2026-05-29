@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Archive, Banknote, LayoutGrid, Menu, X } from "lucide-react";
+import { Archive, Banknote, LayoutDashboard, LayoutGrid, Menu, Settings, X } from "lucide-react";
 import NotificationBell from "../../../components/NotificationBell";
 import UserMenu from "../../../components/UserMenu";
 import escudoCualtos from "../../../assets/escudo-cualtos-02_0_1.png";
@@ -17,6 +17,12 @@ export default function FinanzasLayout() {
   const userUnitLabel = user?.ure_name || user?.ure || "Coordinación de Finanzas";
 
   const headerInfo = useMemo(() => {
+    if (pathname.startsWith("/finanzas/dashboard")) {
+      return {
+        title: "Dashboard de Finanzas",
+        subtitle: "Pendientes, montos y actividad presupuestal",
+      };
+    }
     if (pathname.startsWith("/finanzas/requisiciones/")) {
       return {
         title: "Detalle presupuestal",
@@ -27,6 +33,12 @@ export default function FinanzasLayout() {
       return {
         title: "Historial de Finanzas",
         subtitle: "Requisiciones revisadas por presupuesto",
+      };
+    }
+    if (pathname.startsWith("/finanzas/catalogos")) {
+      return {
+        title: "Catálogos financieros",
+        subtitle: "Proyectos, fondos y programas estratégicos",
       };
     }
     return {
@@ -84,6 +96,10 @@ export default function FinanzasLayout() {
         </div>
 
         <nav className="flex-1 space-y-2 p-4">
+          <NavLink to="/finanzas/dashboard" className={linkClass}>
+            <LayoutDashboard size={20} />
+            Dashboard
+          </NavLink>
           <NavLink to="/finanzas/recibidas" className={linkClass}>
             <LayoutGrid size={20} />
             Recibidas
@@ -91,6 +107,10 @@ export default function FinanzasLayout() {
           <NavLink to="/finanzas/historial" className={linkClass}>
             <Archive size={20} />
             Historial
+          </NavLink>
+          <NavLink to="/finanzas/catalogos" className={linkClass}>
+            <Settings size={20} />
+            Catálogos
           </NavLink>
           <div className="rounded-xl border border-white/15 bg-white/10 p-4 text-xs leading-relaxed text-white/80">
             <div className="mb-2 flex items-center gap-2 font-bold text-white">

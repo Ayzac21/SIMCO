@@ -11,8 +11,6 @@ import { getStatusLabel } from "../../../utils/statusDisplay";
 
 const API_OPERATORS = `${API_BASE_URL}/compras/operators`;
 const API_ASSIGN = `${API_BASE_URL}/compras/requisiciones`;
-const API_ORDEN_PDF = `${API_BASE_URL}/compras/orden`;
-
 const getAuthHeaders = () => {
     const userStr = localStorage.getItem("usuario");
     const user = userStr ? JSON.parse(userStr) : null;
@@ -38,10 +36,6 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
     const [assignOpen, setAssignOpen] = useState(false);
     const [assignOperatorId, setAssignOperatorId] = useState("");
     const [savingAssign, setSavingAssign] = useState(false);
-    const [downloading, setDownloading] = useState(false);
-    const [providers, setProviders] = useState([]);
-    const [loadingProviders, setLoadingProviders] = useState(false);
-    const [selectedOrderProviderId, setSelectedOrderProviderId] = useState("");
     const [timelineOpen, setTimelineOpen] = useState(false);
     const [attachments, setAttachments] = useState([]);
     const [loadingAttachments, setLoadingAttachments] = useState(false);
@@ -153,30 +147,6 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
     }, [items, req?.id]);
     
     useEffect(() => {
-        if (req && req.id && Number(req.statuses_id) === 11) {
-            setLoadingProviders(true);
-            fetch(`${API_ORDEN_PDF}/${req.id}/providers`, { headers: getAuthHeaders() })
-                .then(res => {
-                    if (!res.ok) throw new Error("No se pudieron cargar proveedores");
-                    return res.json();
-                })
-                .then(data => {
-                    const list = Array.isArray(data) ? data : [];
-                    setProviders(list);
-                    setSelectedOrderProviderId(list.length ? String(list[0].id) : "");
-                })
-                .catch(() => {
-                    setProviders([]);
-                    setSelectedOrderProviderId("");
-                })
-                .finally(() => setLoadingProviders(false));
-        } else {
-            setProviders([]);
-            setSelectedOrderProviderId("");
-        }
-    }, [req]);
-
-    useEffect(() => {
         if (!req?.id) {
             setAttachments([]);
             return;
@@ -281,27 +251,6 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
         }
     };
 
-    const downloadOrdenPdf = async (providerId) => {
-        if (downloading) return;
-        try {
-            setDownloading(true);
-            const params = providerId ? `?provider_id=${encodeURIComponent(providerId)}` : "";
-            const resp = await fetch(`${API_ORDEN_PDF}/${req.id}/pdf${params}`, {
-                headers: getAuthHeaders(),
-            });
-            if (!resp.ok) throw new Error("No se pudo generar el PDF");
-            const blob = await resp.blob();
-            const url = window.URL.createObjectURL(blob);
-            window.open(url, "_blank");
-            setTimeout(() => window.URL.revokeObjectURL(url), 1000);
-        } catch (e) {
-            console.error(e);
-            toast.error(e?.message || "No se pudo generar el PDF");
-        } finally {
-            setDownloading(false);
-        }
-    };
-
     const downloadAttachment = async (attachment) => {
         try {
             const resp = await fetch(
@@ -335,7 +284,6 @@ export default function RequisitionModal({ req, onClose, onAction, onAssigned, r
 
     const statusId = Number(req.statuses_id);
     const isInternalReview = statusId === 14;
-    const showOrderButtons = statusId === 11;
     const hasFinanceData = Boolean(
         req.finance_reviewed_at ||
         req.finance_project ||

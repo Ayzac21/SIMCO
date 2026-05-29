@@ -626,7 +626,6 @@ export const getComprasDashboard = async (req, res) => {
     }
 
     const whereClause = `WHERE ${whereParts.join(" AND ")}`;
-
     const countQuery = `
       SELECT COUNT(DISTINCT r.id) AS total
       FROM requisition r
@@ -1450,6 +1449,7 @@ export const getComprasHistorial = async (req, res) => {
 
     const q = String(req.query.q || "").trim();
     const status = String(req.query.status || "all");
+    const sort = String(req.query.sort || "closed_desc");
     const role = req.user?.role || "";
     const assignedTo =
       role === "compras_admin" || role === "compras_lector"
@@ -1488,6 +1488,14 @@ export const getComprasHistorial = async (req, res) => {
     }
 
     const whereClause = `WHERE ${whereParts.join(" AND ")}`;
+    const orderByMap = {
+      closed_desc: "ORDER BY COALESCE(closed_at, r.created_at) DESC, r.id DESC",
+      closed_asc: "ORDER BY COALESCE(closed_at, r.created_at) ASC, r.id ASC",
+      id_desc: "ORDER BY r.id DESC",
+      id_asc: "ORDER BY r.id ASC",
+      name_asc: "ORDER BY r.request_name ASC, r.id DESC",
+    };
+    const orderBy = orderByMap[sort] || orderByMap.closed_desc;
 
     const countQuery = `
       SELECT COUNT(DISTINCT r.id) AS total
@@ -1524,6 +1532,12 @@ export const getComprasHistorial = async (req, res) => {
         r.justification,
         r.notes,
         r.created_at,
+        (
+          SELECT MAX(h.changed_at)
+          FROM requisition_status_history h
+          WHERE h.requisition_id = r.id
+            AND h.to_status_id IN (10, 11)
+        ) AS closed_at,
         r.statuses_id,
         r.order_type,
         s.name as nombre_estatus,
@@ -1584,7 +1598,7 @@ export const getComprasHistorial = async (req, res) => {
           LIMIT 1
         )
       ${whereClause}
-      ORDER BY r.created_at DESC
+      ${orderBy}
       LIMIT ? OFFSET ?
     `;
 
@@ -1604,6 +1618,7 @@ export const getComprasHistorialReport = async (req, res) => {
   try {
     const q = String(req.query.q || "").trim();
     const status = String(req.query.status || "all");
+    const sort = String(req.query.sort || "closed_desc");
     const includeItems = String(req.query.include_items || "0") === "1";
     const role = req.user?.role || "";
     const assignedTo =
@@ -1643,12 +1658,26 @@ export const getComprasHistorialReport = async (req, res) => {
     }
 
     const whereClause = `WHERE ${whereParts.join(" AND ")}`;
+    const orderByMap = {
+      closed_desc: "ORDER BY COALESCE(closed_at, r.created_at) DESC, r.id DESC",
+      closed_asc: "ORDER BY COALESCE(closed_at, r.created_at) ASC, r.id ASC",
+      id_desc: "ORDER BY r.id DESC",
+      id_asc: "ORDER BY r.id ASC",
+      name_asc: "ORDER BY r.request_name ASC, r.id DESC",
+    };
+    const orderBy = orderByMap[sort] || orderByMap.closed_desc;
 
     const query = `
       SELECT 
         r.id,
         r.request_name,
         r.created_at,
+        (
+          SELECT MAX(h.changed_at)
+          FROM requisition_status_history h
+          WHERE h.requisition_id = r.id
+            AND h.to_status_id IN (10, 11)
+        ) AS closed_at,
         r.statuses_id,
         s.name as nombre_estatus,
         r.notes,
@@ -1676,7 +1705,7 @@ export const getComprasHistorialReport = async (req, res) => {
           LIMIT 1
         )
       ${whereClause}
-      ORDER BY r.created_at DESC
+      ${orderBy}
     `;
 
     const [rows] = await pool.query(query, params);

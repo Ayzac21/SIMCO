@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Banknote, CheckCircle2, Download, FileText, RefreshCw, RotateCcw, Search, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { API_BASE_URL } from "../../api/config";
 import { getAuthHeaders } from "../../api/auth";
+import FinanceLoader from "./components/FinanceLoader";
 
 const money = (value) => {
   const n = Number(value);
@@ -51,10 +52,39 @@ const resultBadge = (result) => {
   };
 };
 
+const emptyCatalogOptions = {
+  project: [],
+  fund: [],
+  strategic_program: [],
+};
+
+const mergeOptions = (rowOptions, catalogOptions) =>
+  [...new Set([...catalogOptions, ...rowOptions].map((value) => String(value || "").trim()).filter(Boolean))].sort(
+    (a, b) => a.localeCompare(b, "es")
+  );
+
+const summarizeByField = (rows, field, fallback) => {
+  const map = new Map();
+  rows.forEach((row) => {
+    const key = String(row?.[field] || fallback).trim() || fallback;
+    const current = map.get(key) || { label: key, count: 0, amount: 0 };
+    current.count += 1;
+    current.amount += Number(row.selected_total || 0);
+    map.set(key, current);
+  });
+  return [...map.values()].sort((a, b) => b.amount - a.amount).slice(0, 4);
+};
+
+const wait = (ms) => new Promise((resolve) => {
+  window.setTimeout(resolve, ms);
+});
+
 export default function FinanzasHistorial() {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
+  const [catalogOptions, setCatalogOptions] = useState(emptyCatalogOptions);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState("all");
@@ -63,13 +93,20 @@ export default function FinanzasHistorial() {
   const [programFilter, setProgramFilter] = useState("all");
   const [onlyWithObservation, setOnlyWithObservation] = useState(false);
   const [sortBy, setSortBy] = useState("newest");
+  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(1);
+  const [showDistribution, setShowDistribution] = useState(false);
 
-  const loadRows = async () => {
+  const loadRows = async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
-      const resp = await fetch(`${API_BASE_URL}/finanzas/historial`, {
-        headers: getAuthHeaders(),
-      });
+      if (silent) setRefreshing(true);
+      else setLoading(true);
+      const [resp] = await Promise.all([
+        fetch(`${API_BASE_URL}/finanzas/historial`, {
+          headers: getAuthHeaders(),
+        }),
+        silent ? wait(650) : Promise.resolve(),
+      ]);
       const data = await resp.json().catch(() => []);
       if (!resp.ok) throw new Error(data?.message || "Error al cargar historial");
       setRows(Array.isArray(data) ? data : []);
@@ -77,11 +114,30 @@ export default function FinanzasHistorial() {
       toast.error(error?.message || "No se pudo cargar el historial de Finanzas");
     } finally {
       setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const loadCatalogOptions = async () => {
+    try {
+      const resp = await fetch(`${API_BASE_URL}/finanzas/catalog-options`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await resp.json().catch(() => emptyCatalogOptions);
+      if (!resp.ok) throw new Error(data?.message || "Error al cargar catálogos");
+      setCatalogOptions({
+        project: Array.isArray(data?.project) ? data.project : [],
+        fund: Array.isArray(data?.fund) ? data.fund : [],
+        strategic_program: Array.isArray(data?.strategic_program) ? data.strategic_program : [],
+      });
+    } catch (error) {
+      toast.error(error?.message || "No se pudieron cargar los catálogos de Finanzas");
     }
   };
 
   useEffect(() => {
     loadRows();
+    loadCatalogOptions();
   }, []);
 
   const counts = useMemo(
@@ -99,14 +155,27 @@ export default function FinanzasHistorial() {
     [rows]
   );
 
-  const uniqueOptions = (field) =>
+  const uniqueOptions = useCallback((field) =>
     [...new Set(rows.map((row) => String(row?.[field] || "").trim()).filter(Boolean))].sort((a, b) =>
       a.localeCompare(b, "es")
-    );
+    ), [rows]);
 
-  const projectOptions = useMemo(() => uniqueOptions("project"), [rows]);
-  const fundOptions = useMemo(() => uniqueOptions("fund"), [rows]);
-  const programOptions = useMemo(() => uniqueOptions("strategic_program"), [rows]);
+  const projectOptions = useMemo(
+    () => mergeOptions(uniqueOptions("project"), catalogOptions.project.map((option) => option.name)),
+    [catalogOptions.project, uniqueOptions]
+  );
+  const fundOptions = useMemo(
+    () => mergeOptions(uniqueOptions("fund"), catalogOptions.fund.map((option) => option.name)),
+    [catalogOptions.fund, uniqueOptions]
+  );
+  const programOptions = useMemo(
+    () =>
+      mergeOptions(
+        uniqueOptions("strategic_program"),
+        catalogOptions.strategic_program.map((option) => option.name)
+      ),
+    [catalogOptions.strategic_program, uniqueOptions]
+  );
 
   const availableMonths = useMemo(() => {
     const months = new Map();
@@ -174,17 +243,25 @@ export default function FinanzasHistorial() {
     [filteredRows]
   );
 
-  const topProjects = useMemo(() => {
-    const map = new Map();
-    filteredRows.forEach((row) => {
-      const key = String(row.project || "Sin proyecto").trim() || "Sin proyecto";
-      const current = map.get(key) || { project: key, count: 0, amount: 0 };
-      current.count += 1;
-      current.amount += Number(row.selected_total || 0);
-      map.set(key, current);
-    });
-    return [...map.values()].sort((a, b) => b.amount - a.amount).slice(0, 5);
-  }, [filteredRows]);
+  useEffect(() => {
+    setPage(1);
+  }, [query, filter, monthFilter, projectFilter, fundFilter, programFilter, onlyWithObservation, sortBy, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = filteredRows.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(currentPage * pageSize, filteredRows.length);
+  const paginatedRows = useMemo(
+    () => filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filteredRows, currentPage, pageSize]
+  );
+
+  const topProjects = useMemo(() => summarizeByField(filteredRows, "project", "Sin proyecto"), [filteredRows]);
+  const topFunds = useMemo(() => summarizeByField(filteredRows, "fund", "Sin fondo"), [filteredRows]);
+  const topPrograms = useMemo(
+    () => summarizeByField(filteredRows, "strategic_program", "Sin programa"),
+    [filteredRows]
+  );
 
   const resetFilters = () => {
     setQuery("");
@@ -195,52 +272,50 @@ export default function FinanzasHistorial() {
     setProgramFilter("all");
     setOnlyWithObservation(false);
     setSortBy("newest");
+    setPageSize(10);
+    setPage(1);
+    setShowDistribution(false);
   };
 
-  const exportCsv = () => {
-    const headers = [
-      "ID",
-      "Resultado",
-      "Requisicion",
-      "Solicitante",
-      "URE",
-      "Proyecto",
-      "Fondo",
-      "Programa",
-      "Monto",
-      "Reviso",
-      "Fecha revision",
-      "Observacion",
-    ];
-    const csvEscape = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
-    const lines = filteredRows.map((row) =>
-      [
-        row.id,
-        resultBadge(row.finance_result).label,
-        row.request_name,
-        row.solicitante,
-        row.solicitante_ure,
-        row.project,
-        row.fund,
-        row.strategic_program,
-        Number(row.selected_total || 0).toFixed(2),
-        row.revisado_por || "Finanzas",
-        formatDate(row.reviewed_at),
-        row.finance_observation,
-      ]
-        .map(csvEscape)
-        .join(",")
-    );
-    const blob = new Blob([`\uFEFF${[headers.join(","), ...lines].join("\n")}`], {
-      type: "text/csv;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "historial-finanzas.csv";
-    link.click();
-    URL.revokeObjectURL(url);
+  const exportExcel = async () => {
+    try {
+      const params = new URLSearchParams({
+        result: filter,
+        month: monthFilter,
+        project: projectFilter,
+        fund: fundFilter,
+        program: programFilter,
+        sort: sortBy,
+        onlyWithObservation: String(onlyWithObservation),
+      });
+      if (query.trim()) params.set("query", query.trim());
+
+      const resp = await fetch(`${API_BASE_URL}/finanzas/historial/excel?${params.toString()}`, {
+        headers: getAuthHeaders(),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data?.message || "Error al generar Excel");
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const disposition = resp.headers.get("content-disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      link.href = url;
+      link.download = match?.[1] || `historial-finanzas-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(error?.message || "No se pudo exportar el Excel de Finanzas");
+    }
   };
+
+  const summaryGroups = [
+    { title: "Proyectos", empty: "Sin proyectos para mostrar.", items: topProjects },
+    { title: "Fondos", empty: "Sin fondos para mostrar.", items: topFunds },
+    { title: "Programas", empty: "Sin programas para mostrar.", items: topPrograms },
+  ];
 
   return (
     <section className="text-gray-900">
@@ -262,20 +337,25 @@ export default function FinanzasHistorial() {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={exportCsv}
+              onClick={exportExcel}
               disabled={filteredRows.length === 0}
               className="inline-flex w-fit items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Download size={14} />
-              Exportar CSV
+              Exportar Excel
             </button>
             <button
               type="button"
-              onClick={loadRows}
-              className="inline-flex w-fit items-center justify-center gap-2 rounded-lg border border-[#8B1D35]/20 bg-[#8B1D35]/5 px-3 py-2 text-xs font-bold text-[#8B1D35] hover:bg-[#8B1D35]/10"
+              onClick={() => loadRows({ silent: true })}
+              disabled={loading || refreshing}
+              className={`inline-flex w-fit items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold ${
+                loading || refreshing
+                  ? "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400"
+                  : "border-[#8B1D35]/30 bg-white text-[#8B1D35] hover:bg-[#8B1D35]/10"
+              }`}
             >
-              <RefreshCw size={14} />
-              Actualizar
+              <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+              {refreshing ? "Actualizando..." : "Actualizar"}
             </button>
           </div>
         </div>
@@ -300,7 +380,7 @@ export default function FinanzasHistorial() {
         </div>
       </div>
 
-      <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="mb-5">
         <div className="rounded-xl border border-[#8B1D35]/10 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -309,48 +389,80 @@ export default function FinanzasHistorial() {
                 {filteredSummary.count} revisión(es) · {money(filteredSummary.amount)}
               </h3>
             </div>
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="w-fit rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
-            >
-              Limpiar filtros
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDistribution((value) => !value)}
+                className="w-fit rounded-lg border border-[#8B1D35]/20 bg-[#8B1D35]/5 px-3 py-2 text-xs font-bold text-[#8B1D35] hover:bg-[#8B1D35]/10"
+              >
+                {showDistribution ? "Ocultar distribución" : "Ver distribución"}
+              </button>
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="w-fit rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
+              >
+                Limpiar filtros
+              </button>
+            </div>
           </div>
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
-              <p className="text-[10px] font-bold uppercase text-emerald-700">Aprobadas</p>
-              <p className="text-lg font-extrabold text-gray-900">{filteredSummary.approved}</p>
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[10px] font-bold uppercase text-emerald-700">Aprobadas</p>
+                <p className="text-lg font-extrabold text-gray-900">{filteredSummary.approved}</p>
+              </div>
             </div>
-            <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
-              <p className="text-[10px] font-bold uppercase text-amber-700">Devueltas</p>
-              <p className="text-lg font-extrabold text-gray-900">{filteredSummary.returned}</p>
+            <div className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[10px] font-bold uppercase text-amber-700">Devueltas</p>
+                <p className="text-lg font-extrabold text-gray-900">{filteredSummary.returned}</p>
+              </div>
             </div>
-            <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2">
-              <p className="text-[10px] font-bold uppercase text-red-700">Rechazadas</p>
-              <p className="text-lg font-extrabold text-gray-900">{filteredSummary.rejected}</p>
+            <div className="rounded-lg border border-red-100 bg-red-50 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[10px] font-bold uppercase text-red-700">Rechazadas</p>
+                <p className="text-lg font-extrabold text-gray-900">{filteredSummary.rejected}</p>
+              </div>
             </div>
           </div>
+          {showDistribution && (
+            <div className="mt-4 border-t border-gray-100 pt-4">
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                {summaryGroups.map((group) => (
+                  <div key={group.title} className="min-w-0">
+                    <p className="mb-2 text-[10px] font-extrabold uppercase tracking-wide text-gray-400">
+                      {group.title}
+                    </p>
+                    <div className="space-y-1.5">
+                      {group.items.length === 0 ? (
+                        <p className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                          {group.empty}
+                        </p>
+                      ) : (
+                        group.items.map((item) => (
+                          <div
+                            key={`${group.title}-${item.label}`}
+                            className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-bold text-gray-800">{item.label}</p>
+                              <p className="text-[10px] font-semibold text-gray-400">{item.count} revisión(es)</p>
+                            </div>
+                            <span className="shrink-0 text-xs font-extrabold text-[#8B1D35]">
+                              {money(item.amount)}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Top proyectos filtrados</p>
-          <div className="mt-3 space-y-2">
-            {topProjects.length === 0 ? (
-              <p className="text-xs text-gray-500">Sin proyectos para mostrar.</p>
-            ) : (
-              topProjects.map((item) => (
-                <div key={item.project} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="truncate text-xs font-bold text-gray-800">{item.project}</span>
-                    <span className="shrink-0 text-xs font-extrabold text-[#8B1D35]">{money(item.amount)}</span>
-                  </div>
-                  <p className="mt-1 text-[10px] font-semibold text-gray-400">{item.count} revisión(es)</p>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
       </div>
 
       <div className="mb-3 flex flex-col gap-3">
@@ -444,6 +556,15 @@ export default function FinanzasHistorial() {
             <option value="amount_asc">Monto menor</option>
             <option value="project">Proyecto A-Z</option>
           </select>
+          <select
+            value={pageSize}
+            onChange={(event) => setPageSize(Number(event.target.value))}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 outline-none focus:border-[#8B1D35]"
+          >
+            <option value={10}>10 por página</option>
+            <option value={25}>25 por página</option>
+            <option value={50}>50 por página</option>
+          </select>
           <label className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">
             <input
               type="checkbox"
@@ -456,17 +577,24 @@ export default function FinanzasHistorial() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+      <div className="relative overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+        {refreshing && !loading && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center rounded-xl bg-white/70 backdrop-blur-[1px]">
+            <FinanceLoader label="Actualizando..." />
+          </div>
+        )}
         <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-4">
           <h3 className="flex items-center gap-2 font-bold text-gray-800">
             <Banknote size={18} className="text-[#8B1D35]" />
             Revisiones procesadas
           </h3>
-          <span className="text-xs font-semibold text-gray-400">Mostrando: {filteredRows.length}</span>
+          <span className="text-xs font-semibold text-gray-400">
+            Mostrando: {pageStart}-{pageEnd} de {filteredRows.length}
+          </span>
         </div>
 
         {loading ? (
-          <div className="px-3 py-12 text-center text-sm text-gray-500">Cargando historial...</div>
+          <FinanceLoader label="Cargando historial..." />
         ) : filteredRows.length === 0 ? (
           <div className="px-6 py-16 text-center">
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-400">
@@ -477,7 +605,7 @@ export default function FinanzasHistorial() {
           </div>
         ) : (
           <div className="divide-y divide-gray-100 bg-gradient-to-b from-white to-gray-50/60">
-            {filteredRows.map((row) => {
+            {paginatedRows.map((row) => {
               const badge = resultBadge(row.finance_result);
               const BadgeIcon = badge.icon;
               return (
@@ -533,6 +661,31 @@ export default function FinanzasHistorial() {
                 </button>
               );
             })}
+          </div>
+        )}
+        {!loading && filteredRows.length > pageSize && (
+          <div className="flex flex-col gap-3 border-t border-gray-100 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs font-semibold text-gray-500">
+              Página {currentPage} de {totalPages}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((value) => Math.max(1, value - 1))}
+                disabled={currentPage === 1}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+                disabled={currentPage === totalPages}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Siguiente
+              </button>
+            </div>
           </div>
         )}
       </div>

@@ -1,5 +1,5 @@
 import { Suspense, lazy } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Navigate, Routes, Route } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 const Home = lazy(() => import("./Pages/Home.jsx"));
@@ -38,9 +38,11 @@ const ComprasUnidades = lazy(() => import("./Pages/Compras/unidades/ComprasUnida
 
 // --- Finanzas ---
 const FinanzasLayout = lazy(() => import("./Pages/Finanzas/layout/FinanzasLayout.jsx"));
+const FinanzasDashboard = lazy(() => import("./Pages/Finanzas/FinanzasDashboard.jsx"));
 const FinanzasRecibidas = lazy(() => import("./Pages/Finanzas/FinanzasRecibidas.jsx"));
 const FinanzasDetalle = lazy(() => import("./Pages/Finanzas/FinanzasDetalle.jsx"));
 const FinanzasHistorial = lazy(() => import("./Pages/Finanzas/FinanzasHistorial.jsx"));
+const FinanzasCatalogos = lazy(() => import("./Pages/Finanzas/catalogos/FinanzasCatalogos.jsx"));
 
 export default function App() {
   return (
@@ -183,8 +185,11 @@ export default function App() {
             </ProtectedRoute>
           }
         >
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<FinanzasDashboard />} />
           <Route path="recibidas" element={<FinanzasRecibidas />} />
           <Route path="historial" element={<FinanzasHistorial />} />
+          <Route path="catalogos" element={<FinanzasCatalogos />} />
           <Route path="requisiciones/:id" element={<FinanzasDetalle />} />
         </Route>
       </Routes>

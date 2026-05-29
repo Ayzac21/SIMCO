@@ -34,6 +34,7 @@ export default function ComprasHistorial() {
   const [total, setTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState("all"); // all | 10 | 11
   const [q, setQ] = useState("");
+  const [sort, setSort] = useState("closed_desc");
   const [page, setPage] = useState(1);
   const limit = 10;
   const [includeItems, setIncludeItems] = useState(false);
@@ -48,6 +49,7 @@ export default function ComprasHistorial() {
         limit: String(limit),
         q: q.trim(),
         status: statusFilter,
+        sort,
       });
       const res = await fetch(`${API}?${params.toString()}`, {
         headers: getAuthHeaders(),
@@ -68,7 +70,7 @@ export default function ComprasHistorial() {
   useEffect(() => {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, statusFilter, q]);
+  }, [page, statusFilter, q, sort]);
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
@@ -127,6 +129,21 @@ export default function ComprasHistorial() {
             className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg outline-none bg-white"
           />
         </div>
+        <select
+          value={sort}
+          onChange={(e) => {
+            setSort(e.target.value);
+            setPage(1);
+          }}
+          className="w-full md:w-56 px-3 py-2 text-xs font-semibold border border-gray-300 rounded-lg outline-none bg-white text-gray-700"
+          title="Ordenar historial"
+        >
+          <option value="closed_desc">Más recientes cerradas</option>
+          <option value="closed_asc">Más antiguas cerradas</option>
+          <option value="id_desc">Número mayor primero</option>
+          <option value="id_asc">Número menor primero</option>
+          <option value="name_asc">Nombre A-Z</option>
+        </select>
         <div className="flex items-center gap-2">
           <label className="text-xs text-gray-600 flex items-center gap-2">
             <input
@@ -142,6 +159,7 @@ export default function ComprasHistorial() {
                 const params = new URLSearchParams({
                   q: q.trim(),
                   status: statusFilter,
+                  sort,
                   include_items: includeItems ? "1" : "0",
                 });
                 const resp = await fetch(`${API}/report?${params.toString()}`, {
@@ -183,6 +201,8 @@ export default function ComprasHistorial() {
           <div className="divide-y divide-gray-50">
             {list.map((req) => {
               const b = badge(req.statuses_id);
+              const eventDate = req.closed_at || req.created_at;
+              const eventLabel = Number(req.statuses_id) === 11 ? "Finalizada" : "Cancelada";
               return (
                 <button
                   key={req.id}
@@ -217,7 +237,7 @@ export default function ComprasHistorial() {
                       </span>
                       <span className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
                         <CalendarDays size={12} />
-                        {new Date(req.created_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}
+                        {eventLabel}: {new Date(eventDate).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}
                       </span>
                       {Number(req.statuses_id) === 11 && (
                         <span className="text-[10px] text-[#8B1D35] font-semibold">
