@@ -43,6 +43,8 @@ const FinanzasRecibidas = lazy(() => import("./Pages/Finanzas/FinanzasRecibidas.
 const FinanzasDetalle = lazy(() => import("./Pages/Finanzas/FinanzasDetalle.jsx"));
 const FinanzasHistorial = lazy(() => import("./Pages/Finanzas/FinanzasHistorial.jsx"));
 const FinanzasCatalogos = lazy(() => import("./Pages/Finanzas/catalogos/FinanzasCatalogos.jsx"));
+const FinanzasPersonal = lazy(() => import("./Pages/Finanzas/FinanzasPersonal.jsx"));
+const financeRoles = ["finanzas", "finanzas_admin", "finanzas_analista", "finanzas_lector"];
 
 export default function App() {
   return (
@@ -180,7 +182,7 @@ export default function App() {
         <Route
           path="/finanzas"
           element={
-            <ProtectedRoute allowedRoles={["finanzas"]}>
+            <ProtectedRoute allowedRoles={financeRoles}>
               <FinanzasLayout />
             </ProtectedRoute>
           }
@@ -190,6 +192,7 @@ export default function App() {
           <Route path="recibidas" element={<FinanzasRecibidas />} />
           <Route path="historial" element={<FinanzasHistorial />} />
           <Route path="catalogos" element={<FinanzasCatalogos />} />
+          <Route path="personal" element={<FinanzasPersonal />} />
           <Route path="requisiciones/:id" element={<FinanzasDetalle />} />
         </Route>
       </Routes>

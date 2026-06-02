@@ -1,4 +1,5 @@
 import { pool } from "../db/connection.js";
+import bcrypt from "bcryptjs";
 import {
   createNotification,
   createNotificationsForUsers,
@@ -6,19 +7,31 @@ import {
   getSecretariaUsersForRequisition,
   getUsersByRole,
 } from "../services/notifications.js";
-import { ensureStatusHistoryTable, logRequisitionStatusChange } from "../services/statusHistory.js";
+import {
+  ensureStatusHistoryTable,
+  getRequisitionStatusTimeline,
+  logRequisitionStatusChange,
+} from "../services/statusHistory.js";
 
 const FINANZAS_STATUS = 15;
 const FINANZAS_APPROVED_STATUS = 16;
 const FINANZAS_REJECTED_STATUS = 17;
 const COMPRA_STATUS = 13;
 const FINANCE_CATALOG_TYPES = new Set(["project", "fund", "program"]);
+const DEFAULT_PASSWORD = process.env.DEFAULT_USER_PASSWORD || "";
+const FINANCE_ROLES = new Set(["finanzas", "finanzas_admin", "finanzas_analista", "finanzas_lector"]);
+const FINANCE_ADMIN_ROLES = new Set(["finanzas", "finanzas_admin"]);
+const FINANCE_REVIEW_ROLES = new Set(["finanzas", "finanzas_admin", "finanzas_analista"]);
 
 const cleanText = (value) => String(value || "").trim();
 const parsePositiveId = (value) => {
   const n = Number(value);
   return Number.isInteger(n) && n > 0 ? n : 0;
 };
+
+export const isFinanceRole = (role) => FINANCE_ROLES.has(String(role || ""));
+export const isFinanceAdminRole = (role) => FINANCE_ADMIN_ROLES.has(String(role || ""));
+const isFinanceReviewRole = (role) => FINANCE_REVIEW_ROLES.has(String(role || ""));
 
 const moneyNumber = (value) => {
   const n = Number(value);
@@ -311,6 +324,137 @@ const mapDuplicateCatalogError = (error) => {
   return { status: 500, message: "Error al guardar catálogo financiero" };
 };
 
+const getApprovalValidationError = async (conn, reqId, { project, fund, strategicProgram, budgetAvailable }) => {
+  const missing = [];
+  if (!project) missing.push("proyecto");
+  if (!fund) missing.push("fondo");
+  if (!strategicProgram) missing.push("programa estratégico");
+  if (!budgetAvailable) missing.push("presupuesto disponible");
+
+  if (missing.length > 0) {
+    return {
+      message: `Para aprobar falta: ${missing.join(", ")}.`,
+      details: missing,
+    };
+  }
+
+  await ensureFinanceCatalogSchema(conn);
+  const catalogChecks = [
+    { type: "project", name: project, label: "proyecto" },
+    { type: "fund", name: fund, label: "fondo" },
+    { type: "program", name: strategicProgram, label: "programa estratégico" },
+  ];
+
+  for (const check of catalogChecks) {
+    const [[entry]] = await conn.query(
+      `
+      SELECT id, is_active
+      FROM finance_catalog_entries
+      WHERE catalog_type = ? AND name = ?
+      LIMIT 1
+      `,
+      [check.type, check.name]
+    );
+
+    if (!entry) {
+      return {
+        message: `No se puede aprobar: el ${check.label} seleccionado ya no existe en Catálogos de Finanzas.`,
+        details: [check.label],
+      };
+    }
+    if (Number(entry.is_active || 0) !== 1) {
+      return {
+        message: `No se puede aprobar: el ${check.label} seleccionado está desactivado en Catálogos de Finanzas.`,
+        details: [check.label],
+      };
+    }
+  }
+
+  const [items] = await conn.query(
+    `
+    SELECT
+      li.id,
+      li.product_name,
+      COALESCE(li.quantity, 0) AS quantity,
+      qs.provider_id,
+      qs.selected_unit_price
+    FROM line_items li
+    LEFT JOIN quotation_selections qs
+      ON qs.requisition_id = li.requisition_id
+     AND qs.line_item_id = li.id
+    WHERE li.requisition_id = ?
+    ORDER BY li.id ASC
+    `,
+    [reqId]
+  );
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return {
+      message: "No se puede aprobar: la requisición no tiene artículos para validar.",
+      details: ["artículos"],
+    };
+  }
+
+  const itemIssues = [];
+  items.forEach((item) => {
+    const label = cleanText(item.product_name) || `artículo #${item.id}`;
+    const quantity = Number(item.quantity || 0);
+    const price = Number(item.selected_unit_price || 0);
+    const providerId = parsePositiveId(item.provider_id);
+
+    if (quantity <= 0) itemIssues.push(`${label}: cantidad inválida`);
+    if (!providerId) itemIssues.push(`${label}: proveedor no seleccionado`);
+    if (!(price > 0)) itemIssues.push(`${label}: precio seleccionado inválido`);
+  });
+
+  if (itemIssues.length > 0) {
+    return {
+      message: `No se puede aprobar: ${itemIssues.join("; ")}.`,
+      details: itemIssues,
+    };
+  }
+
+  const selectedTotal = items.reduce(
+    (sum, item) => sum + Number(item.quantity || 0) * Number(item.selected_unit_price || 0),
+    0
+  );
+  if (!(selectedTotal > 0)) {
+    return {
+      message: "No se puede aprobar: el monto seleccionado debe ser mayor a $0.00.",
+      details: ["monto"],
+    };
+  }
+
+  return null;
+};
+
+const getFinanceStatusTimeline = async (reqId) => {
+  const rows = await getRequisitionStatusTimeline(reqId);
+  return rows
+    .filter((row) => {
+      const fromStatus = Number(row.from_status_id || 0);
+      const toStatus = Number(row.to_status_id || 0);
+      return (
+        fromStatus === FINANZAS_STATUS ||
+        [FINANZAS_STATUS, FINANZAS_APPROVED_STATUS, FINANZAS_REJECTED_STATUS, COMPRA_STATUS].includes(toStatus)
+      );
+    })
+    .map((row) => {
+      const fromStatus = Number(row.from_status_id || 0);
+      const toStatus = Number(row.to_status_id || 0);
+      let finance_event = "movimiento";
+      if (toStatus === FINANZAS_STATUS) finance_event = "recibida";
+      if (fromStatus === FINANZAS_STATUS && toStatus === FINANZAS_APPROVED_STATUS) finance_event = "aprobada";
+      if (fromStatus === FINANZAS_STATUS && toStatus === COMPRA_STATUS) finance_event = "devuelta";
+      if (fromStatus === FINANZAS_STATUS && toStatus === FINANZAS_REJECTED_STATUS) finance_event = "rechazada";
+
+      return {
+        ...row,
+        finance_event,
+      };
+    });
+};
+
 export const getFinanceCatalogOptions = async (_req, res) => {
   try {
     await ensureFinanceCatalogSchema();
@@ -336,6 +480,9 @@ export const getFinanceCatalogOptions = async (_req, res) => {
 
 export const listFinanceCatalogEntries = async (req, res) => {
   try {
+    if (!isFinanceAdminRole(req.user?.role)) {
+      return res.status(403).json({ message: "Solo Finanzas Admin puede administrar catálogos" });
+    }
     await ensureFinanceCatalogSchema();
     await ensureFinanceWorkflowSchema();
     const type = parseCatalogType(req.query.type || "project") || "project";
@@ -398,6 +545,9 @@ export const listFinanceCatalogEntries = async (req, res) => {
 
 export const createFinanceCatalogEntry = async (req, res) => {
   try {
+    if (!isFinanceAdminRole(req.user?.role)) {
+      return res.status(403).json({ message: "Solo Finanzas Admin puede crear catálogos" });
+    }
     await ensureFinanceCatalogSchema();
     const type = parseCatalogType(req.body?.catalog_type);
     const name = cleanText(req.body?.name);
@@ -430,6 +580,9 @@ export const createFinanceCatalogEntry = async (req, res) => {
 
 export const updateFinanceCatalogEntry = async (req, res) => {
   try {
+    if (!isFinanceAdminRole(req.user?.role)) {
+      return res.status(403).json({ message: "Solo Finanzas Admin puede editar catálogos" });
+    }
     await ensureFinanceCatalogSchema();
     const id = parsePositiveId(req.params.id);
     const type = parseCatalogType(req.body?.catalog_type);
@@ -472,6 +625,9 @@ export const updateFinanceCatalogEntry = async (req, res) => {
 
 export const updateFinanceCatalogEntryStatus = async (req, res) => {
   try {
+    if (!isFinanceAdminRole(req.user?.role)) {
+      return res.status(403).json({ message: "Solo Finanzas Admin puede cambiar catálogos" });
+    }
     await ensureFinanceCatalogSchema();
     const id = parsePositiveId(req.params.id);
     if (!id) return res.status(400).json({ message: "ID inválido" });
@@ -486,6 +642,158 @@ export const updateFinanceCatalogEntryStatus = async (req, res) => {
   } catch (error) {
     console.error("Error updateFinanceCatalogEntryStatus:", error);
     res.status(500).json({ message: "Error al actualizar estatus del catálogo" });
+  }
+};
+
+export const listFinanzasPersonal = async (req, res) => {
+  try {
+    if (!isFinanceAdminRole(req.user?.role)) {
+      return res.status(403).json({ message: "Solo Finanzas Admin puede ver personal" });
+    }
+    const [rows] = await pool.query(
+      `
+      SELECT id, name, user_name, ure, statuses_id, email, role
+      FROM users
+      WHERE role IN ('finanzas', 'finanzas_admin', 'finanzas_analista', 'finanzas_lector')
+      ORDER BY statuses_id ASC, id DESC
+      `
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Error listFinanzasPersonal:", error);
+    res.status(500).json({ message: "Error al listar personal de Finanzas" });
+  }
+};
+
+export const createFinanzasPersonal = async (req, res) => {
+  try {
+    if (!isFinanceAdminRole(req.user?.role)) {
+      return res.status(403).json({ message: "Solo Finanzas Admin puede crear personal" });
+    }
+    const name = cleanText(req.body?.name);
+    const userName = cleanText(req.body?.user_name);
+    const email = cleanNullableText(req.body?.email);
+    const role = ["finanzas_admin", "finanzas_analista", "finanzas_lector"].includes(req.body?.role)
+      ? req.body.role
+      : "finanzas_analista";
+    const nextPassword = req.body?.password || DEFAULT_PASSWORD;
+
+    if (!name || !userName) return res.status(400).json({ message: "Nombre y usuario son requeridos" });
+    if (!nextPassword) {
+      return res.status(400).json({ message: "Debes proporcionar password o configurar DEFAULT_USER_PASSWORD" });
+    }
+
+    const [exists] = await pool.query(`SELECT 1 FROM users WHERE user_name = ? LIMIT 1`, [userName]);
+    if (exists.length > 0) return res.status(409).json({ message: "El usuario ya existe" });
+
+    const [result] = await pool.query(
+      `
+      INSERT INTO users (name, user_name, ure, statuses_id, email, password, role)
+      VALUES (?, ?, NULL, 1, ?, ?, ?)
+      `,
+      [name, userName, email, await bcrypt.hash(String(nextPassword), 10), role]
+    );
+    res.status(201).json({ ok: true, id: result.insertId });
+  } catch (error) {
+    console.error("Error createFinanzasPersonal:", error);
+    res.status(500).json({ message: "Error al crear personal de Finanzas" });
+  }
+};
+
+export const updateFinanzasPersonal = async (req, res) => {
+  try {
+    if (!isFinanceAdminRole(req.user?.role)) {
+      return res.status(403).json({ message: "Solo Finanzas Admin puede editar personal" });
+    }
+    const id = parsePositiveId(req.params.id);
+    const name = cleanText(req.body?.name);
+    const userName = cleanText(req.body?.user_name);
+    const email = cleanNullableText(req.body?.email);
+    const role = ["finanzas_admin", "finanzas_analista", "finanzas_lector"].includes(req.body?.role)
+      ? req.body.role
+      : "finanzas_analista";
+
+    if (!id) return res.status(400).json({ message: "ID inválido" });
+    if (!name || !userName) return res.status(400).json({ message: "Nombre y usuario son requeridos" });
+
+    const [target] = await pool.query(`SELECT role FROM users WHERE id = ? LIMIT 1`, [id]);
+    if (target.length === 0) return res.status(404).json({ message: "Usuario no encontrado" });
+    if (!isFinanceRole(target[0].role)) return res.status(403).json({ message: "Solo puedes editar personal de Finanzas" });
+    if (id === Number(req.user?.id || 0) && role !== "finanzas_admin") {
+      return res.status(400).json({ message: "No puedes quitarte permisos de administrador a ti mismo" });
+    }
+
+    const [exists] = await pool.query(`SELECT 1 FROM users WHERE user_name = ? AND id != ? LIMIT 1`, [userName, id]);
+    if (exists.length > 0) return res.status(409).json({ message: "El usuario ya existe" });
+
+    const nextPassword = cleanText(req.body?.password);
+    const passwordSql = nextPassword ? ", password = ?" : "";
+    const passwordHash = nextPassword ? await bcrypt.hash(nextPassword, 10) : null;
+
+    const [result] = await pool.query(
+      `
+      UPDATE users
+      SET name = ?, user_name = ?, ure = NULL, email = ?, role = ?${passwordSql}
+      WHERE id = ? AND role IN ('finanzas', 'finanzas_admin', 'finanzas_analista', 'finanzas_lector')
+      `,
+      nextPassword
+        ? [name, userName, email, role, passwordHash, id]
+        : [name, userName, email, role, id]
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: "Usuario no encontrado" });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Error updateFinanzasPersonal:", error);
+    res.status(500).json({ message: "Error al actualizar personal de Finanzas" });
+  }
+};
+
+export const updateFinanzasPersonalStatus = async (req, res) => {
+  try {
+    if (!isFinanceAdminRole(req.user?.role)) {
+      return res.status(403).json({ message: "Solo Finanzas Admin puede cambiar estatus de personal" });
+    }
+    const id = parsePositiveId(req.params.id);
+    const statusesId = Number(req.body?.statuses_id);
+    if (!id) return res.status(400).json({ message: "ID inválido" });
+    if (![1, 2].includes(statusesId)) return res.status(400).json({ message: "Estatus inválido" });
+    if (id === Number(req.user?.id || 0) && statusesId !== 1) {
+      return res.status(400).json({ message: "No puedes desactivar tu propio usuario" });
+    }
+
+    const [result] = await pool.query(
+      `UPDATE users SET statuses_id = ? WHERE id = ? AND role IN ('finanzas', 'finanzas_admin', 'finanzas_analista', 'finanzas_lector')`,
+      [statusesId, id]
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: "Usuario no encontrado" });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Error updateFinanzasPersonalStatus:", error);
+    res.status(500).json({ message: "Error al actualizar estatus de personal de Finanzas" });
+  }
+};
+
+export const resetFinanzasPersonalPassword = async (req, res) => {
+  try {
+    if (!isFinanceAdminRole(req.user?.role)) {
+      return res.status(403).json({ message: "Solo Finanzas Admin puede restablecer contraseñas" });
+    }
+    const id = parsePositiveId(req.params.id);
+    const nextPassword = req.body?.password || DEFAULT_PASSWORD;
+    if (!id) return res.status(400).json({ message: "ID inválido" });
+    if (!nextPassword) {
+      return res.status(400).json({ message: "Debes proporcionar password o configurar DEFAULT_USER_PASSWORD" });
+    }
+
+    const [result] = await pool.query(
+      `UPDATE users SET password = ? WHERE id = ? AND role IN ('finanzas', 'finanzas_admin', 'finanzas_analista', 'finanzas_lector')`,
+      [await bcrypt.hash(String(nextPassword), 10), id]
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: "Usuario no encontrado" });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Error resetFinanzasPersonalPassword:", error);
+    res.status(500).json({ message: "Error al resetear contraseña de Finanzas" });
   }
 };
 
@@ -755,6 +1063,7 @@ export const downloadFinanzasHistorialExcel = async (req, res) => {
 export const getFinanzasDetalle = async (req, res) => {
   try {
     await ensureFinanceWorkflowSchema();
+    await ensureStatusHistoryTable();
     const reqId = parsePositiveId(req.params.id);
     if (!reqId) return res.status(400).json({ message: "ID inválido" });
 
@@ -851,7 +1160,9 @@ export const getFinanzasDetalle = async (req, res) => {
       [reqId]
     );
 
-    res.json({ requisition, items });
+    const financeTimeline = await getFinanceStatusTimeline(reqId);
+
+    res.json({ requisition, items, finance_timeline: financeTimeline });
   } catch (error) {
     console.error("Error getFinanzasDetalle:", error);
     res.status(500).json({ message: "Error al obtener detalle de Finanzas" });
@@ -861,6 +1172,9 @@ export const getFinanzasDetalle = async (req, res) => {
 export const resolveFinanzasRevision = async (req, res) => {
   let conn;
   try {
+    if (!isFinanceReviewRole(req.user?.role)) {
+      return res.status(403).json({ message: "Tu perfil de Finanzas es solo lectura" });
+    }
     const reqId = parsePositiveId(req.params.id);
     const action = cleanText(req.body?.action);
     const comment = cleanText(req.body?.comment || req.body?.comentarios);
@@ -904,6 +1218,19 @@ export const resolveFinanzasRevision = async (req, res) => {
         message: "La requisición no está en revisión de Finanzas",
         current_status: currentStatusId,
       });
+    }
+
+    if (action === "aprobar") {
+      const approvalError = await getApprovalValidationError(conn, reqId, {
+        project,
+        fund,
+        strategicProgram,
+        budgetAvailable,
+      });
+      if (approvalError) {
+        await conn.rollback();
+        return res.status(400).json(approvalError);
+      }
     }
 
     const nextStatusId =

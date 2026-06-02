@@ -97,6 +97,23 @@ test("POST /api/finanzas/requisiciones/:id/resolver", async (t) => {
         if (text.includes("SELECT id, statuses_id, users_id, assigned_operator_id FROM requisition")) {
           return [[{ id: 99, statuses_id: 15, users_id: 501, assigned_operator_id: 40 }]];
         }
+        if (text.includes("CREATE TABLE IF NOT EXISTS finance_catalog_entries")) {
+          return [{}];
+        }
+        if (text.includes("FROM finance_catalog_entries")) {
+          return [[{ id: 1, is_active: 1 }]];
+        }
+        if (text.includes("FROM line_items li")) {
+          return [[
+            {
+              id: 1,
+              product_name: "Artículo validado",
+              quantity: 2,
+              provider_id: 9,
+              selected_unit_price: 50,
+            },
+          ]];
+        }
         if (text.includes("INSERT INTO requisition_finance_review")) {
           return [{ affectedRows: 1 }];
         }
@@ -167,5 +184,65 @@ test("POST /api/finanzas/requisiciones/:id/resolver", async (t) => {
           call.params[0] === 16
       )
     );
+  });
+
+  await t.test("bloquea aprobación si el catálogo financiero está desactivado", async () => {
+    const conn = {
+      async beginTransaction() {},
+      async commit() {},
+      async rollback() {},
+      release() {},
+      async query(sql) {
+        const text = String(sql);
+
+        if (text.includes("SELECT id, statuses_id, users_id, assigned_operator_id FROM requisition")) {
+          return [[{ id: 99, statuses_id: 15, users_id: 501, assigned_operator_id: null }]];
+        }
+        if (text.includes("CREATE TABLE IF NOT EXISTS finance_catalog_entries")) {
+          return [{}];
+        }
+        if (text.includes("FROM finance_catalog_entries")) {
+          return [[{ id: 1, is_active: 0 }]];
+        }
+
+        throw new Error(`Query no contemplada: ${text}`);
+      },
+    };
+
+    pool.getConnection = async () => conn;
+    pool.query = async (sql, params = []) => {
+      const text = String(sql);
+
+      if (text.includes("SHOW COLUMNS FROM statuses LIKE 'type'")) {
+        return [[]];
+      }
+      if (text.includes("INSERT INTO statuses")) {
+        return [{ affectedRows: 3 }];
+      }
+      if (text.includes("CREATE TABLE IF NOT EXISTS requisition_finance_review")) {
+        return [{}];
+      }
+      if (text.includes("SHOW COLUMNS FROM requisition_finance_review LIKE")) {
+        return [[{ Field: params?.[0] || "mock_column" }]];
+      }
+
+      throw new Error(`Query no contemplada: ${text}`);
+    };
+
+    const result = await invokeRouter({
+      method: "POST",
+      url: "/requisiciones/99/resolver",
+      user: { id: 20, role: "finanzas_analista" },
+      body: {
+        action: "aprobar",
+        project: "PROY-1",
+        fund: "FONDO-1",
+        strategic_program: "PE-1",
+        budget_available: true,
+      },
+    });
+
+    assert.equal(result.status, 400);
+    assert.match(String(result.body?.message || ""), /desactivado/i);
   });
 });

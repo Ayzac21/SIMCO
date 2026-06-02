@@ -3,6 +3,19 @@ import bcrypt from "bcryptjs";
 
 const DEFAULT_PASSWORD = process.env.DEFAULT_USER_PASSWORD || "";
 
+const rejectFinanceUserManagement = async (id, res) => {
+  const [rows] = await pool.query(`SELECT role FROM users WHERE id = ? LIMIT 1`, [id]);
+  if (rows.length === 0) {
+    res.status(404).json({ message: "Usuario no encontrado" });
+    return true;
+  }
+  if (["finanzas", "finanzas_admin", "finanzas_analista", "finanzas_lector"].includes(rows[0].role)) {
+    res.status(403).json({ message: "Los usuarios de Finanzas se administran desde el perfil de Finanzas" });
+    return true;
+  }
+  return false;
+};
+
 export const listUsers = async (req, res) => {
   try {
     const [rows] = await pool.query(
@@ -36,6 +49,7 @@ export const listUsers = async (req, res) => {
         ON TRIM(UPPER(sec.ure)) = TRIM(UPPER(u.ure))
       LEFT JOIN coordination co
         ON TRIM(UPPER(co.ure)) = TRIM(UPPER(u.ure))
+      WHERE u.role NOT IN ('finanzas', 'finanzas_admin', 'finanzas_analista', 'finanzas_lector')
       ORDER BY id DESC
       `
     );
@@ -53,6 +67,10 @@ export const createUser = async (req, res) => {
 
     if (!name || !user_name || !role) {
       return res.status(400).json({ message: "Faltan campos requeridos" });
+    }
+
+    if (["finanzas", "finanzas_admin", "finanzas_analista", "finanzas_lector"].includes(role)) {
+      return res.status(403).json({ message: "Los usuarios de Finanzas se administran desde el perfil de Finanzas" });
     }
 
     const comprasRoles = new Set(["compras_admin", "compras_operador", "compras_lector"]);
@@ -144,6 +162,11 @@ export const updateUser = async (req, res) => {
       return res.status(400).json({ message: "Faltan campos requeridos" });
     }
 
+    if (await rejectFinanceUserManagement(id, res)) return;
+    if (["finanzas", "finanzas_admin", "finanzas_analista", "finanzas_lector"].includes(role)) {
+      return res.status(403).json({ message: "Los usuarios de Finanzas se administran desde el perfil de Finanzas" });
+    }
+
     const comprasRoles = new Set(["compras_admin", "compras_operador", "compras_lector"]);
     const isCompras = comprasRoles.has(role);
 
@@ -223,6 +246,7 @@ export const updateUser = async (req, res) => {
 export const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
+    if (await rejectFinanceUserManagement(id, res)) return;
     const [result] = await pool.query(`DELETE FROM users WHERE id = ?`, [id]);
     if (!result.affectedRows) {
       return res.status(404).json({ message: "Usuario no encontrado" });
@@ -239,6 +263,7 @@ export const resetUserPassword = async (req, res) => {
     const { id } = req.params;
     const { password } = req.body || {};
     const nextPassword = password || DEFAULT_PASSWORD;
+    if (await rejectFinanceUserManagement(id, res)) return;
 
     if (!nextPassword) {
       return res.status(400).json({
@@ -269,6 +294,7 @@ export const updateUserStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { statuses_id } = req.body;
+    if (await rejectFinanceUserManagement(id, res)) return;
 
     if (typeof statuses_id === "undefined") {
       return res.status(400).json({ message: "Falta statuses_id" });

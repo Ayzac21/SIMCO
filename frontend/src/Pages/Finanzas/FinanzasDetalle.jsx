@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Banknote,
   CheckCircle2,
+  Clock3,
   FileText,
   RotateCcw,
   XCircle,
@@ -29,6 +30,19 @@ const formatDate = (value) => {
     day: "2-digit",
     month: "short",
     year: "numeric",
+  });
+};
+
+const formatDateTime = (value) => {
+  if (!value) return "Sin fecha";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Sin fecha";
+  return date.toLocaleString("es-MX", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 };
 
@@ -76,17 +90,72 @@ const financeResultDisplay = (result) => {
   };
 };
 
+const financeEventDisplay = (event) => {
+  if (event === "recibida") {
+    return {
+      title: "Compras envió a Finanzas",
+      cls: "border-sky-100 bg-sky-50 text-sky-700",
+      dot: "bg-sky-500",
+    };
+  }
+  if (event === "aprobada") {
+    return {
+      title: "Finanzas aprobó",
+      cls: "border-emerald-100 bg-emerald-50 text-emerald-700",
+      dot: "bg-emerald-500",
+    };
+  }
+  if (event === "devuelta") {
+    return {
+      title: "Finanzas devolvió a Compras",
+      cls: "border-amber-100 bg-amber-50 text-amber-700",
+      dot: "bg-amber-500",
+    };
+  }
+  if (event === "rechazada") {
+    return {
+      title: "Finanzas rechazó",
+      cls: "border-red-100 bg-red-50 text-red-700",
+      dot: "bg-red-500",
+    };
+  }
+  return {
+    title: "Movimiento financiero",
+    cls: "border-gray-100 bg-gray-50 text-gray-700",
+    dot: "bg-gray-400",
+  };
+};
+
+const actorLabel = (event) => {
+  const role = String(event?.changed_by_role || "").toLowerCase();
+  const name = String(event?.changed_by_name || "").trim();
+  if (role === "compras_admin") return name ? `Compras Admin · ${name}` : "Compras Admin";
+  if (role === "compras_operador") return name ? `Compras Operador · ${name}` : "Compras Operador";
+  if (role === "finanzas" || role.startsWith("finanzas_")) return name ? `Finanzas · ${name}` : "Finanzas";
+  if (role === "sistema") return "Sistema";
+  return name || "Sin responsable registrado";
+};
+
 export default function FinanzasDetalle() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [requisition, setRequisition] = useState(null);
   const [items, setItems] = useState([]);
+  const [financeTimeline, setFinanceTimeline] = useState([]);
   const [catalogOptions, setCatalogOptions] = useState({ project: [], fund: [], program: [] });
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
   const [savingAction, setSavingAction] = useState("");
   const [pendingAction, setPendingAction] = useState("");
   const [timelineOpen, setTimelineOpen] = useState(false);
+  const currentUser = useMemo(() => {
+    const raw = localStorage.getItem("usuario");
+    try {
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,6 +173,7 @@ export default function FinanzasDetalle() {
         const req = data?.requisition || null;
         setRequisition(req);
         setItems(Array.isArray(data?.items) ? data.items : []);
+        setFinanceTimeline(Array.isArray(data?.finance_timeline) ? data.finance_timeline : []);
         setForm({
           project: req?.project || "",
           fund: req?.fund || "",
@@ -175,7 +245,8 @@ export default function FinanzasDetalle() {
   }, [form]);
 
   const commentRequiredMissing = !String(form.comment || "").trim();
-  const canReview = Number(requisition?.statuses_id || 0) === 15;
+  const canResolveFinance = ["finanzas", "finanzas_admin", "finanzas_analista"].includes(currentUser?.role);
+  const canReview = canResolveFinance && Number(requisition?.statuses_id || 0) === 15;
   const reviewStatus = financeResultDisplay(requisition?.finance_result);
   const ReviewStatusIcon = reviewStatus.icon;
   const budgetCaptured = requisition?.budget_available !== null && requisition?.budget_available !== undefined;
@@ -456,6 +527,60 @@ export default function FinanzasDetalle() {
                   {requisition.finance_observation || "Sin observación financiera registrada."}
                 </p>
               </div>
+
+              <div className="mt-4 rounded-xl border border-gray-200 bg-white">
+                <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-3 py-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">
+                      Movimientos de Finanzas
+                    </p>
+                    <p className="mt-0.5 text-xs font-semibold text-gray-500">
+                      Entrada, revisión y resolución de la requisición.
+                    </p>
+                  </div>
+                  <Clock3 size={16} className="text-[#8B1D35]" />
+                </div>
+
+                {financeTimeline.length === 0 ? (
+                  <div className="px-3 py-4 text-sm font-semibold text-gray-500">
+                    Sin movimientos financieros registrados en la bitácora.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-100">
+                    {financeTimeline.map((event) => {
+                      const display = financeEventDisplay(event.finance_event);
+                      return (
+                        <div key={event.id} className="grid gap-3 px-3 py-3 md:grid-cols-[160px_minmax(0,1fr)]">
+                          <div>
+                            <p className="text-xs font-extrabold text-gray-900">
+                              {formatDateTime(event.changed_at)}
+                            </p>
+                            <p className="mt-1 text-[11px] font-semibold text-gray-500">{actorLabel(event)}</p>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`h-2.5 w-2.5 rounded-full ${display.dot}`} />
+                              <span
+                                className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${display.cls}`}
+                              >
+                                {display.title}
+                              </span>
+                              <span className="text-[11px] font-semibold text-gray-500">
+                                {event.from_status_name || "Inicio"} → {event.to_status_name || "Siguiente paso"}
+                              </span>
+                            </div>
+                            {event.change_note && (
+                              <p className="mt-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm font-medium leading-relaxed text-gray-700">
+                                {event.change_note}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -640,7 +765,9 @@ export default function FinanzasDetalle() {
 
           {!canReview && (
             <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700">
-              Esta requisición ya no está en revisión de Finanzas.
+              {canResolveFinance
+                ? "Esta requisición ya no está en revisión de Finanzas."
+                : "Tu perfil de Finanzas es solo lectura."}
             </div>
           )}
 

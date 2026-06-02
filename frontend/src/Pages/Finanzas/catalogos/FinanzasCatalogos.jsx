@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Banknote, FolderKanban, Target } from "lucide-react";
+import { AlertTriangle, Banknote, FolderKanban, Power, Target } from "lucide-react";
 import { toast } from "sonner";
 import { API_BASE_URL } from "../../../api/config";
 import { getAuthHeaders } from "../../../api/auth";
+import ConfirmModal from "../../../components/ConfirmModal";
 import FinanceCatalogForm from "../components/FinanceCatalogForm";
 import FinanceCatalogTable from "../components/FinanceCatalogTable";
 
@@ -42,9 +43,13 @@ export default function FinanzasCatalogos() {
   const [type, setType] = useState("project");
   const [rows, setRows] = useState([]);
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [yearFilter, setYearFilter] = useState("all");
   const [form, setForm] = useState(emptyForm("project"));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [statusChange, setStatusChange] = useState(null);
+  const [changingStatus, setChangingStatus] = useState(false);
 
   const activeConfig = catalogTypes[type];
   const editing = Boolean(form.id);
@@ -79,6 +84,8 @@ export default function FinanzasCatalogos() {
   useEffect(() => {
     setForm(emptyForm(type));
     setQuery("");
+    setStatusFilter("all");
+    setYearFilter("all");
   }, [type]);
 
   const counts = useMemo(
@@ -89,6 +96,23 @@ export default function FinanzasCatalogos() {
     }),
     [rows]
   );
+
+  const fiscalYearOptions = useMemo(() => {
+    const years = rows
+      .map((row) => Number(row.fiscal_year || 0))
+      .filter((year) => Number.isInteger(year) && year > 0);
+    return [...new Set(years)].sort((a, b) => b - a);
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((row) => {
+      const active = Number(row.is_active) === 1;
+      if (statusFilter === "active" && !active) return false;
+      if (statusFilter === "inactive" && active) return false;
+      if (yearFilter !== "all" && String(row.fiscal_year || "") !== String(yearFilter)) return false;
+      return true;
+    });
+  }, [rows, statusFilter, yearFilter]);
 
   const updateForm = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -145,16 +169,9 @@ export default function FinanzasCatalogos() {
     }
   };
 
-  const toggleStatus = async (row) => {
+  const applyStatusChange = async (row, nextActive) => {
     try {
-      const nextActive = Number(row.is_active) === 1 ? 0 : 1;
-      const usageCount = Number(row.usage_count || 0);
-      if (!nextActive && usageCount > 0) {
-        const ok = window.confirm(
-          `Este registro ya se usa en ${usageCount} requisición(es). Si lo desactivas no se podrá elegir en nuevas revisiones, pero el historial conservará el dato. ¿Deseas desactivarlo?`
-        );
-        if (!ok) return;
-      }
+      setChangingStatus(true);
       const resp = await fetch(`${API_BASE_URL}/finanzas/catalogos/${row.id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
@@ -170,11 +187,46 @@ export default function FinanzasCatalogos() {
       await loadRows();
     } catch (error) {
       toast.error(error?.message || "No se pudo actualizar el registro");
+    } finally {
+      setChangingStatus(false);
+      setStatusChange(null);
     }
   };
 
+  const toggleStatus = (row) => {
+    const nextActive = Number(row.is_active) === 1 ? 0 : 1;
+    if (nextActive) {
+      applyStatusChange(row, nextActive);
+      return;
+    }
+    setStatusChange({ row, nextActive });
+  };
+
+  const pendingUsageCount = Number(statusChange?.row?.usage_count || 0);
+
   return (
     <section className="space-y-5 text-gray-900">
+      <ConfirmModal
+        open={Boolean(statusChange)}
+        title={`Desactivar ${activeConfig.singular.toLowerCase()}`}
+        headerText="Confirmar desactivación"
+        description={
+          pendingUsageCount > 0
+            ? `Este registro ya se usa en ${pendingUsageCount} requisición(es). Al desactivarlo no aparecerá para nuevas revisiones, pero el historial conservará el dato registrado.`
+            : "Este registro dejará de aparecer para nuevas revisiones de Finanzas. Podrás activarlo nuevamente después."
+        }
+        confirmText="Desactivar"
+        cancelText="Mantener activo"
+        loading={changingStatus}
+        variant="warning"
+        icon={pendingUsageCount > 0 ? AlertTriangle : Power}
+        highlight={statusChange?.row?.name}
+        onCancel={() => {
+          if (!changingStatus) setStatusChange(null);
+        }}
+        onConfirm={() => applyStatusChange(statusChange.row, statusChange.nextActive)}
+      />
+
       <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
         <p className="text-xs font-bold uppercase tracking-wide text-[#8B1D35]">Administración Finanzas</p>
         <h2 className="mt-1 text-2xl font-extrabold text-gray-900">Catálogos financieros</h2>
@@ -239,10 +291,16 @@ export default function FinanzasCatalogos() {
         </div>
 
         <FinanceCatalogTable
-          rows={rows}
+          rows={filteredRows}
           loading={loading}
           query={query}
+          statusFilter={statusFilter}
+          yearFilter={yearFilter}
+          fiscalYearOptions={fiscalYearOptions}
+          totalRows={rows.length}
           onQueryChange={setQuery}
+          onStatusFilterChange={setStatusFilter}
+          onYearFilterChange={setYearFilter}
           onEdit={handleEdit}
           onToggleStatus={toggleStatus}
         />

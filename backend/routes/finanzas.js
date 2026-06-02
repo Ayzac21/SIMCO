@@ -1,21 +1,27 @@
 import { Router } from "express";
 import {
   createFinanceCatalogEntry,
+  createFinanzasPersonal,
   downloadFinanzasHistorialExcel,
   getFinanceCatalogOptions,
   getFinanzasDetalle,
   getFinanzasHistorial,
   getFinanzasRecibidas,
   listFinanceCatalogEntries,
+  listFinanzasPersonal,
+  resetFinanzasPersonalPassword,
   resolveFinanzasRevision,
   updateFinanceCatalogEntry,
   updateFinanceCatalogEntryStatus,
+  updateFinanzasPersonal,
+  updateFinanzasPersonalStatus,
+  isFinanceRole,
 } from "../controllers/finanzasController.js";
 
 const router = Router();
 
 router.use((req, res, next) => {
-  if (req.user?.role !== "finanzas") {
+  if (!isFinanceRole(req.user?.role)) {
     return res.status(403).json({ message: "Acceso restringido a Finanzas" });
   }
   return next();
@@ -29,6 +35,11 @@ router.get("/catalogos", listFinanceCatalogEntries);
 router.post("/catalogos", createFinanceCatalogEntry);
 router.put("/catalogos/:id", updateFinanceCatalogEntry);
 router.patch("/catalogos/:id/status", updateFinanceCatalogEntryStatus);
+router.get("/personal", listFinanzasPersonal);
+router.post("/personal", createFinanzasPersonal);
+router.put("/personal/:id", updateFinanzasPersonal);
+router.put("/personal/:id/status", updateFinanzasPersonalStatus);
+router.put("/personal/:id/reset-password", resetFinanzasPersonalPassword);
 router.get("/requisiciones/:id", getFinanzasDetalle);
 router.post("/requisiciones/:id/resolver", resolveFinanzasRevision);
 

@@ -10,6 +10,9 @@ const parseUserId = (value) => {
   return Number.isInteger(n) && n > 0 ? n : 0;
 };
 
+const isFinanceRole = (role) =>
+  ["finanzas", "finanzas_admin", "finanzas_analista", "finanzas_lector"].includes(String(role || ""));
+
 const buildLegacyMilestones = async (requisitionId) => {
   const [[reqRow]] = await pool.query(
     `
@@ -122,7 +125,7 @@ router.get("/timeline/requisiciones/:id", async (req, res) => {
       allowed = true;
     } else if (role === "compras_operador") {
       allowed = Number(requisition.assigned_operator_id || 0) === authUserId;
-    } else if (role === "finanzas") {
+    } else if (isFinanceRole(role)) {
       allowed = true;
     }
 

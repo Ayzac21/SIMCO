@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Archive, Banknote, LayoutDashboard, LayoutGrid, Menu, Settings, X } from "lucide-react";
+import {
+  Archive,
+  Banknote,
+  ChevronDown,
+  ClipboardList,
+  LayoutDashboard,
+  LayoutGrid,
+  Menu,
+  Users,
+  X,
+} from "lucide-react";
 import NotificationBell from "../../../components/NotificationBell";
 import UserMenu from "../../../components/UserMenu";
 import escudoCualtos from "../../../assets/escudo-cualtos-02_0_1.png";
@@ -15,6 +25,9 @@ export default function FinanzasLayout() {
   const userName = user ? user.name || user.user_name || "Finanzas" : "Finanzas";
   const userInitial = (userName?.[0] || "F").toUpperCase();
   const userUnitLabel = user?.ure_name || user?.ure || "Coordinación de Finanzas";
+  const isFinanceAdmin = ["finanzas", "finanzas_admin"].includes(user?.role);
+  const adminSectionActive = pathname.startsWith("/finanzas/catalogos") || pathname.startsWith("/finanzas/personal");
+  const [adminOpen, setAdminOpen] = useState(adminSectionActive);
 
   const headerInfo = useMemo(() => {
     if (pathname.startsWith("/finanzas/dashboard")) {
@@ -41,6 +54,12 @@ export default function FinanzasLayout() {
         subtitle: "Proyectos, fondos y programas estratégicos",
       };
     }
+    if (pathname.startsWith("/finanzas/personal")) {
+      return {
+        title: "Personal de Finanzas",
+        subtitle: "Administración de usuarios del área",
+      };
+    }
     return {
       title: "Revisión presupuestal",
       subtitle: "Requisiciones enviadas por Compras para proyecto, fondo y programa",
@@ -50,6 +69,10 @@ export default function FinanzasLayout() {
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (adminSectionActive) setAdminOpen(true);
+  }, [adminSectionActive]);
 
   useEffect(() => {
     if (!open) return;
@@ -64,6 +87,8 @@ export default function FinanzasLayout() {
     `flex items-center gap-2 rounded px-4 py-2 transition ${
       isActive ? "bg-white text-secundario font-semibold shadow-sm" : "text-white hover:bg-white/20"
     }`;
+  const sectionButtonClass =
+    "flex w-full items-center justify-between rounded px-4 py-2 font-semibold text-white transition hover:bg-white/20";
 
   const handleLogout = () => {
     localStorage.clear();
@@ -104,13 +129,37 @@ export default function FinanzasLayout() {
             <LayoutGrid size={20} />
             Recibidas
           </NavLink>
+          {isFinanceAdmin && (
+            <>
+              <button
+                type="button"
+                onClick={() => setAdminOpen((value) => !value)}
+                className={sectionButtonClass}
+                aria-expanded={adminOpen}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Users size={18} />
+                  Administración
+                </span>
+                <ChevronDown size={16} className={`transition-transform ${adminOpen ? "rotate-180" : ""}`} />
+              </button>
+              {adminOpen && (
+                <div className="ml-3 space-y-1 border-l border-white/25 pl-2">
+                  <NavLink to="/finanzas/catalogos" className={linkClass}>
+                    <ClipboardList size={18} />
+                    Catálogos
+                  </NavLink>
+                  <NavLink to="/finanzas/personal" className={linkClass}>
+                    <Users size={18} />
+                    Personal
+                  </NavLink>
+                </div>
+              )}
+            </>
+          )}
           <NavLink to="/finanzas/historial" className={linkClass}>
             <Archive size={20} />
             Historial
-          </NavLink>
-          <NavLink to="/finanzas/catalogos" className={linkClass}>
-            <Settings size={20} />
-            Catálogos
           </NavLink>
           <div className="rounded-xl border border-white/15 bg-white/10 p-4 text-xs leading-relaxed text-white/80">
             <div className="mb-2 flex items-center gap-2 font-bold text-white">

@@ -24,7 +24,7 @@ export default function Login() {
         const role = String(baseUser?.role || "");
 
         if (role.startsWith("compras_")) return "/compras/dashboard";
-        if (role === "finanzas") return "/finanzas/recibidas";
+        if (role === "finanzas" || role.startsWith("finanzas_")) return "/finanzas/dashboard";
         if (role === "secretaria") return "/secretaria/dashboard";
         if (role === "coordinador") return "/coordinador/dashboard";
         if (role === "head_office") return "/unidad/dashboard";

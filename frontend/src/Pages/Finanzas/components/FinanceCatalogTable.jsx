@@ -1,4 +1,4 @@
-import { Edit3, Power, Search } from "lucide-react";
+import { AlertTriangle, Edit3, Power, Search } from "lucide-react";
 
 const money = (value) => {
   const n = Number(value);
@@ -10,16 +10,25 @@ export default function FinanceCatalogTable({
   rows,
   loading,
   query,
+  statusFilter,
+  yearFilter,
+  fiscalYearOptions,
+  totalRows,
   onQueryChange,
+  onStatusFilterChange,
+  onYearFilterChange,
   onEdit,
   onToggleStatus,
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-gray-100 px-4 py-4 md:flex-row md:items-center md:justify-between">
+      <div className="border-b border-gray-100 px-4 py-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h3 className="font-extrabold text-gray-900">Registros</h3>
-          <p className="text-xs text-gray-500">Administra las opciones que verá Finanzas al revisar requisiciones.</p>
+          <p className="text-xs text-gray-500">
+            Administra las opciones que verá Finanzas al revisar requisiciones.
+          </p>
         </div>
         <div className="relative w-full md:w-80">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -30,14 +39,62 @@ export default function FinanceCatalogTable({
             placeholder="Buscar por nombre, clave o descripción"
           />
         </div>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="inline-grid grid-cols-3 rounded-xl border border-gray-200 bg-gray-50 p-1">
+            {[
+              { key: "all", label: "Todos" },
+              { key: "active", label: "Activos" },
+              { key: "inactive", label: "Inactivos" },
+            ].map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => onStatusFilterChange(item.key)}
+                className={`rounded-lg px-3 py-2 text-xs font-extrabold transition ${
+                  statusFilter === item.key
+                    ? "bg-white text-[#8B1D35] shadow-sm ring-1 ring-gray-200"
+                    : "text-gray-500 hover:text-gray-800"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <select
+              value={yearFilter}
+              onChange={(event) => onYearFilterChange(event.target.value)}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-700 outline-none focus:border-[#8B1D35]"
+            >
+              <option value="all">Todos los ejercicios</option>
+              {fiscalYearOptions.map((year) => (
+                <option key={year} value={year}>
+                  Ejercicio {year}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs font-semibold text-gray-400">
+              Mostrando {rows.length} de {totalRows}
+            </span>
+          </div>
+        </div>
       </div>
 
       {loading ? (
         <div className="px-4 py-12 text-center text-sm text-gray-500">Cargando catálogo...</div>
       ) : rows.length === 0 ? (
         <div className="px-4 py-12 text-center">
-          <p className="text-sm font-bold text-gray-700">Sin registros</p>
-          <p className="mt-1 text-xs text-gray-500">Crea el primer registro para usarlo en revisión financiera.</p>
+          <p className="text-sm font-bold text-gray-700">
+            {totalRows > 0 ? "Sin resultados con los filtros actuales" : "Sin registros"}
+          </p>
+          <p className="mt-1 text-xs text-gray-500">
+            {totalRows > 0
+              ? "Ajusta búsqueda, estatus o ejercicio para ver más registros."
+              : "Crea el primer registro para usarlo en revisión financiera."}
+          </p>
         </div>
       ) : (
         <div className="divide-y divide-gray-100">
@@ -61,6 +118,12 @@ export default function FinanceCatalogTable({
                 <p className="mt-1 text-xs text-gray-500">
                   {row.code || "Sin clave"} {row.description ? `· ${row.description}` : ""}
                 </p>
+                {Number(row.usage_count || 0) > 0 && (
+                  <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-800">
+                    <AlertTriangle size={12} />
+                    Usado en historial; desactivar solo bloquea nuevas revisiones
+                  </div>
+                )}
               </div>
               <div className="text-xs font-semibold text-gray-600">Ejercicio: {row.fiscal_year || "—"}</div>
               <div>
