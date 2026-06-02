@@ -87,7 +87,9 @@ export default function FinanzasHistorial() {
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
+  const [yearFilter, setYearFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState("all");
+  const [periodInitialized, setPeriodInitialized] = useState(false);
   const [projectFilter, setProjectFilter] = useState("all");
   const [fundFilter, setFundFilter] = useState("all");
   const [programFilter, setProgramFilter] = useState("all");
@@ -150,11 +152,6 @@ export default function FinanzasHistorial() {
     [rows]
   );
 
-  const totalReviewed = useMemo(
-    () => rows.reduce((acc, row) => acc + Number(row.selected_total || 0), 0),
-    [rows]
-  );
-
   const uniqueOptions = useCallback((field) =>
     [...new Set(rows.map((row) => String(row?.[field] || "").trim()).filter(Boolean))].sort((a, b) =>
       a.localeCompare(b, "es")
@@ -189,6 +186,36 @@ export default function FinanzasHistorial() {
     return [...months.entries()].sort(([a], [b]) => b.localeCompare(a));
   }, [rows]);
 
+  const availableYears = useMemo(() => {
+    const years = rows
+      .map((row) => {
+        const date = new Date(row.reviewed_at);
+        return Number.isNaN(date.getTime()) ? "" : String(date.getFullYear());
+      })
+      .filter(Boolean);
+    return [...new Set(years)].sort((a, b) => b.localeCompare(a));
+  }, [rows]);
+
+  const latestMonthKey = availableMonths[0]?.[0] || "all";
+  const latestYearKey = latestMonthKey !== "all" ? latestMonthKey.slice(0, 4) : availableYears[0] || "all";
+  const monthsForSelectedYear = useMemo(() => {
+    if (yearFilter === "all") return availableMonths;
+    return availableMonths.filter(([key]) => key.startsWith(`${yearFilter}-`));
+  }, [availableMonths, yearFilter]);
+  const activePeriodLabel =
+    yearFilter === "all"
+      ? "Todo el historial"
+      : monthFilter === "all"
+        ? `Ejercicio ${yearFilter}`
+        : availableMonths.find(([key]) => key === monthFilter)?.[1] || `Ejercicio ${yearFilter}`;
+
+  useEffect(() => {
+    if (periodInitialized || !latestMonthKey || latestMonthKey === "all") return;
+    setYearFilter(latestYearKey);
+    setMonthFilter(latestMonthKey);
+    setPeriodInitialized(true);
+  }, [latestMonthKey, latestYearKey, periodInitialized]);
+
   const filteredRows = useMemo(() => {
     const needle = String(query || "").trim().toLowerCase();
     const result = rows.filter((row) => {
@@ -197,6 +224,11 @@ export default function FinanzasHistorial() {
       if (fundFilter !== "all" && String(row.fund || "").trim() !== fundFilter) return false;
       if (programFilter !== "all" && String(row.strategic_program || "").trim() !== programFilter) return false;
       if (onlyWithObservation && !String(row.finance_observation || "").trim()) return false;
+      if (yearFilter !== "all") {
+        const date = new Date(row.reviewed_at);
+        const year = Number.isNaN(date.getTime()) ? "" : String(date.getFullYear());
+        if (year !== yearFilter) return false;
+      }
       if (monthFilter !== "all") {
         const date = new Date(row.reviewed_at);
         const key = Number.isNaN(date.getTime())
@@ -230,7 +262,7 @@ export default function FinanzasHistorial() {
     });
 
     return result;
-  }, [rows, query, filter, monthFilter, projectFilter, fundFilter, programFilter, onlyWithObservation, sortBy]);
+  }, [rows, query, filter, yearFilter, monthFilter, projectFilter, fundFilter, programFilter, onlyWithObservation, sortBy]);
 
   const filteredSummary = useMemo(
     () => ({
@@ -245,7 +277,7 @@ export default function FinanzasHistorial() {
 
   useEffect(() => {
     setPage(1);
-  }, [query, filter, monthFilter, projectFilter, fundFilter, programFilter, onlyWithObservation, sortBy, pageSize]);
+  }, [query, filter, yearFilter, monthFilter, projectFilter, fundFilter, programFilter, onlyWithObservation, sortBy, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -266,7 +298,8 @@ export default function FinanzasHistorial() {
   const resetFilters = () => {
     setQuery("");
     setFilter("all");
-    setMonthFilter("all");
+    setYearFilter(latestYearKey || "all");
+    setMonthFilter(latestMonthKey || "all");
     setProjectFilter("all");
     setFundFilter("all");
     setProgramFilter("all");
@@ -281,6 +314,7 @@ export default function FinanzasHistorial() {
     try {
       const params = new URLSearchParams({
         result: filter,
+        year: yearFilter,
         month: monthFilter,
         project: projectFilter,
         fund: fundFilter,
@@ -361,111 +395,121 @@ export default function FinanzasHistorial() {
         </div>
       </div>
 
-      <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Revisadas</p>
-          <p className="mt-1 text-3xl font-extrabold text-gray-900">{counts.total}</p>
-        </div>
-        <div className="rounded-xl border border-emerald-100 bg-white p-5 shadow-sm">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-600">Aprobadas</p>
-          <p className="mt-1 text-3xl font-extrabold text-gray-900">{counts.aprobada}</p>
-        </div>
-        <div className="rounded-xl border border-amber-100 bg-white p-5 shadow-sm">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-amber-600">Devueltas</p>
-          <p className="mt-1 text-3xl font-extrabold text-gray-900">{counts.devuelta}</p>
-        </div>
-        <div className="rounded-xl border border-[#8B1D35]/20 bg-[#fff8f8] p-5 shadow-sm">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Monto revisado</p>
-          <p className="mt-1 text-3xl font-extrabold text-[#8B1D35]">{money(totalReviewed)}</p>
-        </div>
-      </div>
-
-      <div className="mb-5">
-        <div className="rounded-xl border border-[#8B1D35]/10 bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wide text-[#8B1D35]">Resultado filtrado</p>
-              <h3 className="mt-1 text-xl font-extrabold text-gray-900">
-                {filteredSummary.count} revisión(es) · {money(filteredSummary.amount)}
-              </h3>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setShowDistribution((value) => !value)}
-                className="w-fit rounded-lg border border-[#8B1D35]/20 bg-[#8B1D35]/5 px-3 py-2 text-xs font-bold text-[#8B1D35] hover:bg-[#8B1D35]/10"
-              >
-                {showDistribution ? "Ocultar distribución" : "Ver distribución"}
-              </button>
-              <button
-                type="button"
-                onClick={resetFilters}
-                className="w-fit rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
-              >
-                Limpiar filtros
-              </button>
-            </div>
-          </div>
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-[10px] font-bold uppercase text-emerald-700">Aprobadas</p>
-                <p className="text-lg font-extrabold text-gray-900">{filteredSummary.approved}</p>
-              </div>
-            </div>
-            <div className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-[10px] font-bold uppercase text-amber-700">Devueltas</p>
-                <p className="text-lg font-extrabold text-gray-900">{filteredSummary.returned}</p>
-              </div>
-            </div>
-            <div className="rounded-lg border border-red-100 bg-red-50 px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-[10px] font-bold uppercase text-red-700">Rechazadas</p>
-                <p className="text-lg font-extrabold text-gray-900">{filteredSummary.rejected}</p>
-              </div>
-            </div>
-          </div>
-          {showDistribution && (
-            <div className="mt-4 border-t border-gray-100 pt-4">
-              <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-                {summaryGroups.map((group) => (
-                  <div key={group.title} className="min-w-0">
-                    <p className="mb-2 text-[10px] font-extrabold uppercase tracking-wide text-gray-400">
-                      {group.title}
-                    </p>
-                    <div className="space-y-1.5">
-                      {group.items.length === 0 ? (
-                        <p className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
-                          {group.empty}
-                        </p>
-                      ) : (
-                        group.items.map((item) => (
-                          <div
-                            key={`${group.title}-${item.label}`}
-                            className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
-                          >
-                            <div className="min-w-0">
-                              <p className="truncate text-xs font-bold text-gray-800">{item.label}</p>
-                              <p className="text-[10px] font-semibold text-gray-400">{item.count} revisión(es)</p>
-                            </div>
-                            <span className="shrink-0 text-xs font-extrabold text-[#8B1D35]">
-                              {money(item.amount)}
-                            </span>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-      </div>
-
       <div className="mb-3 flex flex-col gap-3">
+        <div className="flex flex-col gap-3 rounded-xl border border-gray-100 bg-white px-4 py-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Periodo de consulta</p>
+            <p className="mt-0.5 text-sm font-extrabold text-gray-900">{activePeriodLabel}</p>
+            <p className="mt-1 text-xs font-semibold text-gray-500">
+              {filteredSummary.count} revisión(es) · {money(filteredSummary.amount)}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={yearFilter}
+              onChange={(event) => {
+                setYearFilter(event.target.value);
+                setMonthFilter("all");
+              }}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-700 outline-none focus:border-[#8B1D35]"
+            >
+              <option value="all">Todos los años</option>
+              {availableYears.map((year) => (
+                <option key={year} value={year}>
+                  Año {year}
+                </option>
+              ))}
+            </select>
+            <select
+              value={monthFilter}
+              onChange={(event) => {
+                const nextMonth = event.target.value;
+                setMonthFilter(nextMonth);
+                if (nextMonth !== "all") setYearFilter(nextMonth.slice(0, 4));
+              }}
+              disabled={yearFilter === "all"}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-700 outline-none focus:border-[#8B1D35] disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"
+            >
+              <option value="all">{yearFilter === "all" ? "Selecciona un año" : "Todo el año"}</option>
+              {monthsForSelectedYear.map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => setShowDistribution((value) => !value)}
+              className="rounded-lg border border-[#8B1D35]/20 bg-[#8B1D35]/5 px-3 py-2 text-xs font-bold text-[#8B1D35] hover:bg-[#8B1D35]/10"
+            >
+              {showDistribution ? "Ocultar distribución" : "Ver distribución"}
+            </button>
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
+            >
+              Limpiar filtros
+            </button>
+          </div>
+        </div>
+
+        {showDistribution && (
+          <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+            <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[10px] font-bold uppercase text-emerald-700">Aprobadas</p>
+                  <p className="text-lg font-extrabold text-gray-900">{filteredSummary.approved}</p>
+                </div>
+              </div>
+              <div className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[10px] font-bold uppercase text-amber-700">Devueltas</p>
+                  <p className="text-lg font-extrabold text-gray-900">{filteredSummary.returned}</p>
+                </div>
+              </div>
+              <div className="rounded-lg border border-red-100 bg-red-50 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[10px] font-bold uppercase text-red-700">Rechazadas</p>
+                  <p className="text-lg font-extrabold text-gray-900">{filteredSummary.rejected}</p>
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+              {summaryGroups.map((group) => (
+                <div key={group.title} className="min-w-0">
+                  <p className="mb-2 text-[10px] font-extrabold uppercase tracking-wide text-gray-400">
+                    {group.title}
+                  </p>
+                  <div className="space-y-1.5">
+                    {group.items.length === 0 ? (
+                      <p className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                        {group.empty}
+                      </p>
+                    ) : (
+                      group.items.map((item) => (
+                        <div
+                          key={`${group.title}-${item.label}`}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-bold text-gray-800">{item.label}</p>
+                            <p className="text-[10px] font-semibold text-gray-400">{item.count} revisión(es)</p>
+                          </div>
+                          <span className="shrink-0 text-xs font-extrabold text-[#8B1D35]">
+                            {money(item.amount)}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-2">
           {[
             ["all", `Todas (${counts.total})`],
@@ -497,18 +541,6 @@ export default function FinanzasHistorial() {
               placeholder="Buscar por #, proyecto, fondo, solicitante..."
             />
           </div>
-          <select
-            value={monthFilter}
-            onChange={(event) => setMonthFilter(event.target.value)}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 outline-none focus:border-[#8B1D35]"
-          >
-            <option value="all">Todos los meses</option>
-            {availableMonths.map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
           <select
             value={projectFilter}
             onChange={(event) => setProjectFilter(event.target.value)}

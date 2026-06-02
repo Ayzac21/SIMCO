@@ -205,6 +205,7 @@ const getFinanzasHistorialRows = async () => {
 const filterFinanzasHistorialRows = (rows, filters = {}) => {
   const needle = cleanText(filters.query).toLowerCase();
   const resultFilter = cleanText(filters.result || "all");
+  const yearFilter = cleanText(filters.year || "all");
   const monthFilter = cleanText(filters.month || "all");
   const projectFilter = cleanText(filters.project || "all");
   const fundFilter = cleanText(filters.fund || "all");
@@ -218,6 +219,11 @@ const filterFinanzasHistorialRows = (rows, filters = {}) => {
     if (fundFilter !== "all" && cleanText(row.fund) !== fundFilter) return false;
     if (programFilter !== "all" && cleanText(row.strategic_program) !== programFilter) return false;
     if (onlyWithObservation && !cleanText(row.finance_observation)) return false;
+    if (yearFilter !== "all") {
+      const date = new Date(row.reviewed_at);
+      const year = Number.isNaN(date.getTime()) ? "" : String(date.getFullYear());
+      if (year !== yearFilter) return false;
+    }
     if (monthFilter !== "all") {
       const date = new Date(row.reviewed_at);
       const key = Number.isNaN(date.getTime())
