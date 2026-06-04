@@ -191,8 +191,22 @@ export default function App() {
           <Route path="dashboard" element={<FinanzasDashboard />} />
           <Route path="recibidas" element={<FinanzasRecibidas />} />
           <Route path="historial" element={<FinanzasHistorial />} />
-          <Route path="catalogos" element={<FinanzasCatalogos />} />
-          <Route path="personal" element={<FinanzasPersonal />} />
+          <Route
+            path="catalogos"
+            element={
+              <ProtectedRoute allowedRoles={["finanzas", "finanzas_admin"]}>
+                <FinanzasCatalogos />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="personal"
+            element={
+              <ProtectedRoute allowedRoles={["finanzas", "finanzas_admin"]}>
+                <FinanzasPersonal />
+              </ProtectedRoute>
+            }
+          />
           <Route path="requisiciones/:id" element={<FinanzasDetalle />} />
         </Route>
       </Routes>

@@ -10,6 +10,7 @@ import {
   getCoordinatorUsersForRequisition,
   getSecretariaUsersForRequisition,
   getUsersByRole,
+  getUsersByRolePrefix,
 } from "../services/notifications.js";
 import {
   getRequisitionStatusTimeline,
@@ -1360,7 +1361,7 @@ export const updateEstatusCompras = async (req, res) => {
     }
 
     if (targetStatusId === STATUS_FINANZAS) {
-      const finanzasIds = await getUsersByRole("finanzas");
+      const finanzasIds = await getUsersByRolePrefix("finanzas");
       await createNotificationsForUsers(finanzasIds, {
         actorUserId: actorId,
         title: "Nueva requisición en Finanzas",

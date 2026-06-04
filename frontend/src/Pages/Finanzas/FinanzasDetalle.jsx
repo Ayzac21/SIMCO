@@ -50,7 +50,7 @@ const emptyForm = {
   project: "",
   fund: "",
   strategic_program: "",
-  budget_available: true,
+  budget_available: null,
   comment: "",
 };
 
@@ -178,7 +178,10 @@ export default function FinanzasDetalle() {
           project: req?.project || "",
           fund: req?.fund || "",
           strategic_program: req?.strategic_program || "",
-          budget_available: Boolean(req?.budget_available ?? true),
+          budget_available:
+            req?.budget_available === null || req?.budget_available === undefined
+              ? null
+              : Boolean(req.budget_available),
           comment: req?.finance_observation || "",
         });
       } catch (error) {
@@ -809,7 +812,7 @@ export default function FinanzasDetalle() {
                   onClick={() => updateField("budget_available", true)}
                   disabled={!canReview}
                   className={`inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-extrabold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                    form.budget_available
+                    form.budget_available === true
                       ? "bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-200"
                       : "text-gray-500 hover:bg-white"
                   }`}
@@ -822,7 +825,7 @@ export default function FinanzasDetalle() {
                   onClick={() => updateField("budget_available", false)}
                   disabled={!canReview}
                   className={`inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-extrabold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                    !form.budget_available
+                    form.budget_available === false
                       ? "bg-white text-red-700 shadow-sm ring-1 ring-red-200"
                       : "text-gray-500 hover:bg-white"
                   }`}
