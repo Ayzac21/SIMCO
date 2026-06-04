@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
-  Banknote,
   FileText,
+  Filter,
   RefreshCw,
   Search,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { API_BASE_URL } from "../../api/config";
@@ -42,6 +43,9 @@ export default function FinanzasRecibidas() {
   const [query, setQuery] = useState("");
   const [ageFilter, setAgeFilter] = useState("all");
   const [sortBy, setSortBy] = useState("oldest");
+  const [ureFilter, setUreFilter] = useState("all");
+  const [minAmount, setMinAmount] = useState("");
+  const [maxAmount, setMaxAmount] = useState("");
 
   const loadRows = async ({ silent = false } = {}) => {
     try {
@@ -70,12 +74,30 @@ export default function FinanzasRecibidas() {
 
   const filteredRows = useMemo(() => {
     const needle = String(query || "").trim().toLowerCase();
+    const min = Number(minAmount);
+    const max = Number(maxAmount);
+    const hasMin = Number.isFinite(min) && min > 0;
+    const hasMax = Number.isFinite(max) && max > 0;
     const result = rows.filter((row) => {
       const days = getAgeDays(row);
+      const amount = Number(row.selected_total || 0);
       if (ageFilter === "priority" && days < 3) return false;
       if (ageFilter === "today" && days > 0) return false;
+      if (ureFilter !== "all" && String(row.solicitante_ure || "") !== ureFilter) return false;
+      if (hasMin && amount < min) return false;
+      if (hasMax && amount > max) return false;
       if (!needle) return true;
-      return [row.id, row.folio, row.area_folio, row.request_name, row.solicitante, row.solicitante_ure]
+      return [
+        row.id,
+        row.folio,
+        row.area_folio,
+        row.request_name,
+        row.solicitante,
+        row.solicitante_ure,
+        row.project,
+        row.fund,
+        row.strategic_program,
+      ]
         .map((value) => String(value || "").toLowerCase())
         .some((value) => value.includes(needle));
     });
@@ -90,14 +112,33 @@ export default function FinanzasRecibidas() {
     });
 
     return result;
-  }, [rows, query, ageFilter, sortBy]);
+  }, [rows, query, ageFilter, sortBy, ureFilter, minAmount, maxAmount]);
 
-  const totalVisible = useMemo(
+  const totalPending = useMemo(
     () => rows.reduce((acc, row) => acc + Number(row.selected_total || 0), 0),
     [rows]
   );
+  const totalFiltered = useMemo(
+    () => filteredRows.reduce((acc, row) => acc + Number(row.selected_total || 0), 0),
+    [filteredRows]
+  );
 
   const priorityRows = useMemo(() => rows.filter((row) => getAgeDays(row) >= 3), [rows]);
+  const ureOptions = useMemo(() => {
+    const values = [...new Set(rows.map((row) => String(row.solicitante_ure || "").trim()).filter(Boolean))];
+    return values.sort((a, b) => a.localeCompare(b, "es"));
+  }, [rows]);
+  const hasAdvancedFilters =
+    ureFilter !== "all" || String(minAmount || "").trim() || String(maxAmount || "").trim();
+  const hasAnyFilter = hasAdvancedFilters || ageFilter !== "all" || String(query || "").trim();
+  const clearFilters = () => {
+    setQuery("");
+    setAgeFilter("all");
+    setUreFilter("all");
+    setMinAmount("");
+    setMaxAmount("");
+    setSortBy("oldest");
+  };
 
   return (
     <section className="text-gray-900">
@@ -112,8 +153,13 @@ export default function FinanzasRecibidas() {
               Pendientes: {rows.length}
             </span>
             <span className="rounded-lg border border-[#8B1D35]/15 bg-[#8B1D35]/5 px-3 py-2 text-[#8B1D35]">
-              Monto: {money(totalVisible)}
+              Monto: {money(totalPending)}
             </span>
+            {hasAnyFilter && (
+              <span className="rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-sky-700">
+                Filtrado: {filteredRows.length} / {money(totalFiltered)}
+              </span>
+            )}
             {priorityRows.length > 0 && (
               <span className="inline-flex items-center gap-1 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-red-600">
                 <AlertTriangle size={13} />
@@ -169,6 +215,16 @@ export default function FinanzasRecibidas() {
                 {label}
               </button>
             ))}
+            {hasAnyFilter && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
+              >
+                <X size={13} />
+                Limpiar filtros
+              </button>
+            )}
             <select
               value={sortBy}
               onChange={(event) => setSortBy(event.target.value)}
@@ -179,6 +235,52 @@ export default function FinanzasRecibidas() {
               <option value="amount_desc">Monto mayor</option>
               <option value="amount_asc">Monto menor</option>
             </select>
+          </div>
+
+          <div className="mb-3 grid gap-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm sm:grid-cols-2 lg:grid-cols-[minmax(180px,1fr)_140px_140px_auto] lg:items-end">
+            <label className="block text-xs font-bold uppercase text-gray-600">
+              URE
+              <select
+                value={ureFilter}
+                onChange={(event) => setUreFilter(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm normal-case text-gray-800 outline-none focus:border-[#8B1D35]"
+              >
+                <option value="all">Todas las URE</option>
+                {ureOptions.map((ure) => (
+                  <option key={ure} value={ure}>
+                    {ure}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs font-bold uppercase text-gray-600">
+              Monto mínimo
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={minAmount}
+                onChange={(event) => setMinAmount(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm normal-case text-gray-800 outline-none focus:border-[#8B1D35]"
+                placeholder="0.00"
+              />
+            </label>
+            <label className="block text-xs font-bold uppercase text-gray-600">
+              Monto máximo
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={maxAmount}
+                onChange={(event) => setMaxAmount(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm normal-case text-gray-800 outline-none focus:border-[#8B1D35]"
+                placeholder="0.00"
+              />
+            </label>
+            <div className="inline-flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs font-bold text-gray-500">
+              <Filter size={14} className="text-[#8B1D35]" />
+              {hasAdvancedFilters ? "Filtros activos" : "Sin filtros avanzados"}
+            </div>
           </div>
 
           <div className="relative overflow-hidden rounded-xl border border-[#8B1D35]/15 bg-white shadow-sm">

@@ -14,6 +14,12 @@ const isActionableForStatus = (actionPath, statusId) => {
   const st = Number(statusId || 0);
   if (!path || !Number.isFinite(st)) return true;
 
+  // Las notificaciones con detalle explícito son avisos de seguimiento; no se
+  // autoleen solo porque el flujo ya avanzó.
+  if (path.includes("openReq=")) {
+    return true;
+  }
+
   // Ajustes para URE: solo si sigue en borrador.
   if (path.startsWith("/unidad/requisiciones/editar/")) {
     return st === 7;
@@ -32,7 +38,10 @@ const isActionableForStatus = (actionPath, statusId) => {
     return st === 9;
   }
   if (path.startsWith("/compras/dashboard")) {
-    return [12, 13, 14].includes(st);
+    return [12, 13, 14, 16].includes(st);
+  }
+  if (path.startsWith("/finanzas/recibidas")) {
+    return st === 15;
   }
   if (path.startsWith("/compras/revision/")) {
     return st === 14;
